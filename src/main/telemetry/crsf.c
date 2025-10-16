@@ -959,6 +959,16 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType)
         crsfFrameGps(sbuf);
         break;
 #endif
+#if defined(USE_VARIO)
+    case CRSF_FRAMETYPE_VARIO_SENSOR:
+        crsfFrameVarioSensor(sbuf);
+        break;
+#endif
+#if defined(USE_BARO)
+    case CRSF_FRAMETYPE_BARO_ALTITUDE:
+        crsfFrameAltitude(sbuf);
+        break;
+#endif
 #if defined(USE_MSP_OVER_TELEMETRY)
     case CRSF_FRAMETYPE_DEVICE_INFO:
         crsfFrameDeviceInfo(sbuf);

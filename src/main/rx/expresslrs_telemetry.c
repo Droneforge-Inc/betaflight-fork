@@ -57,11 +57,14 @@ typedef enum {
 #endif
     CRSF_FRAME_ATTITUDE_INDEX,
     CRSF_FRAME_FLIGHT_MODE_INDEX,
-#if defined(USE_VARIO)
-    CRSF_FRAME_VARIO_SENSOR_INDEX,
-#endif
+// #if defined(USE_VARIO)
+//     CRSF_FRAME_VARIO_SENSOR_INDEX,
+// #endif
 #if defined(USE_BARO)
     CRSF_FRAME_BARO_ALTITUDE_INDEX,
+#endif
+#if defined(USE_RANGEFINDER_TF)
+    CRSF_FRAME_RANGEFINDER_TF_INDEX,
 #endif
     CRSF_FRAME_PAYLOAD_TYPES_COUNT //should be last
 } frameTypeIndex_e;
@@ -73,11 +76,14 @@ static crsfFrameType_e payloadTypes[] = {
     CRSF_FRAMETYPE_BATTERY_SENSOR,
     CRSF_FRAMETYPE_ATTITUDE,
     CRSF_FRAMETYPE_FLIGHT_MODE,
-#if defined(USE_VARIO)
-    CRSF_FRAMETYPE_VARIO_SENSOR,
-#endif
+// #if defined(USE_VARIO)
+//     CRSF_FRAMETYPE_VARIO_SENSOR,
+// #endif
 #if defined(USE_BARO)
     CRSF_FRAMETYPE_BARO_ALTITUDE,
+#endif
+#if defined(USE_RANGEFINDER_TF)
+    CRSF_FRAMETYPE_RANGEFINDER_TF,
 #endif
 };
 

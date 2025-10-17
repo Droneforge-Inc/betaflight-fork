@@ -66,6 +66,7 @@
 #include "sensors/battery.h"
 #include "sensors/sensors.h"
 #include "sensors/barometer.h"
+#include "sensors/rangefinder.h"
 
 #include "telemetry/telemetry.h"
 #include "telemetry/msp_shared.h"
@@ -687,6 +688,22 @@ static void crsfFrameDisplayPortClear(sbuf_t *dst)
 
 #endif
 
+#ifdef USE_RANGEFINDER_TF
+// pack rangefinder data
+static void crsfFrameRangefinderTF(sbuf_t *dst)
+{
+    // use sbufWrite since CRC does not include frame length
+    sbufWriteU8(dst, CRSF_FRAME_RANGEFINDER_TF_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, CRSF_FRAMETYPE_RANGEFINDER_TF);
+
+    const int32_t distance = rangefinderGetLatestRawAltitude();
+    const uint16_t strength = rangefinderGetLatestStrength();
+
+    sbufWriteU16BigEndian(dst, (distance > 0) ? constrain(distance, 0, 65535) : 0);
+    sbufWriteU16BigEndian(dst, strength);
+}
+#endif
+
 // schedule array to decide how often each type of frame is sent
 typedef enum {
     CRSF_FRAME_START_INDEX = 0,
@@ -697,6 +714,7 @@ typedef enum {
     CRSF_FRAME_GPS_INDEX,
     CRSF_FRAME_VARIO_SENSOR_INDEX,
     CRSF_FRAME_HEARTBEAT_INDEX,
+    CRSF_FRAME_RANGEFINDER_TF_INDEX,
     CRSF_SCHEDULE_COUNT_MAX
 } crsfFrameTypeIndex_e;
 
@@ -789,6 +807,14 @@ static void processCrsf(void)
     }
 #endif
 
+#ifdef USE_RANGEFINDER_TF
+    if (currentSchedule & BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX)) {
+        crsfInitializeFrame(dst);
+        crsfFrameRangefinderTF(dst);
+        crsfFinalize(dst);
+    }
+#endif
+
     crsfScheduleIndex = (crsfScheduleIndex + 1) % crsfScheduleCount;
 }
 
@@ -863,6 +889,12 @@ void initCrsfTelemetry(void)
     while (index < (CRSF_CYCLETIME_US / CRSF_TELEMETRY_FRAME_INTERVAL_MAX_US) && index < CRSF_SCHEDULE_COUNT_MAX) {
         // schedule heartbeat to ensure that telemetry/heartbeat frames are sent at minimum 50Hz
         crsfSchedule[index++] = BIT(CRSF_FRAME_HEARTBEAT_INDEX);
+    }
+#endif
+
+#if defined(USE_RANGEFINDER_TF)
+    if (sensors(SENSOR_SONAR) && telemetryIsSensorEnabled(SENSOR_LIDAR)) {
+        crsfSchedule[index++] = BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX);
     }
 #endif
 
@@ -1070,6 +1102,11 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType)
 #if defined(USE_MSP_OVER_TELEMETRY)
     case CRSF_FRAMETYPE_DEVICE_INFO:
         crsfFrameDeviceInfo(sbuf);
+        break;
+#endif
+#if defined(USE_RANGEFINDER_TF)
+    case CRSF_FRAMETYPE_RANGEFINDER_TF:
+        crsfFrameRangefinderTF(sbuf);
         break;
 #endif
     }

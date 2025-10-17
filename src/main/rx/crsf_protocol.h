@@ -59,6 +59,8 @@ typedef enum {
     CRSF_FRAMETYPE_MSP_RESP = 0x7B,  // reply with 58 byte chunked binary
     CRSF_FRAMETYPE_MSP_WRITE = 0x7C,  // write with 8 byte chunked binary (OpenTX outbound telemetry buffer limit)
     CRSF_FRAMETYPE_DISPLAYPORT_CMD = 0x7D, // displayport control command
+    // DF Custom frames
+    CRSF_FRAMETYPE_RANGEFINDER_TF = 0xD0, // rangefinder data
 } crsfFrameType_e;
 
 enum {
@@ -99,6 +101,7 @@ enum {
     CRSF_FRAME_RC_CHANNELS_PAYLOAD_SIZE = 22, // 11 bits per channel * 16 channels = 22 bytes.
     CRSF_FRAME_ATTITUDE_PAYLOAD_SIZE = 6,
     CRSF_FRAME_DEVICE_PING_PAYLOAD_SIZE = 2,
+    CRSF_FRAME_RANGEFINDER_TF_PAYLOAD_SIZE = 4,
 };
 
 enum {

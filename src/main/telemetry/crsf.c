@@ -67,6 +67,8 @@
 #include "sensors/sensors.h"
 #include "sensors/barometer.h"
 #include "sensors/rangefinder.h"
+#include "sensors/acceleration.h"
+#include "sensors/gyro.h"
 
 #include "telemetry/telemetry.h"
 #include "telemetry/msp_shared.h"
@@ -436,6 +438,28 @@ void crsfFrameAttitude(sbuf_t *dst)
      sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.yaw));
 }
 
+#if defined(USE_RAW_IMU)
+void crsfFrameRawImu(sbuf_t *dst)
+{
+    sbufWriteU8(dst, CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, CRSF_FRAMETYPE_RAW_IMU);
+
+    float gx = DEGREES_TO_RADIANS(gyroGetFilteredDownsampled(X));
+    float gy = DEGREES_TO_RADIANS(gyroGetFilteredDownsampled(Y));
+    float gz = DEGREES_TO_RADIANS(gyroGetFilteredDownsampled(Z));
+    float ax = acc.accADC[X] * acc.dev.acc_1G_rec;
+    float ay = acc.accADC[Y] * acc.dev.acc_1G_rec;
+    float az = acc.accADC[Z] * acc.dev.acc_1G_rec;
+
+    sbufWriteU16BigEndian(dst, (int16_t)(gx * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(gy * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(gz * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(ax * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(ay * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(az * 100));
+}
+#endif
+
 /*
 0x21 Flight mode text based
 Payload:
@@ -709,6 +733,7 @@ typedef enum {
     CRSF_FRAME_START_INDEX = 0,
     CRSF_FRAME_ATTITUDE_INDEX = CRSF_FRAME_START_INDEX,
     CRSF_FRAME_BARO_ALTITUDE_INDEX,
+    CRSF_FRAME_RAW_IMU_DATA_INDEX,
     CRSF_FRAME_BATTERY_SENSOR_INDEX,
     CRSF_FRAME_FLIGHT_MODE_INDEX,
     CRSF_FRAME_GPS_INDEX,
@@ -766,6 +791,13 @@ static void processCrsf(void)
         crsfFrameAttitude(dst);
         crsfFinalize(dst);
     }
+#if defined(USE_RAW_IMU)
+    if (currentSchedule & BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX)) {
+        crsfInitializeFrame(dst);
+        crsfFrameRawImu(dst);
+        crsfFinalize(dst);
+    }
+#endif
 #if defined(USE_BARO) && defined(USE_VARIO)
     // send barometric altitude
     if (currentSchedule & BIT(CRSF_FRAME_BARO_ALTITUDE_INDEX)) {
@@ -861,6 +893,11 @@ void initCrsfTelemetry(void)
     if (sensors(SENSOR_ACC) && telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_ATTITUDE_INDEX);
     }
+#if defined(USE_RAW_IMU)
+    if (sensors(SENSOR_ACC) && telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
+        crsfSchedule[index++] = BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX);
+    }
+#endif
 #if defined(USE_BARO) && defined(USE_VARIO)
     if (telemetryIsSensorEnabled(SENSOR_ALTITUDE)) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_BARO_ALTITUDE_INDEX);
@@ -1102,6 +1139,11 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType)
 #if defined(USE_MSP_OVER_TELEMETRY)
     case CRSF_FRAMETYPE_DEVICE_INFO:
         crsfFrameDeviceInfo(sbuf);
+        break;
+#endif
+#if defined(USE_RAW_IMU)
+    case CRSF_FRAMETYPE_RAW_IMU:
+        crsfFrameRawImu(sbuf);
         break;
 #endif
 #if defined(USE_RANGEFINDER_TF)

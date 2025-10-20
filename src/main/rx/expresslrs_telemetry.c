@@ -56,7 +56,10 @@ typedef enum {
     CRSF_FRAME_BATTERY_SENSOR_INDEX = 0,
 #endif
     CRSF_FRAME_ATTITUDE_INDEX,
-    CRSF_FRAME_FLIGHT_MODE_INDEX,
+#if defined(USE_RAW_IMU)
+    CRSF_FRAME_RAW_IMU_INDEX,
+#endif
+    // CRSF_FRAME_FLIGHT_MODE_INDEX,
 // #if defined(USE_VARIO)
 //     CRSF_FRAME_VARIO_SENSOR_INDEX,
 // #endif
@@ -75,7 +78,10 @@ static crsfFrameType_e payloadTypes[] = {
 #endif
     CRSF_FRAMETYPE_BATTERY_SENSOR,
     CRSF_FRAMETYPE_ATTITUDE,
-    CRSF_FRAMETYPE_FLIGHT_MODE,
+#if defined(USE_RAW_IMU)
+    CRSF_FRAMETYPE_RAW_IMU,
+#endif
+    // CRSF_FRAMETYPE_FLIGHT_MODE,
 // #if defined(USE_VARIO)
 //     CRSF_FRAMETYPE_VARIO_SENSOR,
 // #endif

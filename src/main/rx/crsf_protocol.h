@@ -61,6 +61,7 @@ typedef enum {
     CRSF_FRAMETYPE_DISPLAYPORT_CMD = 0x7D, // displayport control command
     // DF Custom frames
     CRSF_FRAMETYPE_RANGEFINDER_TF = 0xD0, // rangefinder data
+    CRSF_FRAMETYPE_RAW_IMU = 0xD1, // raw imu data
 } crsfFrameType_e;
 
 enum {
@@ -102,6 +103,7 @@ enum {
     CRSF_FRAME_ATTITUDE_PAYLOAD_SIZE = 6,
     CRSF_FRAME_DEVICE_PING_PAYLOAD_SIZE = 2,
     CRSF_FRAME_RANGEFINDER_TF_PAYLOAD_SIZE = 4,
+    CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE = 12,
 };
 
 enum {

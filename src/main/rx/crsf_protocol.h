@@ -62,6 +62,7 @@ typedef enum {
     // DF Custom frames
     CRSF_FRAMETYPE_RANGEFINDER_TF = 0xD0, // rangefinder data
     CRSF_FRAMETYPE_RAW_IMU = 0xD1, // raw imu data
+    CRSF_FRAMETYPE_MOTOR_RPM = 0xD2, // motor output and RPM data
 } crsfFrameType_e;
 
 enum {
@@ -104,6 +105,11 @@ enum {
     CRSF_FRAME_DEVICE_PING_PAYLOAD_SIZE = 2,
     CRSF_FRAME_RANGEFINDER_TF_PAYLOAD_SIZE = 4,
     CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE = 12,
+#ifdef USE_DSHOT_TELEMETRY
+    CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE = 13, // with telemetry: 1 pole + 4*(1 pwm + 2 erpm)
+#else
+    CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE = 4, // without telemetry: 4*(1 pwm)
+#endif
 };
 
 enum {

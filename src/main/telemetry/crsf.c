@@ -46,12 +46,14 @@
 
 #include "drivers/nvic.h"
 #include "drivers/persistent.h"
+#include "drivers/dshot.h"
 
 #include "fc/rc_modes.h"
 #include "fc/runtime_config.h"
 
 #include "flight/imu.h"
 #include "flight/position.h"
+#include "flight/mixer.h"
 
 #include "io/displayport_crsf.h"
 #include "io/gps.h"
@@ -59,6 +61,7 @@
 
 #include "pg/pg.h"
 #include "pg/pg_ids.h"
+#include "pg/motor.h"
 
 #include "rx/crsf.h"
 #include "rx/crsf_protocol.h"
@@ -438,7 +441,7 @@ void crsfFrameAttitude(sbuf_t *dst)
      sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.yaw));
 }
 
-#if defined(USE_RAW_IMU)
+#if defined(SEND_IMU_TELEMETRY)
 void crsfFrameRawImu(sbuf_t *dst)
 {
     sbufWriteU8(dst, CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
@@ -728,6 +731,38 @@ static void crsfFrameRangefinderTF(sbuf_t *dst)
 }
 #endif
 
+#ifdef SEND_MOTOR_TELEMETRY
+// pack motor output and eRPM telemetry data
+static void crsfFrameMotorRpm(sbuf_t *dst)
+{
+#ifdef USE_DSHOT_TELEMETRY
+    const bool hasDsot = isDshotTelemetryActive();
+#else
+    const bool hasDsot = false;
+#endif
+
+    sbufWriteU8(dst, CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, CRSF_FRAMETYPE_MOTOR_RPM);
+
+    if (hasDsot) {
+        sbufWriteU8(dst, motorConfig()->motorPoleCount);
+    }
+
+    for (int i = 0; i < 4; i++) {
+        uint8_t motorOutput = scaleRange(constrain(lrintf(motor[i]), DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE), 
+                                          DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE, 0, 255);
+        sbufWriteU8(dst, motorOutput);
+
+        if (hasDsot) {
+#ifdef USE_DSHOT_TELEMETRY
+            uint16_t erpm = getDshotErpm(i);
+            sbufWriteU16BigEndian(dst, erpm);
+#endif
+        }
+    }
+}
+#endif
+
 // schedule array to decide how often each type of frame is sent
 typedef enum {
     CRSF_FRAME_START_INDEX = 0,
@@ -740,11 +775,12 @@ typedef enum {
     CRSF_FRAME_VARIO_SENSOR_INDEX,
     CRSF_FRAME_HEARTBEAT_INDEX,
     CRSF_FRAME_RANGEFINDER_TF_INDEX,
+    CRSF_FRAME_MOTOR_RPM_INDEX,
     CRSF_SCHEDULE_COUNT_MAX
 } crsfFrameTypeIndex_e;
 
 static uint8_t crsfScheduleCount;
-static uint8_t crsfSchedule[CRSF_SCHEDULE_COUNT_MAX];
+static uint16_t crsfSchedule[CRSF_SCHEDULE_COUNT_MAX];
 
 #if defined(USE_MSP_OVER_TELEMETRY)
 
@@ -781,7 +817,7 @@ static void processCrsf(void)
 
     static uint8_t crsfScheduleIndex = 0;
 
-    const uint8_t currentSchedule = crsfSchedule[crsfScheduleIndex];
+    const uint16_t currentSchedule = crsfSchedule[crsfScheduleIndex];
 
     sbuf_t crsfPayloadBuf;
     sbuf_t *dst = &crsfPayloadBuf;
@@ -791,7 +827,7 @@ static void processCrsf(void)
         crsfFrameAttitude(dst);
         crsfFinalize(dst);
     }
-#if defined(USE_RAW_IMU)
+#if defined(SEND_IMU_TELEMETRY)
     if (currentSchedule & BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX)) {
         crsfInitializeFrame(dst);
         crsfFrameRawImu(dst);
@@ -847,6 +883,14 @@ static void processCrsf(void)
     }
 #endif
 
+#ifdef SEND_MOTOR_TELEMETRY
+    if (currentSchedule & BIT(CRSF_FRAME_MOTOR_RPM_INDEX)) {
+        crsfInitializeFrame(dst);
+        crsfFrameMotorRpm(dst);
+        crsfFinalize(dst);
+    }
+#endif
+
     crsfScheduleIndex = (crsfScheduleIndex + 1) % crsfScheduleCount;
 }
 
@@ -893,7 +937,7 @@ void initCrsfTelemetry(void)
     if (sensors(SENSOR_ACC) && telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_ATTITUDE_INDEX);
     }
-#if defined(USE_RAW_IMU)
+#if defined(SEND_IMU_TELEMETRY)
     if (sensors(SENSOR_ACC) && telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX);
     }
@@ -933,6 +977,11 @@ void initCrsfTelemetry(void)
     if (sensors(SENSOR_SONAR) && telemetryIsSensorEnabled(SENSOR_LIDAR)) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX);
     }
+#endif
+
+#ifdef SEND_MOTOR_TELEMETRY
+    // Always send motor telemetry if enabled
+    crsfSchedule[index++] = BIT(CRSF_FRAME_MOTOR_RPM_INDEX);
 #endif
 
     crsfScheduleCount = (uint8_t)index;
@@ -1141,7 +1190,7 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType)
         crsfFrameDeviceInfo(sbuf);
         break;
 #endif
-#if defined(USE_RAW_IMU)
+#if defined(SEND_IMU_TELEMETRY)
     case CRSF_FRAMETYPE_RAW_IMU:
         crsfFrameRawImu(sbuf);
         break;
@@ -1149,6 +1198,11 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType)
 #if defined(USE_RANGEFINDER_TF)
     case CRSF_FRAMETYPE_RANGEFINDER_TF:
         crsfFrameRangefinderTF(sbuf);
+        break;
+#endif
+#ifdef SEND_MOTOR_TELEMETRY
+    case CRSF_FRAMETYPE_MOTOR_RPM:
+        crsfFrameMotorRpm(sbuf);
         break;
 #endif
     }

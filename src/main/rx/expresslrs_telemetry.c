@@ -56,7 +56,7 @@ typedef enum {
     CRSF_FRAME_BATTERY_SENSOR_INDEX = 0,
 #endif
     CRSF_FRAME_ATTITUDE_INDEX,
-#if defined(USE_RAW_IMU)
+#if defined(SEND_IMU_TELEMETRY)
     CRSF_FRAME_RAW_IMU_INDEX,
 #endif
     // CRSF_FRAME_FLIGHT_MODE_INDEX,
@@ -69,6 +69,9 @@ typedef enum {
 #if defined(USE_RANGEFINDER_TF)
     CRSF_FRAME_RANGEFINDER_TF_INDEX,
 #endif
+#if defined(SEND_MOTOR_TELEMETRY)
+    CRSF_FRAME_MOTOR_RPM_INDEX,
+#endif
     CRSF_FRAME_PAYLOAD_TYPES_COUNT //should be last
 } frameTypeIndex_e;
 
@@ -78,7 +81,7 @@ static crsfFrameType_e payloadTypes[] = {
 #endif
     CRSF_FRAMETYPE_BATTERY_SENSOR,
     CRSF_FRAMETYPE_ATTITUDE,
-#if defined(USE_RAW_IMU)
+#if defined(SEND_IMU_TELEMETRY)
     CRSF_FRAMETYPE_RAW_IMU,
 #endif
     // CRSF_FRAMETYPE_FLIGHT_MODE,
@@ -90,6 +93,9 @@ static crsfFrameType_e payloadTypes[] = {
 #endif
 #if defined(USE_RANGEFINDER_TF)
     CRSF_FRAMETYPE_RANGEFINDER_TF,
+#endif
+#if defined(SEND_MOTOR_TELEMETRY)
+    CRSF_FRAMETYPE_MOTOR_RPM,
 #endif
 };
 

@@ -21,6 +21,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
+#include <limits.h>
 
 #include "platform.h"
 
@@ -44,12 +46,14 @@
 
 #include "drivers/nvic.h"
 #include "drivers/persistent.h"
+#include "drivers/dshot.h"
 
 #include "fc/rc_modes.h"
 #include "fc/runtime_config.h"
 
 #include "flight/imu.h"
 #include "flight/position.h"
+#include "flight/mixer.h"
 
 #include "io/displayport_crsf.h"
 #include "io/gps.h"
@@ -57,12 +61,17 @@
 
 #include "pg/pg.h"
 #include "pg/pg_ids.h"
+#include "pg/motor.h"
 
 #include "rx/crsf.h"
 #include "rx/crsf_protocol.h"
 
 #include "sensors/battery.h"
 #include "sensors/sensors.h"
+#include "sensors/barometer.h"
+#include "sensors/rangefinder.h"
+#include "sensors/acceleration.h"
+#include "sensors/gyro.h"
 
 #include "telemetry/telemetry.h"
 #include "telemetry/msp_shared.h"
@@ -258,6 +267,21 @@ void crsfFrameGps(sbuf_t *dst)
 }
 
 /*
+0x07 Vario sensor
+Payload:
+int16_t     Vertical speed ( cm/s )
+*/
+#ifdef USE_VARIO
+static void crsfFrameVarioSensor(sbuf_t *dst)
+{
+    // use sbufWrite since CRC does not include frame length
+    sbufWriteU8(dst, CRSF_FRAME_VARIO_SENSOR_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, CRSF_FRAMETYPE_VARIO_SENSOR);
+    sbufWriteU16BigEndian(dst, getEstimatedVario()); // vario, cm/s(Z));
+}
+#endif
+
+/*
 0x08 Battery sensor
 Payload:
 uint16_t    Voltage ( mV * 100 )
@@ -283,6 +307,60 @@ void crsfFrameBatterySensor(sbuf_t *dst)
     sbufWriteU8(dst, (uint8_t)mAhDrawn);
     sbufWriteU8(dst, batteryRemainingPercentage);
 }
+
+#if defined(USE_BARO) && defined(USE_VARIO)
+// pack altitude in decimeters into a 16-bit value.
+// Due to strange OpenTX behavior of count any 0xFFFF value as incorrect, the maximum sending value is limited to 0xFFFE (32766 meters)
+// in order to have both precision and range in 16-bit
+// value of altitude is packed with different precision depending on highest-bit value.
+// on receiving side:
+// if MSB==0, altitude is sent in decimeters as uint16 with -1000m base. So, range is -1000..2276m.
+// if MSB==1, altitude is sent in meters with 0 base. So, range is 0..32766m (MSB must be zeroed).
+// altitude lower  than -1000m is sent as zero   (should be displayed as "<-1000m" or something).
+// altitude higher than 32767m is sent as 0xfffe (should be displayed as ">32766m" or something).
+// range from 0 to 2276m might be sent with dm- or m-precision. But this function always use dm-precision.
+static inline uint16_t calcAltitudePacked(int32_t altitude_dm)
+{
+    static const int ALT_DM_OFFSET = 10000;
+    int valDm = altitude_dm + ALT_DM_OFFSET;
+
+    if (valDm < 0) return 0;   // too low, return minimum
+    if (valDm < 0x8000) return valDm;  // 15 bits to return dm value with offset
+
+    return MIN((altitude_dm + 5) / 10, 0x7fffe) | 0x8000; // positive 15bit value in meters, with OpenTX limit
+}
+
+static inline int8_t calcVerticalSpeedPacked(int16_t verticalSpeed) // Vertical speed in m/s (meters per second)
+{
+    // linearity coefficient.
+    // Bigger values lead to more linear output i.e., less precise smaller values and more precise big values.
+    // Decreasing the coefficient increases nonlinearity, i.e., more precise small values and less precise big values.
+    static const float Kl = 100.0f;
+
+    // Range coefficient is calculated as result_max / log(verticalSpeedMax * LinearityCoefficient + 1);
+    // but it must be set manually (not calculated) for equality of packing and unpacking
+    static const float Kr = .026f;
+
+    int8_t sign = verticalSpeed < 0 ? -1 : 1;
+    const int result32 = lrintf(log_approx(verticalSpeed * sign / Kl + 1) / Kr) * sign;
+    int8_t result8 = constrain(result32, SCHAR_MIN, SCHAR_MAX);
+    return result8;
+
+    // for unpacking the following function might be used:
+    // int unpacked = lrintf((expf(result8 * sign * Kr) - 1) * Kl) * sign;
+    // lrint might not be used depending on integer or floating output.
+}
+
+// pack barometric altitude
+static void crsfFrameAltitude(sbuf_t *dst)
+{
+    // use sbufWrite since CRC does not include frame length
+    sbufWriteU8(dst, CRSF_FRAME_BARO_ALTITUDE_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, CRSF_FRAMETYPE_BARO_ALTITUDE);
+    sbufWriteU16BigEndian(dst, calcAltitudePacked((baro.altitude + 5) / 10));
+    sbufWriteU8(dst, calcVerticalSpeedPacked(getEstimatedVario()));
+}
+#endif
 
 /*
 0x0B Heartbeat
@@ -362,6 +440,28 @@ void crsfFrameAttitude(sbuf_t *dst)
      sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.roll));
      sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.yaw));
 }
+
+#if defined(SEND_IMU_TELEMETRY)
+void crsfFrameRawImu(sbuf_t *dst)
+{
+    sbufWriteU8(dst, CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, CRSF_FRAMETYPE_RAW_IMU);
+
+    float gx = DEGREES_TO_RADIANS(gyroGetFilteredDownsampled(X));
+    float gy = DEGREES_TO_RADIANS(gyroGetFilteredDownsampled(Y));
+    float gz = DEGREES_TO_RADIANS(gyroGetFilteredDownsampled(Z));
+    float ax = acc.accADC[X] * acc.dev.acc_1G_rec;
+    float ay = acc.accADC[Y] * acc.dev.acc_1G_rec;
+    float az = acc.accADC[Z] * acc.dev.acc_1G_rec;
+
+    sbufWriteU16BigEndian(dst, (int16_t)(gx * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(gy * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(gz * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(ax * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(ay * 100));
+    sbufWriteU16BigEndian(dst, (int16_t)(az * 100));
+}
+#endif
 
 /*
 0x21 Flight mode text based
@@ -615,19 +715,72 @@ static void crsfFrameDisplayPortClear(sbuf_t *dst)
 
 #endif
 
+#ifdef USE_RANGEFINDER_TF
+// pack rangefinder data
+static void crsfFrameRangefinderTF(sbuf_t *dst)
+{
+    // use sbufWrite since CRC does not include frame length
+    sbufWriteU8(dst, CRSF_FRAME_RANGEFINDER_TF_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, CRSF_FRAMETYPE_RANGEFINDER_TF);
+
+    const int32_t distance = rangefinderGetLatestRawAltitude();
+    const uint16_t strength = rangefinderGetLatestStrength();
+
+    sbufWriteU16BigEndian(dst, (distance > 0) ? constrain(distance, 0, 65535) : 0);
+    sbufWriteU16BigEndian(dst, strength);
+}
+#endif
+
+#ifdef SEND_MOTOR_TELEMETRY
+// pack motor output and eRPM telemetry data
+static void crsfFrameMotorRpm(sbuf_t *dst)
+{
+#ifdef USE_DSHOT_TELEMETRY
+    const bool hasDsot = isDshotTelemetryActive();
+#else
+    const bool hasDsot = false;
+#endif
+
+    sbufWriteU8(dst, CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, CRSF_FRAMETYPE_MOTOR_RPM);
+
+    if (hasDsot) {
+        sbufWriteU8(dst, motorConfig()->motorPoleCount);
+    }
+
+    for (int i = 0; i < 4; i++) {
+        uint8_t motorOutput = scaleRange(constrain(lrintf(motor[i]), DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE), 
+                                          DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE, 0, 255);
+        sbufWriteU8(dst, motorOutput);
+
+        if (hasDsot) {
+#ifdef USE_DSHOT_TELEMETRY
+            uint16_t erpm = getDshotErpm(i);
+            sbufWriteU16BigEndian(dst, erpm);
+#endif
+        }
+    }
+}
+#endif
+
 // schedule array to decide how often each type of frame is sent
 typedef enum {
     CRSF_FRAME_START_INDEX = 0,
     CRSF_FRAME_ATTITUDE_INDEX = CRSF_FRAME_START_INDEX,
+    CRSF_FRAME_BARO_ALTITUDE_INDEX,
+    CRSF_FRAME_RAW_IMU_DATA_INDEX,
     CRSF_FRAME_BATTERY_SENSOR_INDEX,
     CRSF_FRAME_FLIGHT_MODE_INDEX,
     CRSF_FRAME_GPS_INDEX,
+    CRSF_FRAME_VARIO_SENSOR_INDEX,
     CRSF_FRAME_HEARTBEAT_INDEX,
+    CRSF_FRAME_RANGEFINDER_TF_INDEX,
+    CRSF_FRAME_MOTOR_RPM_INDEX,
     CRSF_SCHEDULE_COUNT_MAX
 } crsfFrameTypeIndex_e;
 
 static uint8_t crsfScheduleCount;
-static uint8_t crsfSchedule[CRSF_SCHEDULE_COUNT_MAX];
+static uint16_t crsfSchedule[CRSF_SCHEDULE_COUNT_MAX];
 
 #if defined(USE_MSP_OVER_TELEMETRY)
 
@@ -664,7 +817,7 @@ static void processCrsf(void)
 
     static uint8_t crsfScheduleIndex = 0;
 
-    const uint8_t currentSchedule = crsfSchedule[crsfScheduleIndex];
+    const uint16_t currentSchedule = crsfSchedule[crsfScheduleIndex];
 
     sbuf_t crsfPayloadBuf;
     sbuf_t *dst = &crsfPayloadBuf;
@@ -674,6 +827,21 @@ static void processCrsf(void)
         crsfFrameAttitude(dst);
         crsfFinalize(dst);
     }
+#if defined(SEND_IMU_TELEMETRY)
+    if (currentSchedule & BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX)) {
+        crsfInitializeFrame(dst);
+        crsfFrameRawImu(dst);
+        crsfFinalize(dst);
+    }
+#endif
+#if defined(USE_BARO) && defined(USE_VARIO)
+    // send barometric altitude
+    if (currentSchedule & BIT(CRSF_FRAME_BARO_ALTITUDE_INDEX)) {
+        crsfInitializeFrame(dst);
+        crsfFrameAltitude(dst);
+        crsfFinalize(dst);
+    }
+#endif
     if (currentSchedule & BIT(CRSF_FRAME_BATTERY_SENSOR_INDEX)) {
         crsfInitializeFrame(dst);
         crsfFrameBatterySensor(dst);
@@ -692,11 +860,33 @@ static void processCrsf(void)
         crsfFinalize(dst);
     }
 #endif
-
+#ifdef USE_VARIO
+    if (currentSchedule & BIT(CRSF_FRAME_VARIO_SENSOR_INDEX)) {
+        crsfInitializeFrame(dst);
+        crsfFrameVarioSensor(dst);
+        crsfFinalize(dst);
+    }
+#endif
 #if defined(USE_CRSF_V3)
     if (currentSchedule & BIT(CRSF_FRAME_HEARTBEAT_INDEX)) {
         crsfInitializeFrame(dst);
         crsfFrameHeartbeat(dst);
+        crsfFinalize(dst);
+    }
+#endif
+
+#ifdef USE_RANGEFINDER_TF
+    if (currentSchedule & BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX)) {
+        crsfInitializeFrame(dst);
+        crsfFrameRangefinderTF(dst);
+        crsfFinalize(dst);
+    }
+#endif
+
+#ifdef SEND_MOTOR_TELEMETRY
+    if (currentSchedule & BIT(CRSF_FRAME_MOTOR_RPM_INDEX)) {
+        crsfInitializeFrame(dst);
+        crsfFrameMotorRpm(dst);
         crsfFinalize(dst);
     }
 #endif
@@ -747,6 +937,16 @@ void initCrsfTelemetry(void)
     if (sensors(SENSOR_ACC) && telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_ATTITUDE_INDEX);
     }
+#if defined(SEND_IMU_TELEMETRY)
+    if (sensors(SENSOR_ACC) && telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
+        crsfSchedule[index++] = BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX);
+    }
+#endif
+#if defined(USE_BARO) && defined(USE_VARIO)
+    if (telemetryIsSensorEnabled(SENSOR_ALTITUDE)) {
+        crsfSchedule[index++] = BIT(CRSF_FRAME_BARO_ALTITUDE_INDEX);
+    }
+#endif
     if ((isBatteryVoltageConfigured() && telemetryIsSensorEnabled(SENSOR_VOLTAGE))
         || (isAmperageConfigured() && telemetryIsSensorEnabled(SENSOR_CURRENT | SENSOR_FUEL))) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_BATTERY_SENSOR_INDEX);
@@ -760,12 +960,28 @@ void initCrsfTelemetry(void)
         crsfSchedule[index++] = BIT(CRSF_FRAME_GPS_INDEX);
     }
 #endif
+#ifdef USE_VARIO
+    if ((sensors(SENSOR_BARO) || featureIsEnabled(FEATURE_GPS)) && telemetryIsSensorEnabled(SENSOR_VARIO)) {
+        crsfSchedule[index++] = BIT(CRSF_FRAME_VARIO_SENSOR_INDEX);
+    }
+#endif
 
 #if defined(USE_CRSF_V3)
     while (index < (CRSF_CYCLETIME_US / CRSF_TELEMETRY_FRAME_INTERVAL_MAX_US) && index < CRSF_SCHEDULE_COUNT_MAX) {
         // schedule heartbeat to ensure that telemetry/heartbeat frames are sent at minimum 50Hz
         crsfSchedule[index++] = BIT(CRSF_FRAME_HEARTBEAT_INDEX);
     }
+#endif
+
+#if defined(USE_RANGEFINDER_TF)
+    if (sensors(SENSOR_SONAR) && telemetryIsSensorEnabled(SENSOR_LIDAR)) {
+        crsfSchedule[index++] = BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX);
+    }
+#endif
+
+#ifdef SEND_MOTOR_TELEMETRY
+    // Always send motor telemetry if enabled
+    crsfSchedule[index++] = BIT(CRSF_FRAME_MOTOR_RPM_INDEX);
 #endif
 
     crsfScheduleCount = (uint8_t)index;
@@ -959,9 +1175,34 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType)
         crsfFrameGps(sbuf);
         break;
 #endif
+#if defined(USE_VARIO)
+    case CRSF_FRAMETYPE_VARIO_SENSOR:
+        crsfFrameVarioSensor(sbuf);
+        break;
+#endif
+#if defined(USE_BARO)
+    case CRSF_FRAMETYPE_BARO_ALTITUDE:
+        crsfFrameAltitude(sbuf);
+        break;
+#endif
 #if defined(USE_MSP_OVER_TELEMETRY)
     case CRSF_FRAMETYPE_DEVICE_INFO:
         crsfFrameDeviceInfo(sbuf);
+        break;
+#endif
+#if defined(SEND_IMU_TELEMETRY)
+    case CRSF_FRAMETYPE_RAW_IMU:
+        crsfFrameRawImu(sbuf);
+        break;
+#endif
+#if defined(USE_RANGEFINDER_TF)
+    case CRSF_FRAMETYPE_RANGEFINDER_TF:
+        crsfFrameRangefinderTF(sbuf);
+        break;
+#endif
+#ifdef SEND_MOTOR_TELEMETRY
+    case CRSF_FRAMETYPE_MOTOR_RPM:
+        crsfFrameMotorRpm(sbuf);
         break;
 #endif
     }

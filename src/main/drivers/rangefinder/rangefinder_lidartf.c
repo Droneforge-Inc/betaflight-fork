@@ -83,7 +83,7 @@ static uint8_t tfDevtype = TF_DEVTYPE_NONE;
 
 // Maximum ratings
 
-#define TF_MINI_RANGE_MIN 40
+#define TF_MINI_RANGE_MIN 5
 #define TF_MINI_RANGE_MAX 1200
 
 #define TF_02_RANGE_MIN 40
@@ -113,7 +113,8 @@ static uint8_t tfCmdTFmini[] = { 0x42, 0x57, 0x02, 0x00, 0x00, 0x00, 0x01, 0x06 
 // Same as TFmini for now..
 static uint8_t tfCmdTF02[] = { 0x42, 0x57, 0x02, 0x00, 0x00, 0x00, 0x01, 0x06 };
 
-static int32_t lidarTFValue;
+static uint16_t lidarTFValue;
+static uint16_t lidarTFStrength;
 static uint16_t lidarTFerrors = 0;
 
 static void lidarTFSendCommand(void)
@@ -189,22 +190,24 @@ void lidarTFUpdate(rangefinderDev_t *dev)
 
                     switch (tfDevtype) {
                     case TF_DEVTYPE_MINI:
-                        if (distance >= TF_MINI_RANGE_MIN && distance < TF_MINI_RANGE_MAX) {
-                            lidarTFValue = distance;
-                            if (tfFrame[TF_MINI_FRAME_INTEGRAL_TIME] == 7) {
-                                // When integral time is long (7), measured distance tends to be longer by 12~13.
-                                lidarTFValue -= 13;
-                            }
-                        } else {
-                            lidarTFValue = -1;
-                        }
+                        lidarTFStrength = strength;
+                        lidarTFValue = distance;
+                        // if (distance >= TF_MINI_RANGE_MIN && distance < TF_MINI_RANGE_MAX) {
+                            // lidarTFValue = distance;
+                            // if (tfFrame[TF_MINI_FRAME_INTEGRAL_TIME] == 7) {
+                            //     // When integral time is long (7), measured distance tends to be longer by 12~13.
+                            //     lidarTFValue -= 13;
+                            // }
+                        // } else {
+                        //     lidarTFValue = -1;
+                        // }
                         break;
 
                     case TF_DEVTYPE_02:
                         if (distance >= TF_02_RANGE_MIN && distance < TF_02_RANGE_MAX && tfFrame[TF_02_FRAME_SIG] >= 7) {
                             lidarTFValue = distance;
                         } else {
-                            lidarTFValue = -1;
+                            lidarTFValue = UINT16_MAX;
                         }
                         break;
                     }
@@ -230,13 +233,13 @@ void lidarTFUpdate(rangefinderDev_t *dev)
     }
 }
 
-// Return most recent device output in cm
+// Return value and strength as a single 32-bit integer
 
-int32_t lidarTFGetDistance(rangefinderDev_t *dev)
+int32_t lidarTFGetData(rangefinderDev_t *dev)
 {
     UNUSED(dev);
 
-    return lidarTFValue;
+    return (lidarTFValue << 16) | lidarTFStrength;
 }
 
 static bool lidarTFDetect(rangefinderDev_t *dev, uint8_t devtype)
@@ -262,7 +265,7 @@ static bool lidarTFDetect(rangefinderDev_t *dev, uint8_t devtype)
 
     dev->init = &lidarTFInit;
     dev->update = &lidarTFUpdate;
-    dev->read = &lidarTFGetDistance;
+    dev->read = &lidarTFGetData;
 
     return true;
 }

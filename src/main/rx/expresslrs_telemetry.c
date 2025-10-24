@@ -49,18 +49,54 @@
 static uint8_t tlmBuffer[CRSF_FRAME_SIZE_MAX];
 
 typedef enum {
+#if defined(USE_GPS)
     CRSF_FRAME_GPS_INDEX = 0,
     CRSF_FRAME_BATTERY_SENSOR_INDEX,
+#else
+    CRSF_FRAME_BATTERY_SENSOR_INDEX = 0,
+#endif
     CRSF_FRAME_ATTITUDE_INDEX,
-    CRSF_FRAME_FLIGHT_MODE_INDEX,
+#if defined(SEND_IMU_TELEMETRY)
+    CRSF_FRAME_RAW_IMU_INDEX,
+#endif
+    // CRSF_FRAME_FLIGHT_MODE_INDEX,
+// #if defined(USE_VARIO)
+//     CRSF_FRAME_VARIO_SENSOR_INDEX,
+// #endif
+#if defined(USE_BARO)
+    CRSF_FRAME_BARO_ALTITUDE_INDEX,
+#endif
+#if defined(USE_RANGEFINDER_TF)
+    CRSF_FRAME_RANGEFINDER_TF_INDEX,
+#endif
+#if defined(SEND_MOTOR_TELEMETRY)
+    CRSF_FRAME_MOTOR_RPM_INDEX,
+#endif
     CRSF_FRAME_PAYLOAD_TYPES_COUNT //should be last
 } frameTypeIndex_e;
 
 static crsfFrameType_e payloadTypes[] = {
+#if defined(USE_GPS)
     CRSF_FRAMETYPE_GPS,
+#endif
     CRSF_FRAMETYPE_BATTERY_SENSOR,
     CRSF_FRAMETYPE_ATTITUDE,
-    CRSF_FRAMETYPE_FLIGHT_MODE
+#if defined(SEND_IMU_TELEMETRY)
+    CRSF_FRAMETYPE_RAW_IMU,
+#endif
+    // CRSF_FRAMETYPE_FLIGHT_MODE,
+// #if defined(USE_VARIO)
+//     CRSF_FRAMETYPE_VARIO_SENSOR,
+// #endif
+#if defined(USE_BARO)
+    CRSF_FRAMETYPE_BARO_ALTITUDE,
+#endif
+#if defined(USE_RANGEFINDER_TF)
+    CRSF_FRAMETYPE_RANGEFINDER_TF,
+#endif
+#if defined(SEND_MOTOR_TELEMETRY)
+    CRSF_FRAMETYPE_MOTOR_RPM,
+#endif
 };
 
 STATIC_UNIT_TESTED uint8_t tlmSensors = 0;

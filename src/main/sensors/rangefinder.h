@@ -44,6 +44,9 @@ typedef struct rangefinder_s {
     float maxTiltCos;
     int32_t rawAltitude;
     int32_t calculatedAltitude;
+#ifdef USE_RANGEFINDER_TF
+    uint16_t strength;
+#endif
     timeMs_t lastValidResponseTimeMs;
 
     bool snrThresholdReached;
@@ -56,6 +59,9 @@ bool rangefinderInit(void);
 
 int32_t rangefinderGetLatestAltitude(void);
 int32_t rangefinderGetLatestRawAltitude(void);
+#ifdef USE_RANGEFINDER_TF
+uint16_t rangefinderGetLatestStrength(void);
+#endif
 
 void rangefinderUpdate(void);
 bool rangefinderProcess(float cosTiltAngle);

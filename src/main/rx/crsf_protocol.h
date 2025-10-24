@@ -36,7 +36,9 @@ enum { CRSF_PAYLOAD_SIZE_MAX = CRSF_FRAME_SIZE_MAX - 6 };
 
 typedef enum {
     CRSF_FRAMETYPE_GPS = 0x02,
+    CRSF_FRAMETYPE_VARIO_SENSOR = 0x07,
     CRSF_FRAMETYPE_BATTERY_SENSOR = 0x08,
+    CRSF_FRAMETYPE_BARO_ALTITUDE = 0x09,
     CRSF_FRAMETYPE_HEARTBEAT = 0x0B,
     CRSF_FRAMETYPE_LINK_STATISTICS = 0x14,
     CRSF_FRAMETYPE_RC_CHANNELS_PACKED = 0x16,
@@ -57,6 +59,10 @@ typedef enum {
     CRSF_FRAMETYPE_MSP_RESP = 0x7B,  // reply with 58 byte chunked binary
     CRSF_FRAMETYPE_MSP_WRITE = 0x7C,  // write with 8 byte chunked binary (OpenTX outbound telemetry buffer limit)
     CRSF_FRAMETYPE_DISPLAYPORT_CMD = 0x7D, // displayport control command
+    // DF Custom frames
+    CRSF_FRAMETYPE_RANGEFINDER_TF = 0xD0, // rangefinder data
+    CRSF_FRAMETYPE_RAW_IMU = 0xD1, // raw imu data
+    CRSF_FRAMETYPE_MOTOR_RPM = 0xD2, // motor output and RPM data
 } crsfFrameType_e;
 
 enum {
@@ -88,13 +94,22 @@ enum {
 
 enum {
     CRSF_FRAME_GPS_PAYLOAD_SIZE = 15,
+    CRSF_FRAME_VARIO_SENSOR_PAYLOAD_SIZE = 2,
     CRSF_FRAME_BATTERY_SENSOR_PAYLOAD_SIZE = 8,
+    CRSF_FRAME_BARO_ALTITUDE_PAYLOAD_SIZE = 3,
     CRSF_FRAME_HEARTBEAT_PAYLOAD_SIZE = 2,
     CRSF_FRAME_LINK_STATISTICS_PAYLOAD_SIZE = 10,
     CRSF_FRAME_LINK_STATISTICS_TX_PAYLOAD_SIZE = 6,
     CRSF_FRAME_RC_CHANNELS_PAYLOAD_SIZE = 22, // 11 bits per channel * 16 channels = 22 bytes.
     CRSF_FRAME_ATTITUDE_PAYLOAD_SIZE = 6,
     CRSF_FRAME_DEVICE_PING_PAYLOAD_SIZE = 2,
+    CRSF_FRAME_RANGEFINDER_TF_PAYLOAD_SIZE = 4,
+    CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE = 12,
+#ifdef USE_DSHOT_TELEMETRY
+    CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE = 13, // with telemetry: 1 pole + 4*(1 pwm + 2 erpm)
+#else
+    CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE = 4, // without telemetry: 4*(1 pwm)
+#endif
 };
 
 enum {

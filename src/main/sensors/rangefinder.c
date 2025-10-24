@@ -159,6 +159,9 @@ bool rangefinderInit(void)
     rangefinder.maxTiltCos = cos_approx(DECIDEGREES_TO_RADIANS(rangefinder.dev.detectionConeExtendedDeciDegrees / 2.0f));
     rangefinder.lastValidResponseTimeMs = millis();
     rangefinder.snr = 0;
+#ifdef USE_RANGEFINDER_TF
+    rangefinder.strength = 0;
+#endif
 
     rangefinderResetDynamicThreshold();
 
@@ -188,6 +191,25 @@ static int32_t applyMedianFilter(int32_t newReading)
     }
     return medianFilterReady ? quickMedianFilter5(filterSamples) : newReading;
 }
+
+#ifdef USE_RANGEFINDER_TF
+static uint16_t applyMedianFilterStrength(uint16_t newReading)
+{
+    #define STRENGTH_SAMPLES_MEDIAN 5
+    static uint16_t filterSamples[STRENGTH_SAMPLES_MEDIAN];
+    static int filterSampleIndex = 0;
+    static bool medianFilterReady = false;
+
+    filterSamples[filterSampleIndex] = newReading;
+    ++filterSampleIndex;
+    if (filterSampleIndex == STRENGTH_SAMPLES_MEDIAN) {
+        filterSampleIndex = 0;
+        medianFilterReady = true;
+    }
+    
+    return medianFilterReady ? quickMedianFilter5((int32_t *)filterSamples) : newReading;
+}
+#endif
 
 static int16_t computePseudoSnr(int32_t newReading)
 {
@@ -265,8 +287,14 @@ bool isSurfaceAltitudeValid(void)
 bool rangefinderProcess(float cosTiltAngle)
 {
     if (rangefinder.dev.read) {
+#ifdef USE_RANGEFINDER_TF
+        const int32_t data = rangefinder.dev.read(&rangefinder.dev);
+        const int32_t distance = (int32_t)((uint32_t)data >> 16);
+        const uint16_t strength = (uint16_t)(data & 0xFFFF);
+        rangefinder.strength = applyMedianFilterStrength(strength);
+#else
         const int32_t distance = rangefinder.dev.read(&rangefinder.dev);
-
+#endif
         // If driver reported no new measurement - don't do anything
         if (distance == RANGEFINDER_NO_NEW_DATA) {
             return false;
@@ -342,6 +370,13 @@ int32_t rangefinderGetLatestRawAltitude(void)
 {
     return rangefinder.rawAltitude;
 }
+
+#ifdef USE_RANGEFINDER_TF
+uint16_t rangefinderGetLatestStrength(void)
+{
+    return rangefinder.strength;
+}
+#endif
 
 bool rangefinderIsHealthy(void)
 {

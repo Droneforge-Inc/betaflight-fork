@@ -295,11 +295,11 @@ void crsfFrameBatterySensor(sbuf_t *dst)
     sbufWriteU8(dst, CRSF_FRAME_BATTERY_SENSOR_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
     sbufWriteU8(dst, CRSF_FRAMETYPE_BATTERY_SENSOR);
     if (telemetryConfig()->report_cell_voltage) {
-        sbufWriteU16BigEndian(dst, (getBatteryAverageCellVoltage() + 5) / 10); // vbat is in units of 0.01V
+        sbufWriteU16BigEndian(dst, getBatteryAverageCellVoltage()); // vbat is in units of 0.01V
     } else {
         sbufWriteU16BigEndian(dst, getLegacyBatteryVoltage());
     }
-    sbufWriteU16BigEndian(dst, getAmperage() / 10);
+    sbufWriteU16BigEndian(dst, getAmperage());
     const uint32_t mAhDrawn = getMAhDrawn();
     const uint8_t batteryRemainingPercentage = calculateBatteryPercentageRemaining();
     sbufWriteU8(dst, (mAhDrawn >> 16));
@@ -847,12 +847,13 @@ static void processCrsf(void)
         crsfFrameBatterySensor(dst);
         crsfFinalize(dst);
     }
-
+#ifndef IGNORE_FLIGHT_MODE
     if (currentSchedule & BIT(CRSF_FRAME_FLIGHT_MODE_INDEX)) {
         crsfInitializeFrame(dst);
         crsfFrameFlightMode(dst);
         crsfFinalize(dst);
     }
+#endif
 #ifdef USE_GPS
     if (currentSchedule & BIT(CRSF_FRAME_GPS_INDEX)) {
         crsfInitializeFrame(dst);
@@ -951,9 +952,11 @@ void initCrsfTelemetry(void)
         || (isAmperageConfigured() && telemetryIsSensorEnabled(SENSOR_CURRENT | SENSOR_FUEL))) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_BATTERY_SENSOR_INDEX);
     }
+#ifndef IGNORE_FLIGHT_MODE
     if (telemetryIsSensorEnabled(SENSOR_MODE)) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_FLIGHT_MODE_INDEX);
     }
+#endif
 #ifdef USE_GPS
     if (featureIsEnabled(FEATURE_GPS)
        && telemetryIsSensorEnabled(SENSOR_ALTITUDE | SENSOR_LAT_LONG | SENSOR_GROUND_SPEED | SENSOR_HEADING)) {

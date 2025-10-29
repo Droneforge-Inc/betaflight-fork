@@ -524,7 +524,7 @@ uint16_t getBatteryVoltage(void)
 
 uint16_t getLegacyBatteryVoltage(void)
 {
-    return (voltageMeter.displayFiltered + 5) / 10;
+    return voltageMeter.displayFiltered;
 }
 
 uint16_t getBatteryVoltageLatest(void)

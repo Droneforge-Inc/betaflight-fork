@@ -59,7 +59,9 @@ typedef enum {
 #if defined(SEND_IMU_TELEMETRY)
     CRSF_FRAME_RAW_IMU_INDEX,
 #endif
-    // CRSF_FRAME_FLIGHT_MODE_INDEX,
+#ifndef IGNORE_FLIGHT_MODE
+    CRSF_FRAME_FLIGHT_MODE_INDEX,
+#endif
 // #if defined(USE_VARIO)
 //     CRSF_FRAME_VARIO_SENSOR_INDEX,
 // #endif
@@ -84,7 +86,9 @@ static crsfFrameType_e payloadTypes[] = {
 #if defined(SEND_IMU_TELEMETRY)
     CRSF_FRAMETYPE_RAW_IMU,
 #endif
-    // CRSF_FRAMETYPE_FLIGHT_MODE,
+#ifndef IGNORE_FLIGHT_MODE
+    CRSF_FRAMETYPE_FLIGHT_MODE,
+#endif
 // #if defined(USE_VARIO)
 //     CRSF_FRAMETYPE_VARIO_SENSOR,
 // #endif
@@ -365,9 +369,9 @@ void initTelemetry(void)
         || (isAmperageConfigured() && telemetryIsSensorEnabled(SENSOR_CURRENT | SENSOR_FUEL))) {
         tlmSensors |= BIT(CRSF_FRAME_BATTERY_SENSOR_INDEX);
     }
-    if (telemetryIsSensorEnabled(SENSOR_MODE)) {
-        tlmSensors |= BIT(CRSF_FRAME_FLIGHT_MODE_INDEX);
-    }
+    // if (telemetryIsSensorEnabled(SENSOR_MODE)) {
+    //     tlmSensors |= BIT(CRSF_FRAME_FLIGHT_MODE_INDEX);
+    // }
 #ifdef USE_GPS
     if (featureIsEnabled(FEATURE_GPS)
        && telemetryIsSensorEnabled(SENSOR_ALTITUDE | SENSOR_LAT_LONG | SENSOR_GROUND_SPEED | SENSOR_HEADING)) {

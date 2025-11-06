@@ -4,8 +4,8 @@ Betaflight CLI Communication Script
 Communicate with flight controller via serial CLI interface
 
 Usage:
-    # Auto-detect port and set VTX
-    ./betaflight_cli.py -b 5 -c 1
+    # Auto-detect port and set VTX (band, channel, power)
+    ./betaflight_cli.py -b 5 -c 1 -w 3
     
     # Run commands
     ./betaflight_cli.py -x "version" -x "get name"
@@ -271,6 +271,9 @@ Examples:
   # Set VTX band (R) and channel 1, auto-saves
   %(prog)s -b 5 -c 1
   
+  # Set VTX band, channel, and power (200mW), auto-saves
+  %(prog)s -b 5 -c 1 -w 3
+  
   # Set VTX and run additional commands
   %(prog)s -b 3 -c 4 -x "get vtx"
   
@@ -297,6 +300,7 @@ VTX Bands: 1=A, 2=B, 3=E, 4=F, 5=R (Raceband) 6=L (Lowband)
     parser.add_argument('-l', '--list', action='store_true', help='List available serial ports')
     parser.add_argument('-b', '--vtx-band', type=int, choices=range(1, 7), metavar='1-6', help='Set VTX band (1=A, 2=B, 3=E, 4=F, 5=R, 6=L)')
     parser.add_argument('-c', '--vtx-channel', type=int, choices=range(1, 9), metavar='1-8', help='Set VTX channel (1-8)')
+    parser.add_argument('-w', '--vtx-power', type=int, choices=range(0, 6), metavar='0-5', help='Set VTX power level (0=none, 1=25mW, 2=100mW, 3=200mW, 4=400mW, 5=PIT)')
     
     args = parser.parse_args()
     
@@ -344,19 +348,21 @@ VTX Bands: 1=A, 2=B, 3=E, 4=F, 5=R (Raceband) 6=L (Lowband)
             cli.execute_commands(commands)
         
         # Default: VTX commands only if nothing else specified
-        elif args.vtx_band is not None or args.vtx_channel is not None:
+        elif args.vtx_band is not None or args.vtx_channel is not None or args.vtx_power is not None:
             commands = []
             if args.vtx_band is not None:
                 commands.append(f"set vtx_band = {args.vtx_band}")
             if args.vtx_channel is not None:
                 commands.append(f"set vtx_channel = {args.vtx_channel}")
+            if args.vtx_power is not None:
+                commands.append(f"set vtx_power = {args.vtx_power}")
             # Always save after all commands
             commands.append("save")
             cli.execute_commands(commands)
         
         # No commands specified at all
         else:
-            print("Error: No commands specified. Use -x, -f, -b/-c (VTX), or -i for interactive mode")
+            print("Error: No commands specified. Use -x, -f, -b/-c/-w (VTX), or -i for interactive mode")
             return 1
     
     except KeyboardInterrupt:

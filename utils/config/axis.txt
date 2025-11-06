@@ -1,0 +1,65 @@
+# diff all defaults
+
+# version
+# Betaflight / STM32F7X2 (S7X2) 4.5.2 Oct 17 2025 / 09:54:34 (e3ac5aedd) MSP API: 1.46
+# config rev: 247ea10
+
+# start the command batch
+batch start
+
+# reset configuration to default settings
+defaults nosave
+
+board_name AXISFLYINGF7AIO
+manufacturer_id AXFL
+mcu_id 003100213133511137333432
+signature 
+#feature -SERVO_TILT
+#feature -RANGEFINDER
+#feature -TELEMETRY
+#feature -OSD
+#feature -CHANNEL_FORWARDING
+
+# feature
+feature SERVO_TILT
+feature RANGEFINDER
+feature TELEMETRY
+feature OSD
+feature CHANNEL_FORWARDING
+
+# serial
+#serial 0 0 115200 57600 0 115200
+serial 0 32768 115200 57600 0 115200
+#serial 1 0 115200 57600 0 115200
+serial 1 64 115200 57600 0 115200
+
+# master
+#set acc_calibration = 0,0,0,0
+set acc_calibration = 5,-327,28,1
+#set rangefinder_hardware = NONE
+set rangefinder_hardware = TFMINI
+
+profile 0
+
+profile 1
+
+profile 2
+
+profile 3
+
+# restore original profile selection
+profile 0
+
+rateprofile 0
+
+rateprofile 1
+
+rateprofile 2
+
+rateprofile 3
+
+# restore original rateprofile selection
+rateprofile 0
+
+# save configuration
+save

@@ -160,7 +160,6 @@ bool opticalflowProcess(void)
 
     DEBUG_SET(DEBUG_OPTICALFLOW, 1, opticalflow.velX);
     DEBUG_SET(DEBUG_OPTICALFLOW, 2, opticalflow.velY);
-
     return true;
 }
 

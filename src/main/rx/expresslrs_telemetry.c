@@ -71,6 +71,9 @@ typedef enum {
 #if defined(USE_RANGEFINDER_TF)
     CRSF_FRAME_RANGEFINDER_TF_INDEX,
 #endif
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF)
+    CRSF_FRAME_OPTRANGE_INDEX,
+#endif
 #if defined(SEND_MOTOR_TELEMETRY)
     CRSF_FRAME_MOTOR_RPM_INDEX,
 #endif
@@ -97,6 +100,9 @@ static crsfFrameType_e payloadTypes[] = {
 #endif
 #if defined(USE_RANGEFINDER_TF)
     CRSF_FRAMETYPE_RANGEFINDER_TF,
+#endif
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF)
+    CRSF_FRAMETYPE_OPTRANGE,
 #endif
 #if defined(SEND_MOTOR_TELEMETRY)
     CRSF_FRAMETYPE_MOTOR_RPM,

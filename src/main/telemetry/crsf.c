@@ -70,6 +70,7 @@
 #include "sensors/sensors.h"
 #include "sensors/barometer.h"
 #include "sensors/rangefinder.h"
+#include "sensors/opticalflow.h"
 #include "sensors/acceleration.h"
 #include "sensors/gyro.h"
 
@@ -723,11 +724,38 @@ static void crsfFrameRangefinderTF(sbuf_t *dst)
     sbufWriteU8(dst, CRSF_FRAME_RANGEFINDER_TF_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
     sbufWriteU8(dst, CRSF_FRAMETYPE_RANGEFINDER_TF);
 
-    const int32_t distance = rangefinderGetLatestRawAltitude();
+    const int32_t distance = rangefinderGetLatestAltitude();
     const uint16_t strength = rangefinderGetLatestStrength();
 
-    sbufWriteU16BigEndian(dst, (distance > 0) ? constrain(distance, 0, 65535) : 0);
+    sbufWriteU16BigEndian(dst, (distance > 0) ? constrain(distance, 0, 65535) : UINT16_MAX);
     sbufWriteU16BigEndian(dst, strength);
+}
+#endif
+
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+// pack opticalflow rangefinder data
+static void crsfFrameOpticalflowRangefinder(sbuf_t *dst)
+{
+    sbufWriteU8(dst, CRSF_FRAME_OPTRANGE_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, CRSF_FRAMETYPE_OPTRANGE);
+
+    const int32_t distValue = rangefinderGetLatestAltitude();
+    const uint8_t distStrength = rangefinderGetLatestDistStrength();
+    const uint8_t distPrecision = rangefinderGetLatestDistPrecision();
+
+    sbufWriteU16BigEndian(dst, (distValue > 0) ? constrain(distValue, 0, 65535) : UINT16_MAX);
+    sbufWriteU8(dst, distStrength);
+    sbufWriteU8(dst, distPrecision);
+
+    const int16_t velX = opticalflowGetLatestVelX();
+    const int16_t velY = opticalflowGetLatestVelY();
+    const uint8_t flowQuality = opticalflowGetLatestFlowQuality();
+    const uint8_t flowStatus = opticalflowGetLatestFlowStatus();
+
+    sbufWriteU16BigEndian(dst, velX);
+    sbufWriteU16BigEndian(dst, velY);
+    sbufWriteU8(dst, flowQuality);
+    sbufWriteU8(dst, flowStatus);
 }
 #endif
 
@@ -775,6 +803,7 @@ typedef enum {
     CRSF_FRAME_VARIO_SENSOR_INDEX,
     CRSF_FRAME_HEARTBEAT_INDEX,
     CRSF_FRAME_RANGEFINDER_TF_INDEX,
+    CRSF_FRAME_OPTRANGE_INDEX,
     CRSF_FRAME_MOTOR_RPM_INDEX,
     CRSF_SCHEDULE_COUNT_MAX
 } crsfFrameTypeIndex_e;
@@ -884,6 +913,14 @@ static void processCrsf(void)
     }
 #endif
 
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    if (currentSchedule & BIT(CRSF_FRAME_OPTRANGE_INDEX)) {
+        crsfInitializeFrame(dst);
+        crsfFrameOpticalflowRangefinder(dst);
+        crsfFinalize(dst);
+    }
+#endif
+
 #ifdef SEND_MOTOR_TELEMETRY
     if (currentSchedule & BIT(CRSF_FRAME_MOTOR_RPM_INDEX)) {
         crsfInitializeFrame(dst);
@@ -979,6 +1016,12 @@ void initCrsfTelemetry(void)
 #if defined(USE_RANGEFINDER_TF)
     if (sensors(SENSOR_SONAR) && telemetryIsSensorEnabled(SENSOR_LIDAR)) {
         crsfSchedule[index++] = BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX);
+    }
+#endif
+
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    if (sensors(SENSOR_OPTICALFLOW) && telemetryIsSensorEnabled(SENSOR_OPTRANGE)) {
+        crsfSchedule[index++] = BIT(CRSF_FRAME_OPTRANGE_INDEX);
     }
 #endif
 
@@ -1201,6 +1244,11 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType)
 #if defined(USE_RANGEFINDER_TF)
     case CRSF_FRAMETYPE_RANGEFINDER_TF:
         crsfFrameRangefinderTF(sbuf);
+        break;
+#endif
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF)
+    case CRSF_FRAMETYPE_OPTRANGE:
+        crsfFrameOpticalflowRangefinder(sbuf);
         break;
 #endif
 #ifdef SEND_MOTOR_TELEMETRY

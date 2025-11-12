@@ -27,11 +27,11 @@
 #include "pg/pg.h"
 
 typedef enum {
-    RANGEFINDER_NONE            = 0,
-    RANGEFINDER_HCSR04          = 1,
-    RANGEFINDER_TFMINI          = 2,
-    RANGEFINDER_TF02            = 3,
-    RANGEFINDER_OPTFLOW_MTF02   = 4,
+    RANGEFINDER_NONE    = 0,
+    RANGEFINDER_HCSR04  = 1,
+    RANGEFINDER_TFMINI  = 2,
+    RANGEFINDER_TF02    = 3,
+    RANGEFINDER_MTF02   = 4,
 } rangefinderType_e;
 
 typedef struct rangefinderConfig_s {
@@ -48,15 +48,10 @@ typedef struct rangefinder_s {
 #ifdef USE_RANGEFINDER_TF
     uint16_t strength;
 #endif
-#ifdef USE_RANGEFINDER_MTF02
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
     uint8_t distStrength; // 0-255
     uint8_t distStrengthPrecision; // 0-255, lower is better
     uint8_t distStatus; // 0 is invalid, 1 is valid
-
-    // int16_t velX; // cm/s @ 1m
-    // int16_t velY; // cm/s @ 1m
-    // uint8_t flowQuality; // 0-255, higher is better
-    // uint8_t flowStatus; // 0 is invalid, 1 is valid
 #endif
     timeMs_t lastValidResponseTimeMs;
 

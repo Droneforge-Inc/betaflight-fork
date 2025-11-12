@@ -41,6 +41,7 @@
 #include "drivers/rangefinder/rangefinder.h"
 #include "drivers/rangefinder/rangefinder_hcsr04.h"
 #include "drivers/rangefinder/rangefinder_lidartf.h"
+#include "drivers/optrange/opticalflow.h"
 #include "drivers/time.h"
 
 #include "fc/runtime_config.h"
@@ -87,15 +88,14 @@ PG_RESET_TEMPLATE(sonarConfig_t, sonarConfig,
 /*
  * Detect which rangefinder is present
  */
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF)
+static bool rangefinderDetect(optrangeDev_t * dev, uint8_t rangefinderHardwareToUse)
+#else
 static bool rangefinderDetect(rangefinderDev_t * dev, uint8_t rangefinderHardwareToUse)
+#endif
 {
     rangefinderType_e rangefinderHardware = RANGEFINDER_NONE;
     requestedSensors[SENSOR_INDEX_RANGEFINDER] = rangefinderHardwareToUse;
-
-#if !defined(USE_RANGEFINDER_HCSR04) && !defined(USE_RANGEFINDER_TF)
-    UNUSED(dev);
-#endif
-
     switch (rangefinderHardwareToUse) {
         case RANGEFINDER_HCSR04:
 #ifdef USE_RANGEFINDER_HCSR04
@@ -125,7 +125,14 @@ static bool rangefinderDetect(rangefinderDev_t * dev, uint8_t rangefinderHardwar
             }
 #endif
             break;
-
+        case RANGEFINDER_MTF02:
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF)
+            if (mtf02Detect(dev)) {
+                rangefinderHardware = RANGEFINDER_MTF02;
+                rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(OPTRANGE_MTF_TASK_PERIOD_MS));
+            }
+#endif
+            break;
         case RANGEFINDER_NONE:
             rangefinderHardware = RANGEFINDER_NONE;
             break;
@@ -161,6 +168,11 @@ bool rangefinderInit(void)
     rangefinder.snr = 0;
 #ifdef USE_RANGEFINDER_TF
     rangefinder.strength = 0;
+#endif
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    rangefinder.distStrength = 0;
+    rangefinder.distPrecision = 0;
+    rangefinder.distStatus = 0;
 #endif
 
     rangefinderResetDynamicThreshold();
@@ -286,12 +298,21 @@ bool isSurfaceAltitudeValid(void)
  */
 bool rangefinderProcess(float cosTiltAngle)
 {
-    if (rangefinder.dev.read) {
-#ifdef USE_RANGEFINDER_TF
+    if (rangefinder.dev.read || rangefinder.dev.readRangefinder) {
+#if defined(USE_RANGEFINDER_TF)
         const int32_t data = rangefinder.dev.read(&rangefinder.dev);
         const int32_t distance = (int32_t)((uint32_t)data >> 16);
         const uint16_t strength = (uint16_t)(data & 0xFFFF);
+
         rangefinder.strength = applyMedianFilterStrength(strength);
+#elif defined(USE_RANGEFINDER_OPTFLOW_MTF)
+        const optrangeRangefinderData_t data = rangefinder.dev.readRangefinder(&rangefinder.dev);
+        const int32_t distance = data.distValue;
+        const uint8_t strength = data.distStrength;
+
+        rangefinder.distStrength = strength;
+        rangefinder.distPrecision = data.distPrecision;
+        rangefinder.distStatus = data.distStatus;
 #else
         const int32_t distance = rangefinder.dev.read(&rangefinder.dev);
 #endif
@@ -375,6 +396,17 @@ int32_t rangefinderGetLatestRawAltitude(void)
 uint16_t rangefinderGetLatestStrength(void)
 {
     return rangefinder.strength;
+}
+#endif
+
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+uint8_t rangefinderGetLatestDistStrength(void)
+{
+    return rangefinder.distStrength;
+}
+uint8_t rangefinderGetLatestDistPrecision(void)
+{
+    return rangefinder.distPrecision;
 }
 #endif
 

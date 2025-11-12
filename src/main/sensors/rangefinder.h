@@ -41,7 +41,11 @@ typedef struct rangefinderConfig_s {
 PG_DECLARE(rangefinderConfig_t, rangefinderConfig);
 
 typedef struct rangefinder_s {
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    optrangeDev_t dev;
+#else
     rangefinderDev_t dev;
+#endif
     float maxTiltCos;
     int32_t rawAltitude;
     int32_t calculatedAltitude;
@@ -67,6 +71,10 @@ int32_t rangefinderGetLatestAltitude(void);
 int32_t rangefinderGetLatestRawAltitude(void);
 #ifdef USE_RANGEFINDER_TF
 uint16_t rangefinderGetLatestStrength(void);
+#endif
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+uint8_t rangefinderGetLatestDistStrength(void);
+uint8_t rangefinderGetLatestDistPrecision(void);
 #endif
 
 void rangefinderUpdate(void);

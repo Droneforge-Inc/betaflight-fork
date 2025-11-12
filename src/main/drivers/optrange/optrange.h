@@ -30,7 +30,7 @@ typedef optrangeFlowData_t (*optrangeOpReadFlowFuncPtr)(struct optrangeDev_s * d
 
 typedef struct optrangeDev_s {
     timeMs_t delayMs;
-    // int16_t maxRangeCm;
+    int16_t maxRangeCm;
 
     // these are full detection cone angles, maximum tilt is half of this
     // int16_t detectionConeDeciDegrees; // detection cone angle as in device spec

@@ -95,6 +95,7 @@
 #include "sensors/gyro.h"
 #include "sensors/sensors.h"
 #include "sensors/rangefinder.h"
+#include "sensors/opticalflow.h"
 
 #include "telemetry/telemetry.h"
 #include "telemetry/crsf.h"
@@ -306,6 +307,20 @@ void taskUpdateRangefinder(timeUs_t currentTimeUs)
 }
 #endif
 
+#ifdef USE_OPTICALFLOW
+static void taskUpdateOpticalflow(timeUs_t currentTimeUs)
+{
+    UNUSED(currentTimeUs);
+
+    if (!sensors(SENSOR_OPTICALFLOW)) {
+        return;
+    }
+
+    opticalflowUpdate();
+    opticalflowProcess();
+}
+#endif
+
 #ifdef USE_TELEMETRY
 static void taskTelemetry(timeUs_t currentTimeUs)
 {
@@ -446,6 +461,10 @@ task_attribute_t task_attributes[TASK_COUNT] = {
     [TASK_RANGEFINDER] = DEFINE_TASK("RANGEFINDER", NULL, NULL, taskUpdateRangefinder, TASK_PERIOD_HZ(10), TASK_PRIORITY_LOWEST),
 #endif
 
+#ifdef USE_OPTICALFLOW
+    [TASK_OPTICALFLOW] = DEFINE_TASK("OPTICALFLOW", NULL, NULL, taskUpdateOpticalflow, TASK_PERIOD_HZ(10), TASK_PRIORITY_LOWEST),
+#endif
+
 #ifdef USE_CRSF_V3
     [TASK_SPEED_NEGOTIATION] = DEFINE_TASK("SPEED_NEGOTIATION", NULL, NULL, speedNegotiationProcess, TASK_PERIOD_HZ(100), TASK_PRIORITY_LOW),
 #endif
@@ -518,6 +537,12 @@ void tasksInit(void)
 #ifdef USE_RANGEFINDER
     if (sensors(SENSOR_RANGEFINDER)) {
         setTaskEnabled(TASK_RANGEFINDER, featureIsEnabled(FEATURE_RANGEFINDER));
+    }
+#endif
+
+#ifdef USE_OPTICALFLOW
+    if (sensors(SENSOR_OPTICALFLOW)) {
+        setTaskEnabled(TASK_OPTICALFLOW, featureIsEnabled(FEATURE_OPTICALFLOW));
     }
 #endif
 

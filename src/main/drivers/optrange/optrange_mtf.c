@@ -11,7 +11,7 @@
 #include "io/serial.h"
 
 #include "drivers/time.h"
-#include "drivers/optrange/opticalflow.h"
+#include "drivers/optrange/optrange_mtf.h"
 
 #define MTF_DEVTYPE_NONE 0
 #define MTF_DEVTYPE_02   1

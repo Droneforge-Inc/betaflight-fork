@@ -3313,6 +3313,12 @@ static void cliFeature(const char *cmdName, char *cmdline)
                     break;
                 }
 #endif
+#ifndef USE_OPTICALFLOW
+                if (feature & FEATURE_OPTICALFLOW) {
+                    cliPrintLine("unavailable");
+                    break;
+                }
+#endif
                 if (remove) {
                     featureConfigClear(feature);
                     cliPrint("Disabled");

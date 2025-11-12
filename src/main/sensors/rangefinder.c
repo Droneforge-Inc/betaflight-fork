@@ -41,7 +41,7 @@
 #include "drivers/rangefinder/rangefinder.h"
 #include "drivers/rangefinder/rangefinder_hcsr04.h"
 #include "drivers/rangefinder/rangefinder_lidartf.h"
-#include "drivers/optrange/opticalflow.h"
+#include "drivers/optrange/optrange_mtf.h"
 #include "drivers/time.h"
 
 #include "fc/runtime_config.h"

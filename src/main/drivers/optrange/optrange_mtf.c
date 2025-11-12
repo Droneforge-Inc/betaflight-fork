@@ -47,6 +47,8 @@ static uint8_t mtfDevtype = MTF_DEVTYPE_NONE;
 #define MTF_02_RANGE_MIN 1 // 1mm
 #define MTF_02_RANGE_MAX 6000 // 6m
 
+#define MTF_DETECTION_CONE_DECIDEGREES 20 // CHECK: is ok?
+
 static serialPort_t *mtfSerialPort = NULL;
 
 typedef enum {
@@ -85,7 +87,6 @@ void mtfUpdate(optrangeDev_t *dev)
     UNUSED(dev);
     static timeMs_t lastFrameReceivedMs = 0;
     const timeMs_t timeNowMs = millis();
-
 
     if (mtfSerialPort == NULL) {
         return;
@@ -129,22 +130,24 @@ void mtfUpdate(optrangeDev_t *dev)
                 if (c == cksum) {
                     switch (mtfDevtype) {
                     case MTF_DEVTYPE_02:
-                        uint8_t distStatus = mtfPayload[10];
-                        uint32_t distValue = mtfPayload[4] | (mtfPayload[5] << 8) | (mtfPayload[6] << 16) | (mtfPayload[7] << 24);
+                        {
+                            uint8_t distStatus = mtfPayload[10];
+                            uint32_t distValue = mtfPayload[4] | (mtfPayload[5] << 8) | (mtfPayload[6] << 16) | (mtfPayload[7] << 24);
 
-                        if (distStatus != 0 && distValue >= MTF_02_RANGE_MIN && distValue < MTF_02_RANGE_MAX) {
-                            mtfDistValue = distValue;
-                        } else {
-                            mtfDistValue = UINT32_MAX;
+                            if (distStatus != 0 && distValue >= MTF_02_RANGE_MIN && distValue < MTF_02_RANGE_MAX) {
+                                mtfDistValue = distValue;
+                            } else {
+                                mtfDistValue = UINT32_MAX;
+                            }
+                            mtfDistStrength = mtfPayload[8];
+                            mtfDistPrecision = mtfPayload[9];
+                            mtfDistStatus = distStatus;
+
+                            mtfVelX = mtfPayload[12] | (mtfPayload[13] << 8);
+                            mtfVelY = mtfPayload[14] | (mtfPayload[15] << 8);
+                            mtfFlowQuality = mtfPayload[16];
+                            mtfFlowStatus = mtfPayload[17];
                         }
-                        mtfDistStrength = mtfPayload[8];
-                        mtfDistPrecision = mtfPayload[9];
-                        mtfDistStatus = distStatus;
-
-                        mtfVelX = mtfPayload[12] | (mtfPayload[13] << 8);
-                        mtfVelY = mtfPayload[14] | (mtfPayload[15] << 8);
-                        mtfFlowQuality = mtfPayload[16];
-                        mtfFlowStatus = mtfPayload[17];
                         break;
                     }
 
@@ -161,7 +164,9 @@ void mtfUpdate(optrangeDev_t *dev)
         }
     }
 
-    // if (timeNowMs - lastFrameReceivedMs > MTF_TIMEOUT_MS) {}
+    if (timeNowMs - lastFrameReceivedMs > MTF_TIMEOUT_MS) {
+        // who cares?
+    }
 }
 
 optrangeRangefinderData_t mtfGetRangefinderData(optrangeDev_t *dev)
@@ -206,6 +211,8 @@ static bool mtfDetect(optrangeDev_t *dev, uint8_t devType)
 
     dev->delayMs = 10;
     dev->maxRangeCm = MTF_02_RANGE_MAX / 10;
+    dev->detectionConeDeciDegrees = MTF_DETECTION_CONE_DECIDEGREES;
+    dev->detectionConeExtendedDeciDegrees = MTF_DETECTION_CONE_DECIDEGREES;
 
     dev->init = &mtfInit;
     dev->update = &mtfUpdate;

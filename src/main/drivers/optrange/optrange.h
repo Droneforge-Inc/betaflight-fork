@@ -33,8 +33,8 @@ typedef struct optrangeDev_s {
     int16_t maxRangeCm;
 
     // these are full detection cone angles, maximum tilt is half of this
-    // int16_t detectionConeDeciDegrees; // detection cone angle as in device spec
-    // int16_t detectionConeExtendedDeciDegrees; // device spec is conservative, in practice have slightly larger detection cone
+    int16_t detectionConeDeciDegrees; // detection cone angle as in device spec
+    int16_t detectionConeExtendedDeciDegrees; // device spec is conservative, in practice have slightly larger detection cone
 
     // function pointers
     optrangeOpInitFuncPtr init;

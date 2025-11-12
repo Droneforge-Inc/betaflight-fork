@@ -22,6 +22,7 @@
 
 #include <stdint.h>
 
+#include "drivers/optrange/optrange.h"
 #include "drivers/rangefinder/rangefinder.h"
 
 #include "pg/pg.h"
@@ -54,7 +55,7 @@ typedef struct rangefinder_s {
 #endif
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
     uint8_t distStrength; // 0-255
-    uint8_t distStrengthPrecision; // 0-255, lower is better
+    uint8_t distPrecision; // 0-255, lower is better
     uint8_t distStatus; // 0 is invalid, 1 is valid
 #endif
     timeMs_t lastValidResponseTimeMs;

@@ -114,7 +114,7 @@ static int16_t applyMedianFilter(int16_t newReading, bool isVelX)
         }
     }
 
-    return isVelX && medianFilterReadyX ? quickMedianFilter5(filterVelX) : !isVelX && medianFilterReadyY ? quickMedianFilter5(filterVelY) : newReading;
+    return isVelX && medianFilterReadyX ? quickMedianFilter5((int32_t*)filterVelX) : !isVelX && medianFilterReadyY ? quickMedianFilter5((int32_t*)filterVelY) : newReading;
 }
 
 void opticalflowUpdate(void)
@@ -145,7 +145,7 @@ bool opticalflowProcess(void)
 
     DEBUG_SET(DEBUG_OPTICALFLOW, 1, opticalflow.velX);
     DEBUG_SET(DEBUG_OPTICALFLOW, 2, opticalflow.velY);
-    
+
     return true;
 }
 

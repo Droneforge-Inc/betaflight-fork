@@ -41,6 +41,7 @@
 #include "drivers/rangefinder/rangefinder.h"
 #include "drivers/rangefinder/rangefinder_hcsr04.h"
 #include "drivers/rangefinder/rangefinder_lidartf.h"
+#include "drivers/optrange/optrange.h"
 #include "drivers/optrange/optrange_mtf.h"
 #include "drivers/time.h"
 
@@ -298,7 +299,12 @@ bool isSurfaceAltitudeValid(void)
  */
 bool rangefinderProcess(float cosTiltAngle)
 {
-    if (rangefinder.dev.read || rangefinder.dev.readRangefinder) {
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    if (rangefinder.dev.readRangefinder)
+#else
+    if (rangefinder.dev.read)
+#endif
+    {
 #if defined(USE_RANGEFINDER_TF)
         const int32_t data = rangefinder.dev.read(&rangefinder.dev);
         const int32_t distance = (int32_t)((uint32_t)data >> 16);

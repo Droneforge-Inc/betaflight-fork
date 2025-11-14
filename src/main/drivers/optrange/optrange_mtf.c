@@ -110,6 +110,7 @@ void mtfUpdate(optrangeDev_t *dev)
                 mtfFrameState = MTF_FRAME_STATE_READING_HEADER;
                 mtfReceivePosition = 0;
             }
+            mtfDistValue = 5;
             break;
 
         case MTF_FRAME_STATE_READING_HEADER:
@@ -130,6 +131,7 @@ void mtfUpdate(optrangeDev_t *dev)
                     mtfReceivePosition = 0;
                 }
             }
+            mtfDistValue = 50;
             break;
 
         case MTF_FRAME_STATE_READING_PAYLOAD:
@@ -137,6 +139,7 @@ void mtfUpdate(optrangeDev_t *dev)
             if (mtfReceivePosition == mtfPayloadLength) {
                 mtfFrameState = MTF_FRAME_STATE_WAIT_CKSUM;
             }
+            mtfDistValue = 500;
             break;
 
         case MTF_FRAME_STATE_WAIT_CKSUM: 
@@ -149,6 +152,7 @@ void mtfUpdate(optrangeDev_t *dev)
                     cksum += mtfPayload[i];
                 }
 
+                mtfDistValue = 1000;
                 if (c == cksum) {
                     uint8_t msg_id = mtfHeader[2];  // msg_id is 3rd byte (index 2)
                     

@@ -18,10 +18,11 @@
 
 static uint8_t mtfDevtype = MTF_DEVTYPE_NONE;
 
-#define MTF_HEADER_LENGTH        5          // Excluding sync byte (0xEF)
-#define MTF_PAYLOAD_LENGTH       20         // 20 bytes payload (as defined in the datasheet. Ignores rest of the frame.)
+#define MTF_HEADER_LENGTH        5          // Excluding sync byte (0xEF): dev_id, sys_id, msg_id, seq, len
+#define MTF_MAX_PAYLOAD_LENGTH   64         // Max payload per MICOLINK spec
 #define MTF_FRAME_SYNC_BYTE     0xEF
 #define MTF_TIMEOUT_MS      (100 * 2)
+#define MTF_MSG_ID_RANGE_SENSOR  0x51
 
 // Microlink MTF02 frame format (From Microlink MTF-02P)
 // Byte Off Description
@@ -47,7 +48,7 @@ static uint8_t mtfDevtype = MTF_DEVTYPE_NONE;
 #define MTF_02_RANGE_MIN 1 // 1mm
 #define MTF_02_RANGE_MAX 6000 // 6m
 
-#define MTF_DETECTION_CONE_DECIDEGREES 20 // CHECK: is ok?
+#define MTF_DETECTION_CONE_DECIDEGREES 450 // CHECK: is ok?
 
 static serialPort_t *mtfSerialPort = NULL;
 
@@ -60,8 +61,9 @@ typedef enum {
 
 static mtfFrameState_e mtfFrameState;
 static uint8_t mtfHeader[MTF_HEADER_LENGTH];
-static uint8_t mtfPayload[MTF_PAYLOAD_LENGTH];
+static uint8_t mtfPayload[MTF_MAX_PAYLOAD_LENGTH];
 static uint8_t mtfReceivePosition;
+static uint8_t mtfPayloadLength;  // Actual payload length from header
 
 static uint32_t mtfDistValue;
 static uint8_t mtfDistStrength;
@@ -100,21 +102,33 @@ void mtfUpdate(optrangeDev_t *dev)
             if (c == MTF_FRAME_SYNC_BYTE) {
                 mtfFrameState = MTF_FRAME_STATE_READING_HEADER;
             }
+            mtfDistValue = 5;
             break;
 
         case MTF_FRAME_STATE_READING_HEADER:
             mtfHeader[mtfReceivePosition++] = c;
             if (mtfReceivePosition == MTF_HEADER_LENGTH) {
-                mtfFrameState = MTF_FRAME_STATE_READING_PAYLOAD;
-                mtfReceivePosition = 0;
+                // Header complete, extract payload length
+                mtfPayloadLength = mtfHeader[4];  // len field is 5th byte (index 4)
+                
+                // Validate payload length
+                if (mtfPayloadLength > MTF_MAX_PAYLOAD_LENGTH) {
+                    mtfFrameState = MTF_FRAME_STATE_WAIT_START;
+                    mtfReceivePosition = 0;
+                } else {
+                    mtfFrameState = MTF_FRAME_STATE_READING_PAYLOAD;
+                    mtfReceivePosition = 0;
+                }
             }
+            mtfDistValue = 50;
             break;
 
         case MTF_FRAME_STATE_READING_PAYLOAD:
             mtfPayload[mtfReceivePosition++] = c;
-            if (mtfReceivePosition == MTF_PAYLOAD_LENGTH) {
+            if (mtfReceivePosition == mtfPayloadLength) {
                 mtfFrameState = MTF_FRAME_STATE_WAIT_CKSUM;
             }
+            mtfDistValue = 500;
             break;
 
         case MTF_FRAME_STATE_WAIT_CKSUM: 
@@ -123,32 +137,41 @@ void mtfUpdate(optrangeDev_t *dev)
                 for (int i = 0; i < MTF_HEADER_LENGTH; i++) {
                     cksum += mtfHeader[i];
                 }
-                for (int i = 0; i < MTF_PAYLOAD_LENGTH; i++) {
+                for (int i = 0; i < mtfPayloadLength; i++) {
                     cksum += mtfPayload[i];
                 }
 
+                mtfDistValue = 1000;
                 if (c == cksum) {
-                    switch (mtfDevtype) {
-                    case MTF_DEVTYPE_02:
-                        {
-                            uint8_t distStatus = mtfPayload[10];
-                            uint32_t distValue = mtfPayload[4] | (mtfPayload[5] << 8) | (mtfPayload[6] << 16) | (mtfPayload[7] << 24);
+                    uint8_t msg_id = mtfHeader[2];  // msg_id is 3rd byte (index 2)
+                    
+                    // Only process range sensor messages
+                    if (msg_id == MTF_MSG_ID_RANGE_SENSOR) {
+                        switch (mtfDevtype) {
+                        case MTF_DEVTYPE_02:
+                            {
+                                // Payload structure: 4 bytes time, 4 bytes dist, 1 strength, 1 precision, 1 status, 1 reserved, 2 velX, 2 velY, 1 quality, 1 flow_status, 2 reserved
+                                // Indices: time=[0-3], dist=[4-7], strength=[8], precision=[9], dist_status=[10], reserved=[11], velX=[12-13], velY=[14-15], quality=[16], flow_status=[17]
+                                
+                                uint8_t distStatus = mtfPayload[10];
+                                uint32_t distValue = mtfPayload[4] | (mtfPayload[5] << 8) | (mtfPayload[6] << 16) | (mtfPayload[7] << 24);
 
-                            if (distStatus != 0 && distValue >= MTF_02_RANGE_MIN && distValue < MTF_02_RANGE_MAX) {
-                                mtfDistValue = distValue;
-                            } else {
-                                mtfDistValue = UINT32_MAX;
+                                if (distStatus != 0 && distValue >= MTF_02_RANGE_MIN && distValue < MTF_02_RANGE_MAX) {
+                                    mtfDistValue = distValue;
+                                } else {
+                                    mtfDistValue = UINT32_MAX;
+                                }
+                                mtfDistStrength = mtfPayload[8];
+                                mtfDistPrecision = mtfPayload[9];
+                                mtfDistStatus = distStatus;
+
+                                mtfVelX = (int16_t)(mtfPayload[12] | (mtfPayload[13] << 8));
+                                mtfVelY = (int16_t)(mtfPayload[14] | (mtfPayload[15] << 8));
+                                mtfFlowQuality = mtfPayload[16];
+                                mtfFlowStatus = mtfPayload[17];
                             }
-                            mtfDistStrength = mtfPayload[8];
-                            mtfDistPrecision = mtfPayload[9];
-                            mtfDistStatus = distStatus;
-
-                            mtfVelX = mtfPayload[12] | (mtfPayload[13] << 8);
-                            mtfVelY = mtfPayload[14] | (mtfPayload[15] << 8);
-                            mtfFlowQuality = mtfPayload[16];
-                            mtfFlowStatus = mtfPayload[17];
+                            break;
                         }
-                        break;
                     }
 
                     lastFrameReceivedMs = timeNowMs;

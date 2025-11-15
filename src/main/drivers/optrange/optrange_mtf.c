@@ -80,8 +80,15 @@ void mtfInit(optrangeDev_t *dev)
 {
     UNUSED(dev);
 
+    static bool mtfInitialized = false;
+    
+    if (mtfInitialized) {
+        return;
+    }
+
     mtfFrameState = MTF_FRAME_STATE_WAIT_START;
     mtfReceivePosition = 0;
+    mtfInitialized = true;
 }
 
 void mtfUpdate(optrangeDev_t *dev)
@@ -101,8 +108,8 @@ void mtfUpdate(optrangeDev_t *dev)
         case MTF_FRAME_STATE_WAIT_START:
             if (c == MTF_FRAME_SYNC_BYTE) {
                 mtfFrameState = MTF_FRAME_STATE_READING_HEADER;
+                mtfReceivePosition = 0;
             }
-            mtfDistValue = 5;
             break;
 
         case MTF_FRAME_STATE_READING_HEADER:
@@ -115,12 +122,14 @@ void mtfUpdate(optrangeDev_t *dev)
                 if (mtfPayloadLength > MTF_MAX_PAYLOAD_LENGTH) {
                     mtfFrameState = MTF_FRAME_STATE_WAIT_START;
                     mtfReceivePosition = 0;
+                } else if (mtfPayloadLength == 0) {
+                    // No payload, skip directly to checksum
+                    mtfFrameState = MTF_FRAME_STATE_WAIT_CKSUM;
                 } else {
                     mtfFrameState = MTF_FRAME_STATE_READING_PAYLOAD;
                     mtfReceivePosition = 0;
                 }
             }
-            mtfDistValue = 50;
             break;
 
         case MTF_FRAME_STATE_READING_PAYLOAD:
@@ -128,7 +137,6 @@ void mtfUpdate(optrangeDev_t *dev)
             if (mtfReceivePosition == mtfPayloadLength) {
                 mtfFrameState = MTF_FRAME_STATE_WAIT_CKSUM;
             }
-            mtfDistValue = 500;
             break;
 
         case MTF_FRAME_STATE_WAIT_CKSUM: 
@@ -141,7 +149,6 @@ void mtfUpdate(optrangeDev_t *dev)
                     cksum += mtfPayload[i];
                 }
 
-                mtfDistValue = 1000;
                 if (c == cksum) {
                     uint8_t msg_id = mtfHeader[2];  // msg_id is 3rd byte (index 2)
                     
@@ -184,7 +191,12 @@ void mtfUpdate(optrangeDev_t *dev)
             mtfReceivePosition = 0;
 
             break;
+        default:
+            mtfFrameState = MTF_FRAME_STATE_WAIT_START;
+            mtfReceivePosition = 0;
+            break;
         }
+        
     }
 
     if (timeNowMs - lastFrameReceivedMs > MTF_TIMEOUT_MS) {
@@ -218,6 +230,12 @@ optrangeFlowData_t mtfGetFlowData(optrangeDev_t *dev)
 
 static bool mtfDetect(optrangeDev_t *dev, uint8_t devType)
 {
+    static bool mtfDetected = false;
+
+    if (mtfDetected) {
+        return true;
+    }
+
     const serialPortConfig_t *portConfig = findSerialPortConfig(FUNCTION_OPTRANGE);
 
     if (!portConfig) {
@@ -242,6 +260,7 @@ static bool mtfDetect(optrangeDev_t *dev, uint8_t devType)
     dev->readRangefinder = &mtfGetRangefinderData;
     dev->readFlow = &mtfGetFlowData;
 
+    mtfDetected = true;
     return true;
 }
 

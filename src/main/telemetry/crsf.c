@@ -743,7 +743,7 @@ static void crsfFrameOpticalflowRangefinder(sbuf_t *dst)
     const uint8_t distStrength = rangefinderGetLatestDistStrength();
     const uint8_t distPrecision = rangefinderGetLatestDistPrecision();
 
-    sbufWriteU16BigEndian(dst, (distValue > 0) ? constrain(distValue, 0, 65535) : UINT16_MAX);
+    sbufWriteU16BigEndian(dst, (distValue >= 0) ? constrain(distValue, 0, 65535) : UINT16_MAX);
     sbufWriteU8(dst, distStrength);
     sbufWriteU8(dst, distPrecision);
 

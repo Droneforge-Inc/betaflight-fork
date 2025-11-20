@@ -119,7 +119,7 @@ cmd_vtx() {
     sleep 1
     dfu-util -a 0 -s 0x08000000:leave -D "$SCRIPT_DIR/../bin/firmware.bin"
     sleep 3
-    python3 "$SCRIPT_DIR/betaflight_cli.py" -f "$SCRIPT_DIR/../config/whoop.txt"
+    python3 "$SCRIPT_DIR/betaflight_cli.py" -f "$SCRIPT_DIR/../config/whoop-of.txt"
     
     echo "=========================================="
     echo "Done!"

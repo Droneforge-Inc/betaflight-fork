@@ -78,7 +78,7 @@ bool opticalflowInit(void)
         return false;
     }
 
-    opticalflow.dev.init(&opticalflow.dev);
+    // opticalflow.dev.init(&opticalflow.dev);
     opticalflow.velX = 0;
     opticalflow.velY = 0;
     opticalflow.flowQuality = 0;

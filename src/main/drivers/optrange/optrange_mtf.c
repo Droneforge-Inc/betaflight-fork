@@ -232,20 +232,20 @@ static bool mtfDetect(optrangeDev_t *dev, uint8_t devType)
 {
     static bool mtfDetected = false;
 
-    if (mtfDetected) {
-        return true;
-    }
+    if (!mtfDetected) {
+        const serialPortConfig_t *portConfig = findSerialPortConfig(FUNCTION_OPTRANGE);
 
-    const serialPortConfig_t *portConfig = findSerialPortConfig(FUNCTION_OPTRANGE);
+        if (!portConfig) {
+            return false;
+        }
 
-    if (!portConfig) {
-        return false;
-    }
+        mtfSerialPort = openSerialPort(portConfig->identifier, FUNCTION_OPTRANGE, NULL, NULL, 115200, MODE_RXTX, 0);
 
-    mtfSerialPort = openSerialPort(portConfig->identifier, FUNCTION_OPTRANGE, NULL, NULL, 115200, MODE_RXTX, 0);
+        if (mtfSerialPort == NULL) {
+            return false;
+        }
 
-    if (mtfSerialPort == NULL) {
-        return false;
+        mtfDetected = true;
     }
 
     mtfDevtype = devType;
@@ -260,7 +260,6 @@ static bool mtfDetect(optrangeDev_t *dev, uint8_t devType)
     dev->readRangefinder = &mtfGetRangefinderData;
     dev->readFlow = &mtfGetFlowData;
 
-    mtfDetected = true;
     return true;
 }
 

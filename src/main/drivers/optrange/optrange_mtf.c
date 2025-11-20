@@ -260,7 +260,6 @@ static bool mtfDetect(optrangeDev_t *dev, uint8_t devType)
     dev->readRangefinder = &mtfGetRangefinderData;
     dev->readFlow = &mtfGetFlowData;
 
-    mtfDetected = true;
     return true;
 }
 

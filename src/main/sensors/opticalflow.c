@@ -114,7 +114,22 @@ static int16_t applyMedianFilter(int16_t newReading, bool isVelX)
         }
     }
 
-    return isVelX && medianFilterReadyX ? quickMedianFilter5((int32_t*)filterVelX) : !isVelX && medianFilterReadyY ? quickMedianFilter5((int32_t*)filterVelY) : newReading;
+    return isVelX && medianFilterReadyX ? meanFilter5((int32_t*)filterVelX) : !isVelX && medianFilterReadyY ? meanFilter5((int32_t*)filterVelY) : newReading;
+}
+
+static int16_t applyLowPassFilter(int16_t newReading, bool isVelX)
+{
+    static float smoothX = 0.0f;
+    static float smoothY = 0.0f;
+
+    float alpha = 0.2f;
+
+    if (isVelX) {
+        smoothX = alpha * newReading + (1 - alpha) * smoothX;
+    } else {
+        smoothY = alpha * newReading + (1 - alpha) * smoothY;
+    }
+    return lrintf(isVelX ? smoothX : smoothY);
 }
 
 static int16_t applyLowPassFilter(int16_t newReading, bool isVelX)

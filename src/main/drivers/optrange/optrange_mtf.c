@@ -48,7 +48,7 @@ static uint8_t mtfDevtype = MTF_DEVTYPE_NONE;
 #define MTF_02_RANGE_MIN 1 // 1mm
 #define MTF_02_RANGE_MAX 6000 // 6m
 
-#define MTF_DETECTION_CONE_DECIDEGREES 450 // CHECK: is ok?
+#define MTF_DETECTION_CONE_DECIDEGREES 600 // CHECK: is ok?
 
 static serialPort_t *mtfSerialPort = NULL;
 

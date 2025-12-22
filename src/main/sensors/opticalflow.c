@@ -122,7 +122,7 @@ static int16_t applyLowPassFilter(int16_t newReading, bool isVelX)
     static float smoothX = 0.0f;
     static float smoothY = 0.0f;
 
-    float alpha = 0.02f;
+    float alpha = 0.1f;
 
     if (isVelX) {
         smoothX = alpha * newReading + (1 - alpha) * smoothX;

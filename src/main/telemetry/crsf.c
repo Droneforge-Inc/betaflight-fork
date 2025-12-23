@@ -764,15 +764,17 @@ static void crsfFrameOpticalflowRangefinder(sbuf_t *dst)
 static void crsfFrameMotorRpm(sbuf_t *dst)
 {
 #ifdef USE_DSHOT_TELEMETRY
-    const bool hasDsot = isDshotTelemetryActive();
+    const bool hasDshot = isDshotTelemetryActive();
 #else
-    const bool hasDsot = false;
+    const bool hasDshot = false;
 #endif
 
-    sbufWriteU8(dst, CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    // Calculate payload size at runtime to match actual data written
+    const uint8_t payloadSize = hasDshot ? (1 + 4 * 3) : 4; // with dshot: 1 pole + 4*(1 pwm + 2 erpm), without: 4 pwm
+    sbufWriteU8(dst, payloadSize + CRSF_FRAME_LENGTH_TYPE_CRC);
     sbufWriteU8(dst, CRSF_FRAMETYPE_MOTOR_RPM);
 
-    if (hasDsot) {
+    if (hasDshot) {
         sbufWriteU8(dst, motorConfig()->motorPoleCount);
     }
 
@@ -781,7 +783,7 @@ static void crsfFrameMotorRpm(sbuf_t *dst)
                                           DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE, 0, 255);
         sbufWriteU8(dst, motorOutput);
 
-        if (hasDsot) {
+        if (hasDshot) {
 #ifdef USE_DSHOT_TELEMETRY
             uint16_t erpm = getDshotErpm(i);
             sbufWriteU16BigEndian(dst, erpm);

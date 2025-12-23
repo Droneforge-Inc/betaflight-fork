@@ -280,8 +280,8 @@ beacon -RX_SET
 map AETR1234
 
 # aux
-aux 0 0 0 900 900 0 0
-aux 1 0 0 900 900 0 0
+aux 0 0 0 1700 2075 0 0
+aux 1 1 1 900 2100 0 0
 aux 2 0 0 900 900 0 0
 aux 3 0 0 900 900 0 0
 aux 4 0 0 900 900 0 0
@@ -407,7 +407,7 @@ set acc_hardware = AUTO
 set acc_lpf_hz = 25
 set acc_trim_pitch = 0
 set acc_trim_roll = 0
-set acc_calibration = 5,-327,28,1
+set acc_calibration = -13,4,46,1
 set baro_bustype = I2C
 set baro_spi_device = 0
 set baro_i2c_device = 1
@@ -493,9 +493,9 @@ set failsafe_throttle_low_delay = 100
 set failsafe_procedure = DROP
 set failsafe_recovery_delay = 5
 set failsafe_stick_threshold = 30
-set align_board_roll = 0
+set align_board_roll = 180
 set align_board_pitch = 0
-set align_board_yaw = 0
+set align_board_yaw = -45
 set gimbal_mode = NORMAL
 set bat_capacity = 0
 set vbat_max_cell_voltage = 430
@@ -751,10 +751,10 @@ set gyro_1_bustype = SPI
 set gyro_1_spibus = 1
 set gyro_1_i2cBus = 0
 set gyro_1_i2c_address = 0
-set gyro_1_sensor_align = CW90
+set gyro_1_sensor_align = CW0FLIP
 set gyro_1_align_roll = 0
-set gyro_1_align_pitch = 0
-set gyro_1_align_yaw = 900
+set gyro_1_align_pitch = 1800
+set gyro_1_align_yaw = 0
 set gyro_2_bustype = NONE
 set gyro_2_spibus = 0
 set gyro_2_i2cBus = 0

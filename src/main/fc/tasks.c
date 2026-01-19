@@ -319,20 +319,6 @@ static void taskUpdateOpticalflow(timeUs_t currentTimeUs) {
 }
 #endif
 
-#ifdef USE_OPTICALFLOW
-static void taskUpdateOpticalflow(timeUs_t currentTimeUs)
-{
-    UNUSED(currentTimeUs);
-
-    if (!sensors(SENSOR_OPTICALFLOW)) {
-        return;
-    }
-
-    opticalflowUpdate();
-    opticalflowProcess();
-}
-#endif
-
 #ifdef USE_TELEMETRY
 static void taskTelemetry(timeUs_t currentTimeUs) {
   if (!cliMode && featureIsEnabled(FEATURE_TELEMETRY)) {
@@ -533,10 +519,6 @@ task_attribute_t task_attributes[TASK_COUNT] = {
     [TASK_OPTICALFLOW] =
         DEFINE_TASK("OPTICALFLOW", NULL, NULL, taskUpdateOpticalflow,
                     TASK_PERIOD_HZ(50), TASK_PRIORITY_LOWEST),
-#endif
-
-#ifdef USE_OPTICALFLOW
-    [TASK_OPTICALFLOW] = DEFINE_TASK("OPTICALFLOW", NULL, NULL, taskUpdateOpticalflow, TASK_PERIOD_HZ(100), TASK_PRIORITY_LOWEST),
 #endif
 
 #ifdef USE_CRSF_V3

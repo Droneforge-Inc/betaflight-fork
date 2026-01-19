@@ -434,6 +434,10 @@ static void validateAndFixConfig(void)
     featureDisableImmediate(FEATURE_RANGEFINDER);
 #endif
 
+#ifndef USE_OPTICALFLOW
+    featureDisableImmediate(FEATURE_OPTICALFLOW);
+#endif
+
 #ifndef USE_TELEMETRY
     featureDisableImmediate(FEATURE_TELEMETRY);
 #endif
@@ -491,6 +495,9 @@ if (systemConfig()->configurationState == CONFIGURATION_STATE_UNCONFIGURED) {
 #endif
 #ifdef USE_RANGEFINDER
     featureEnableImmediate(FEATURE_RANGEFINDER);
+#endif
+#ifdef USE_OPTICALFLOW
+    featureEnableImmediate(FEATURE_OPTICALFLOW);
 #endif
 #ifdef USE_SERVOS
     featureEnableImmediate(FEATURE_CHANNEL_FORWARDING);

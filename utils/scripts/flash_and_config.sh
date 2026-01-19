@@ -55,12 +55,22 @@ cmd_flash() {
             ;;
     esac
     
+    local config_file
+    case "$fc_type" in
+        betafpv)
+            config_file="$SCRIPT_DIR/../config/whoop-of.txt"
+            ;;
+        axis)
+            config_file="$SCRIPT_DIR/../config/axis-of.txt"
+            ;;
+    esac
+    
     arm-none-eabi-objcopy -I ihex -O binary "$hex_file" $SCRIPT_DIR/../bin/firmware.bin
     python3 "$SCRIPT_DIR/betaflight_cli.py" -x bl
     sleep 1
     dfu-util -a 0 -s 0x08000000:leave -D "$SCRIPT_DIR/../bin/firmware.bin"
     sleep 3
-    python3 "$SCRIPT_DIR/betaflight_cli.py" -f "$SCRIPT_DIR/../config/whoop.txt"
+    python3 "$SCRIPT_DIR/betaflight_cli.py" -f "$config_file"
     
     echo "=========================================="
     echo "Done!"
@@ -119,7 +129,7 @@ cmd_vtx() {
     sleep 1
     dfu-util -a 0 -s 0x08000000:leave -D "$SCRIPT_DIR/../bin/firmware.bin"
     sleep 3
-    python3 "$SCRIPT_DIR/betaflight_cli.py" -f "$SCRIPT_DIR/../config/whoop.txt"
+    python3 "$SCRIPT_DIR/betaflight_cli.py" -f "$SCRIPT_DIR/../config/whoop-of.txt"
     
     echo "=========================================="
     echo "Done!"

@@ -22,15 +22,17 @@
 
 #include <stdint.h>
 
+#include "drivers/optrange/optrange.h"
 #include "drivers/rangefinder/rangefinder.h"
 
 #include "pg/pg.h"
 
 typedef enum {
-    RANGEFINDER_NONE        = 0,
-    RANGEFINDER_HCSR04      = 1,
-    RANGEFINDER_TFMINI      = 2,
-    RANGEFINDER_TF02        = 3,
+    RANGEFINDER_NONE    = 0,
+    RANGEFINDER_HCSR04  = 1,
+    RANGEFINDER_TFMINI  = 2,
+    RANGEFINDER_TF02    = 3,
+    RANGEFINDER_MTF02   = 4,
 } rangefinderType_e;
 
 typedef struct rangefinderConfig_s {
@@ -40,12 +42,21 @@ typedef struct rangefinderConfig_s {
 PG_DECLARE(rangefinderConfig_t, rangefinderConfig);
 
 typedef struct rangefinder_s {
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    optrangeDev_t dev;
+#else
     rangefinderDev_t dev;
+#endif
     float maxTiltCos;
     int32_t rawAltitude;
     int32_t calculatedAltitude;
 #ifdef USE_RANGEFINDER_TF
     uint16_t strength;
+#endif
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    uint8_t distStrength; // 0-255
+    uint8_t distPrecision; // 0-255, lower is better
+    uint8_t distStatus; // 0 is invalid, 1 is valid
 #endif
     timeMs_t lastValidResponseTimeMs;
 
@@ -61,6 +72,10 @@ int32_t rangefinderGetLatestAltitude(void);
 int32_t rangefinderGetLatestRawAltitude(void);
 #ifdef USE_RANGEFINDER_TF
 uint16_t rangefinderGetLatestStrength(void);
+#endif
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+uint8_t rangefinderGetLatestDistStrength(void);
+uint8_t rangefinderGetLatestDistPrecision(void);
 #endif
 
 void rangefinderUpdate(void);

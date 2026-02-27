@@ -1000,13 +1000,11 @@ void initCrsfTelemetry(void) {
   if (sensors(SENSOR_ACC) &&
       telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_ATTITUDE_INDEX);
-  }
-#if defined(SEND_IMU_TELEMETRY)
-  if (sensors(SENSOR_ACC) &&
-      telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
+
+#ifdef SEND_IMU_TELEMETRY
     crsfSchedule[index++] = BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX);
-  }
 #endif
+  }
 #if defined(USE_BARO) && defined(USE_VARIO)
   if (telemetryIsSensorEnabled(SENSOR_ALTITUDE)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_BARO_ALTITUDE_INDEX);

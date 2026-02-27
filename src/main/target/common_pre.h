@@ -22,32 +22,35 @@
 
 /*
 
-    The purpose of this file is to enable the firmware "gates" for features and drivers
-    prior to entering the target.h.
+    The purpose of this file is to enable the firmware "gates" for features and
+   drivers prior to entering the target.h.
 
-    CLOUD_BUILD is used to signify that the build is a user requested build and that the
-    features to be enabled will be defined ALREADY.
+    CLOUD_BUILD is used to signify that the build is a user requested build and
+   that the features to be enabled will be defined ALREADY.
 
-    CORE_BUILD is used to signify that the build is a user requested build and that the
-    features to be enabled will be the minimal set, and all the drivers should be present.
+    CORE_BUILD is used to signify that the build is a user requested build and
+   that the features to be enabled will be the minimal set, and all the drivers
+   should be present.
 
-    If neither of the above are present then the build should simply be a baseline build
-    for continuous integration, i.e. the compilation of the majority of features and drivers
-    dependent on the size of the flash available.
+    If neither of the above are present then the build should simply be a
+   baseline build for continuous integration, i.e. the compilation of the
+   majority of features and drivers dependent on the size of the flash
+   available.
 
-    NOTE: for 4.5 we will be removing any conditions related to specific MCU types, instead
-    these should be defined in the target.h or in a file that is imported by target.h (in the
-    case of common settings for a given MCU group)
+    NOTE: for 4.5 we will be removing any conditions related to specific MCU
+   types, instead these should be defined in the target.h or in a file that is
+   imported by target.h (in the case of common settings for a given MCU group)
 
 */
 
 #define USE_PARAMETER_GROUPS
 // type conversion warnings.
-// -Wconversion can be turned on to enable the process of eliminating these warnings
-//#pragma GCC diagnostic warning "-Wconversion"
+// -Wconversion can be turned on to enable the process of eliminating these
+// warnings
+// #pragma GCC diagnostic warning "-Wconversion"
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 // -Wpadded can be turned on to check padding of structs
-//#pragma GCC diagnostic warning "-Wpadded"
+// #pragma GCC diagnostic warning "-Wpadded"
 
 #if !defined(CLOUD_BUILD) && !defined(SITL)
 #define USE_DSHOT
@@ -65,7 +68,8 @@
 
 #define USE_CLI
 #define USE_SERIAL_PASSTHROUGH
-#define USE_GYRO_REGISTER_DUMP  // Adds gyroregisters command to cli to dump configured register values
+#define USE_GYRO_REGISTER_DUMP // Adds gyroregisters command to cli to dump
+                               // configured register values
 #define USE_IMU_CALC
 
 // all the settings for classic build
@@ -144,7 +148,7 @@
 #define USE_FLASH_W25M02G    // 2Gb (1Gb x 2 stacked) NAND flash support
 #define USE_FLASH_W25Q128FV  // 16MB Winbond 25Q128
 #define USE_FLASH_PY25Q128HA // 16MB PUYA SEMI 25Q128
-#endif // USE_EXST
+#endif                       // USE_EXST
 
 #endif // USE_FLASH
 #endif // USE_FLASH_CHIP
@@ -176,14 +180,14 @@
 #if !defined(USE_SERIAL_RX)
 
 #define USE_SERIALRX
-#define USE_SERIALRX_CRSF       // Team Black Sheep Crossfire protocol
-#define USE_SERIALRX_GHST       // ImmersionRC Ghost Protocol
-#define USE_SERIALRX_IBUS       // FlySky and Turnigy receivers
-#define USE_SERIALRX_SBUS       // Frsky and Futaba receivers
-#define USE_SERIALRX_SPEKTRUM   // SRXL, DSM2 and DSMX protocol
-#define USE_SERIALRX_FPORT      // FrSky FPort
-#define USE_SERIALRX_XBUS       // JR
-#define USE_SERIALRX_SRXL2      // Spektrum SRXL2 protocol
+#define USE_SERIALRX_CRSF     // Team Black Sheep Crossfire protocol
+#define USE_SERIALRX_GHST     // ImmersionRC Ghost Protocol
+#define USE_SERIALRX_IBUS     // FlySky and Turnigy receivers
+#define USE_SERIALRX_SBUS     // Frsky and Futaba receivers
+#define USE_SERIALRX_SPEKTRUM // SRXL, DSM2 and DSMX protocol
+#define USE_SERIALRX_FPORT    // FrSky FPort
+#define USE_SERIALRX_XBUS     // JR
+#define USE_SERIALRX_SRXL2    // Spektrum SRXL2 protocol
 
 #endif // !defined(USE_SERIAL_RX)
 
@@ -211,8 +215,8 @@
 #if defined(USE_SERIALRX)
 
 #define USE_SERIALRX_JETIEXBUS
-#define USE_SERIALRX_SUMD       // Graupner Hott protocol
-#define USE_SERIALRX_SUMH       // Graupner legacy protocol
+#define USE_SERIALRX_SUMD // Graupner Hott protocol
+#define USE_SERIALRX_SUMH // Graupner legacy protocol
 
 #endif // USE_SERIALRX
 
@@ -263,10 +267,10 @@
 
 #define USE_TRANSPONDER
 
-#define USE_RANGEFINDER
-#define USE_RANGEFINDER_HCSR04
-#define USE_RANGEFINDER_TF
-#define USE_RANGEFINDER_OPTFLOW_MTF
+// #define USE_RANGEFINDER
+// #define USE_RANGEFINDER_HCSR04
+// #define USE_RANGEFINDER_TF
+// #define USE_RANGEFINDER_OPTFLOW_MTF
 
 #endif // TARGET_FLASH_SIZE > 512
 
@@ -274,9 +278,9 @@
 
 #if !defined(LED_STRIP_MAX_LENGTH)
 #ifdef USE_LED_STRIP_64
-#define LED_STRIP_MAX_LENGTH           64
+#define LED_STRIP_MAX_LENGTH 64
 #else
-#define LED_STRIP_MAX_LENGTH           32
+#define LED_STRIP_MAX_LENGTH 32
 #endif
 #endif // # !defined(LED_STRIP_MAX_LENGTH)
 
@@ -296,12 +300,12 @@
 #define USE_HUFFMAN
 
 #define PID_PROFILE_COUNT 4
-#define CONTROL_RATE_PROFILE_COUNT  4
+#define CONTROL_RATE_PROFILE_COUNT 4
 
 #define USE_CLI_BATCH
 #define USE_RESOURCE_MGMT
 
-#define USE_RUNAWAY_TAKEOFF     // Runaway Takeoff Prevention (anti-taz)
+#define USE_RUNAWAY_TAKEOFF // Runaway Takeoff Prevention (anti-taz)
 
 #define USE_GYRO_OVERFLOW_CHECK
 #define USE_YAW_SPIN_RECOVERY
@@ -395,12 +399,11 @@
 #define USE_GPS_RESCUE
 #endif // USE_GPS
 
-
 #if (defined(USE_OSD_HD) || defined(USE_OSD_SD)) && !defined(USE_OSD)
-// If either USE_OSD_SD for USE_OSD_HD are defined, ensure that USE_OSD is also defined
+// If either USE_OSD_SD for USE_OSD_HD are defined, ensure that USE_OSD is also
+// defined
 #define USE_OSD
 #endif
-
 
 #if defined(USE_OSD)
 

@@ -115,6 +115,7 @@ static int16_t applyMedianFilter(int16_t newReading, bool isVelX) {
     }
   }
 
+  return newReading;
   return isVelX && medianFilterReadyX
              ? quickMedianFilter5((int32_t *)filterVelX)
          : !isVelX && medianFilterReadyY
@@ -126,7 +127,7 @@ static int16_t applyLowPassFilter(int16_t newReading, bool isVelX) {
   static float smoothX = 0.0f;
   static float smoothY = 0.0f;
 
-  float alpha = 0.1f;
+  float alpha = 1.0f;
 
   if (isVelX) {
     smoothX = alpha * newReading + (1 - alpha) * smoothX;

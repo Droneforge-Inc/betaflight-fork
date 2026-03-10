@@ -92,9 +92,9 @@ static crsfFrameType_e payloadTypes[] = {
 #ifndef IGNORE_FLIGHT_MODE
     CRSF_FRAMETYPE_FLIGHT_MODE,
 #endif
-// #if defined(USE_VARIO)
-//     CRSF_FRAMETYPE_VARIO_SENSOR,
-// #endif
+#if defined(USE_VARIO)
+    CRSF_FRAMETYPE_VARIO_SENSOR,
+#endif
 #if defined(USE_BARO)
     CRSF_FRAMETYPE_BARO_ALTITUDE,
 #endif

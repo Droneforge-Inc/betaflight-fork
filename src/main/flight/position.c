@@ -58,6 +58,13 @@ static pt2Filter_t altitudeLpf;
 static pt2Filter_t altitudeDerivativeLpf;
 #ifdef USE_VARIO
 static int16_t estimatedVario = 0; // in cm/s
+#ifdef DISARMED_VARIO
+static pt2Filter_t disarmedAltitudeDerivativeLpf;
+#define DISARMED_VARIO_ARM_TRANSITION_SUPPRESS_CYCLES                                  \
+    ((TASK_ALTITUDE_RATE_HZ >= 10) ? (TASK_ALTITUDE_RATE_HZ / 10) : 1)
+#define DISARMED_VARIO_DISARM_TRANSITION_SUPPRESS_CYCLES                               \
+    ((TASK_ALTITUDE_RATE_HZ >= 4) ? (TASK_ALTITUDE_RATE_HZ / 4) : 1)
+#endif
 #endif
 
 void positionInit(void)
@@ -71,6 +78,9 @@ void positionInit(void)
     const float altitudeDerivativeCutoffHz = positionConfig()->altitude_d_lpf / 100.0f;
     const float altitudeDerivativeGain = pt2FilterGain(altitudeDerivativeCutoffHz, sampleTimeS);
     pt2FilterInit(&altitudeDerivativeLpf, altitudeDerivativeGain);
+#if defined(USE_VARIO) && defined(DISARMED_VARIO)
+    pt2FilterInit(&disarmedAltitudeDerivativeLpf, altitudeDerivativeGain);
+#endif
 }
 
 typedef enum {
@@ -102,6 +112,7 @@ void calculateEstimatedAltitude(void)
     float gpsTrust = 0.3f; // if no pDOP value, use 0.3, intended range 0-1;
     bool haveBaroAlt = false; // true if baro exists and has been calibrated on power up
     bool haveGpsAlt = false; // true if GPS is connected and while it has a 3D fix, set each run to false
+    const bool isArmed = ARMING_FLAG(ARMED);
 
     // *** Get sensor data
 #ifdef USE_BARO
@@ -128,7 +139,7 @@ void calculateEstimatedAltitude(void)
 #endif
 
     //  ***  DISARMED  ***
-    if (!ARMING_FLAG(ARMED)) {
+    if (!isArmed) {
         if (wasArmed) { // things to run once, on disarming, after being armed
             useZeroedGpsAltitude = false; // reset, and wait for valid GPS data to zero the GPS signal
             wasArmed = false;
@@ -201,6 +212,60 @@ void calculateEstimatedAltitude(void)
 #ifdef USE_VARIO
     estimatedVario = lrintf(zeroedAltitudeDerivative);
     estimatedVario = applyDeadband(estimatedVario, 10); // ignore climb rates less than 0.1 m/s
+#ifdef DISARMED_VARIO
+    static bool disarmedVarioInitialized = false;
+    static bool previousArmedState = false;
+    static float previousDisarmedVarioAltitudeCm = 0.0f;
+    static uint8_t disarmedVarioSuppressCycles = 0;
+
+    float disarmedVarioAltitudeCm = displayAltitudeCm;
+#ifdef USE_BARO
+    if (haveBaroAlt) {
+        disarmedVarioAltitudeCm = isArmed ? baroAltCm : (baroAltCm - baroAltOffsetCm);
+    }
+#endif
+
+    if (!disarmedVarioInitialized) {
+        disarmedVarioInitialized = true;
+        previousArmedState = isArmed;
+        previousDisarmedVarioAltitudeCm = disarmedVarioAltitudeCm;
+        disarmedAltitudeDerivativeLpf.state = 0.0f;
+        disarmedAltitudeDerivativeLpf.state1 = 0.0f;
+        disarmedVarioSuppressCycles = isArmed
+            ? DISARMED_VARIO_ARM_TRANSITION_SUPPRESS_CYCLES
+            : DISARMED_VARIO_DISARM_TRANSITION_SUPPRESS_CYCLES;
+    }
+
+    if (isArmed != previousArmedState) {
+        previousDisarmedVarioAltitudeCm = disarmedVarioAltitudeCm;
+        // Reset disarmed filter and suppress briefly to avoid handoff spikes.
+        disarmedAltitudeDerivativeLpf.state = 0.0f;
+        disarmedAltitudeDerivativeLpf.state1 = 0.0f;
+        disarmedVarioSuppressCycles = isArmed
+            ? DISARMED_VARIO_ARM_TRANSITION_SUPPRESS_CYCLES
+            : DISARMED_VARIO_DISARM_TRANSITION_SUPPRESS_CYCLES;
+    }
+
+    const float disarmedVarioDerivative =
+        (disarmedVarioAltitudeCm - previousDisarmedVarioAltitudeCm) * TASK_ALTITUDE_RATE_HZ;
+    previousDisarmedVarioAltitudeCm = disarmedVarioAltitudeCm;
+
+    const float filteredDisarmedVario =
+        pt2FilterApply(&disarmedAltitudeDerivativeLpf, disarmedVarioDerivative);
+    const int16_t disarmedEstimatedVario =
+        applyDeadband(lrintf(filteredDisarmedVario), 10);
+
+    if (!isArmed) {
+        estimatedVario = (disarmedVarioSuppressCycles > 0) ? 0 : disarmedEstimatedVario;
+    } else if (disarmedVarioSuppressCycles > 0) {
+        estimatedVario = 0;
+    }
+
+    if (disarmedVarioSuppressCycles > 0) {
+        disarmedVarioSuppressCycles--;
+    }
+    previousArmedState = isArmed;
+#endif
 #endif
  
     // *** set debugs

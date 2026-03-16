@@ -23,6 +23,7 @@
 #include "drivers/time.h"
 
 #include "fc/runtime_config.h"
+#include "flight/imu.h"
 
 #include "pg/pg.h"
 #include "pg/pg_ids.h"
@@ -30,6 +31,7 @@
 #include "scheduler/scheduler.h"
 
 #include "sensors/battery.h"
+#include "sensors/gyro.h"
 #include "sensors/opticalflow.h"
 #include "sensors/sensors.h"
 
@@ -137,6 +139,32 @@ static int16_t applyLowPassFilter(int16_t newReading, bool isVelX) {
   return (int16_t)(isVelX ? smoothX : smoothY);
 }
 
+static void applyGyroCompensation(int16_t *velX, int16_t *velY,
+                                  const optrangeRangefinderData_t *rangeData) {
+  if (!rangeData || rangeData->distStatus == 0 ||
+      rangeData->distValue == UINT32_MAX || rangeData->distValue == 0) {
+    return;
+  }
+
+  // The MTF range payload is in mm. Convert it to cm to match the flow
+  // velocity units before removing the apparent velocity caused by tilt rate.
+  const float distanceCm = rangeData->distValue * 0.1f;
+  const float cosTiltAngle = constrainf(getCosTiltAngle(), 0.0f, 1.0f);
+  const float verticalDistanceCm = distanceCm * cosTiltAngle;
+  const float rollRateRadS = DEGREES_TO_RADIANS(gyroGetFilteredDownsampled(X));
+  const float pitchRateRadS = DEGREES_TO_RADIANS(gyroGetFilteredDownsampled(Y));
+
+  const int compensatedVelX =
+      lrintf(((float)*velX * cosTiltAngle) -
+             (verticalDistanceCm * pitchRateRadS));
+  const int compensatedVelY =
+      lrintf(((float)*velY * cosTiltAngle) +
+             (verticalDistanceCm * rollRateRadS));
+
+  *velX = constrain(compensatedVelX, INT16_MIN, INT16_MAX);
+  *velY = constrain(compensatedVelY, INT16_MIN, INT16_MAX);
+}
+
 void opticalflowUpdate(void) {
   if (opticalflow.dev.update) {
     opticalflow.dev.update(&opticalflow.dev);
@@ -146,10 +174,15 @@ void opticalflowUpdate(void) {
 bool opticalflowProcess(void) {
   if (opticalflow.dev.readFlow) {
     optrangeFlowData_t flowData = opticalflow.dev.readFlow(&opticalflow.dev);
+    optrangeRangefinderData_t rangeData = {0};
     opticalflow.velX =
         applyLowPassFilter(applyMedianFilter(flowData.velX, true), true);
     opticalflow.velY =
         applyLowPassFilter(applyMedianFilter(flowData.velY, false), false);
+    if (opticalflow.dev.readRangefinder) {
+      rangeData = opticalflow.dev.readRangefinder(&opticalflow.dev);
+    }
+    applyGyroCompensation(&opticalflow.velX, &opticalflow.velY, &rangeData);
 
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
     opticalflow.flowQuality = flowData.flowQuality;

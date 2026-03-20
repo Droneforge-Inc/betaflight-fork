@@ -90,6 +90,8 @@ COMMON_SRC = \
             flight/gps_rescue.c \
             fc/gps_lap_timer.c \
             flight/dyn_notch_filter.c \
+            ekf/kinematic.c \
+            ekf/kinematic_filter.c \
             flight/imu.c \
             flight/mixer.c \
             flight/mixer_init.c \

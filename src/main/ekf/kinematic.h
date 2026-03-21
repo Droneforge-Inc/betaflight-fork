@@ -23,7 +23,7 @@ void kinematic_Q_fun(float *state, float *control, float dt, float *out);
 void kinematic_h_2(float *state, float *extra_args, float *out);
 void kinematic_H_2(float *state, float *extra_args, float *out);
 void kinematic_update_2(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea);
-#define KINEMATIC_OBS_DIM_3 2
+#define KINEMATIC_OBS_DIM_3 1
 #define KINEMATIC_EXTRA_DIM_3 0
 void kinematic_h_3(float *state, float *extra_args, float *out);
 void kinematic_H_3(float *state, float *extra_args, float *out);

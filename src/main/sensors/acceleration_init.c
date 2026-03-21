@@ -139,7 +139,7 @@ static void resetFlightDynamicsTrims(flightDynamicsTrims_t *accZero)
 void pgResetFn_accelerometerConfig(accelerometerConfig_t *instance)
 {
     RESET_CONFIG_2(accelerometerConfig_t, instance,
-        .acc_lpf_hz = 25, // ATTITUDE/IMU runs at 100Hz (acro) or 500Hz (level modes) so we need to set 50 Hz (or lower) to avoid aliasing
+        .acc_lpf_hz = 25, // STATE/IMU runs at half the accelerometer sample rate, so keep this at or below the Nyquist limit to avoid aliasing
         .acc_hardware = ACC_DEFAULT,
         .acc_high_fsr = false,
     );

@@ -96,6 +96,7 @@
 
 #include "flight/failsafe.h"
 #include "flight/imu.h"
+#include "flight/kinematic_estimator.h"
 #include "flight/mixer.h"
 #include "flight/gps_rescue.h"
 #include "flight/pid.h"
@@ -753,6 +754,7 @@ void init(void)
     LED1_OFF;
 
     imuInit();
+    kinematicEstimatorInit();
 
     failsafeInit();
 

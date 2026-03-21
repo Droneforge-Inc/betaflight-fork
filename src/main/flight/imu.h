@@ -52,6 +52,10 @@ typedef union {
 extern attitudeEulerAngles_t attitude;
 extern float rMat[3][3];
 
+// Scheduler-facing state estimation task rate.
+#define STATE_TASK_DEFAULT_RATE_HZ 500
+#define STATE_TASK_RATE_FROM_ACC_HZ(accSampleRateHz) ((accSampleRateHz) / 2U)
+
 typedef struct imuConfig_s {
     uint16_t imu_dcm_kp;          // DCM filter proportional gain ( x 10000)
     uint16_t imu_dcm_ki;          // DCM filter integral gain ( x 10000)

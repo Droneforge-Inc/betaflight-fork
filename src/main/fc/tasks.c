@@ -396,9 +396,9 @@ task_attribute_t task_attributes[TASK_COUNT] = {
 
 #ifdef USE_ACC
     [TASK_ACCEL] = DEFINE_TASK("ACC", NULL, NULL, taskUpdateAccelerometer,
-                               TASK_PERIOD_HZ(1000), TASK_PRIORITY_MEDIUM),
-    [TASK_ATTITUDE] = DEFINE_TASK("ATTITUDE", NULL, NULL, imuUpdateAttitude,
-                                  TASK_PERIOD_HZ(100), TASK_PRIORITY_MEDIUM),
+                               TASK_PERIOD_HZ(1000), TASK_PRIORITY_MEDIUM_HIGH),
+    [TASK_STATE] = DEFINE_TASK("STATE", NULL, NULL, imuUpdateAttitude,
+                               TASK_PERIOD_HZ(STATE_TASK_DEFAULT_RATE_HZ), TASK_PRIORITY_MEDIUM_HIGH),
 #endif
 
     [TASK_RX] = DEFINE_TASK(
@@ -592,7 +592,8 @@ void tasksInit(void) {
   if (sensors(SENSOR_ACC) && acc.sampleRateHz) {
     setTaskEnabled(TASK_ACCEL, true);
     rescheduleTask(TASK_ACCEL, TASK_PERIOD_HZ(acc.sampleRateHz));
-    setTaskEnabled(TASK_ATTITUDE, true);
+    rescheduleTask(TASK_STATE, TASK_PERIOD_HZ(STATE_TASK_RATE_FROM_ACC_HZ(acc.sampleRateHz)));
+    setTaskEnabled(TASK_STATE, true);
   }
 #endif
 

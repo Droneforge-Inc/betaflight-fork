@@ -1,0 +1,40 @@
+/*
+ * This file is part of Cleanflight and Betaflight.
+ *
+ * Cleanflight and Betaflight are free software. You can redistribute
+ * this software and/or modify this software under the terms of the
+ * GNU General Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your option)
+ * any later version.
+ *
+ * Cleanflight and Betaflight are distributed in the hope that they
+ * will be useful, but WITHOUT ANY WARRANTY; without even the implied
+ * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this software.
+ *
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "ekf/kinematic_filter.h"
+#include "flight/imu.h"
+
+void kinematicEstimatorInit(void);
+void kinematicEstimatorReset(void);
+void kinematicEstimatorResetState(const kinematicState_t *state);
+void kinematicEstimatorPredictFromImu(float accelBodyX, float accelBodyY, float accelBodyZ, const quaternion *attitudeQuat, float dt);
+
+const kinematicFilter_t *kinematicEstimatorGetFilter(void);
+const kinematicState_t *kinematicEstimatorGetState(void);
+
+#ifdef __cplusplus
+}
+#endif

@@ -42,6 +42,7 @@
 
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
+#include "flight/kinematic_estimator.h"
 #include "flight/mixer.h"
 #include "flight/pid.h"
 #include "fc/rc.h"
@@ -604,7 +605,7 @@ static void imuComputeQuaternionFromRPY(quaternionProducts *quatProd, int16_t in
 #endif
 
 #if defined(SIMULATOR_BUILD) && !defined(USE_IMU_CALC)
-static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs)
+static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs, float dt)
 {
     // unused static functions
     UNUSED(imuMahonyAHRSupdate);
@@ -614,22 +615,12 @@ static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs)
     UNUSED(imuCalcMagErr);
 
     UNUSED(currentTimeUs);
+    UNUSED(dt);
 }
 #else
 
-static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs)
+static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs, float dt)
 {
-#if defined(SIMULATOR_BUILD) && defined(SIMULATOR_IMU_SYNC)
-    // Simulator-based timing
-    //  printf("[imu]deltaT = %u, imuDeltaT = %u, currentTimeUs = %u, micros64_real = %lu\n", deltaT, imuDeltaT, currentTimeUs, micros64_real());
-    const timeDelta_t deltaT = imuDeltaT;
-#else
-    static timeUs_t previousIMUUpdateTime = 0;
-    const timeDelta_t deltaT = currentTimeUs - previousIMUUpdateTime;
-    previousIMUUpdateTime = currentTimeUs;
-#endif
-    const float dt = deltaT * 1e-6f;
-
     // *** magnetometer based error estimate ***
     bool useMag = false;   // mag will suppress GPS correction
     float magErr = 0;
@@ -700,6 +691,20 @@ static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs)
 
 #endif
 
+static timeDelta_t imuGetDeltaT(timeUs_t currentTimeUs)
+{
+#if defined(SIMULATOR_BUILD) && defined(SIMULATOR_IMU_SYNC)
+    // Simulator-based timing
+    //  printf("[imu]deltaT = %u, imuDeltaT = %u, currentTimeUs = %u, micros64_real = %lu\n", deltaT, imuDeltaT, currentTimeUs, micros64_real());
+    return imuDeltaT;
+#else
+    static timeUs_t previousIMUUpdateTime = 0;
+    const timeDelta_t deltaT = currentTimeUs - previousIMUUpdateTime;
+    previousIMUUpdateTime = currentTimeUs;
+    return deltaT;
+#endif
+}
+
 static int calculateThrottleAngleCorrection(void)
 {
     /*
@@ -727,7 +732,20 @@ void imuUpdateAttitude(timeUs_t currentTimeUs)
         }
         imuUpdated = false;
 #endif
-        imuCalculateEstimatedAttitude(currentTimeUs);
+        const timeDelta_t deltaT = imuGetDeltaT(currentTimeUs);
+        const float dt = deltaT * 1e-6f;
+
+        imuCalculateEstimatedAttitude(currentTimeUs, dt);
+
+        quaternion attitudeQuat;
+        getQuaternion(&attitudeQuat);
+
+        kinematicEstimatorPredictFromImu(
+            acc.accADC[X],
+            acc.accADC[Y],
+            acc.accADC[Z],
+            &attitudeQuat,
+            dt);
         IMU_UNLOCK;
 
         // Update the throttle correction for angle and supply it to the mixer

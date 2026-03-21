@@ -64,7 +64,6 @@ typedef union {
     float raw[KINEMATIC_OBS_DIM_3];
     struct {
         float baroAltitude;
-        float velZ;
     };
 } kinematicObs3_t;
 
@@ -102,7 +101,7 @@ void kinematicFilterResetState(kinematicFilter_t *filter, const kinematicState_t
 void kinematicFilterSetStateCovarianceDiagonal(kinematicFilter_t *filter, float variance);
 void kinematicFilterSetProcessNoiseDiagonal(kinematicFilter_t *filter, float variance);
 void kinematicFilterSetPositionZVariance(kinematicFilter_t *filter, float variance);
-void kinematicFilterSetBaroAltitudeVelocityVariances(kinematicFilter_t *filter, float baroAltitudeVariance, float velZVariance);
+void kinematicFilterSetBaroAltitudeVariance(kinematicFilter_t *filter, float variance);
 void kinematicFilterSetFlowVelocityVariances(kinematicFilter_t *filter, float velXVariance, float velYVariance);
 
 void kinematicFilterPredictRaw(kinematicFilter_t *filter, const float control[KINEMATIC_CONTROL_DIM], float dt);
@@ -113,11 +112,11 @@ void kinematicFilterPredictInputs(kinematicFilter_t *filter,
     float dt);
 
 void kinematicFilterUpdatePositionZRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_2]);
-void kinematicFilterUpdateBaroAltitudeVelocityRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_3]);
+void kinematicFilterUpdateBaroAltitudeRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_3]);
 void kinematicFilterUpdateFlowVelocityRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_4], const float flowQuaternion[KINEMATIC_EXTRA_DIM_4]);
 
 void kinematicFilterUpdatePositionZ(kinematicFilter_t *filter, float posZ);
-void kinematicFilterUpdateBaroAltitudeVelocity(kinematicFilter_t *filter, float baroAltitude, float velZ);
+void kinematicFilterUpdateBaroAltitude(kinematicFilter_t *filter, float baroAltitude);
 void kinematicFilterUpdateFlowVelocity(kinematicFilter_t *filter, float velX, float velY, const kinematicQuaternion_t *flowQuaternion);
 
 #ifdef __cplusplus

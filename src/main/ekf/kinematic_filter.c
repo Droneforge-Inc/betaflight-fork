@@ -40,7 +40,7 @@ void kinematicFilterInit(kinematicFilter_t *filter)
     kinematicFilterSetStateCovarianceDiagonal(filter, 1.0f);
     kinematicFilterSetProcessNoiseDiagonal(filter, 0.0f);
     kinematicFilterSetPositionZVariance(filter, 1.0f);
-    kinematicFilterSetBaroAltitudeVelocityVariances(filter, 1.0f, 1.0f);
+    kinematicFilterSetBaroAltitudeVariance(filter, 1.0f);
     kinematicFilterSetFlowVelocityVariances(filter, 1.0f, 1.0f);
 }
 
@@ -70,11 +70,9 @@ void kinematicFilterSetPositionZVariance(kinematicFilter_t *filter, float varian
     kinematicFilterSetCovarianceDiagonal(filter->R2, KINEMATIC_OBS_DIM_2, variance);
 }
 
-void kinematicFilterSetBaroAltitudeVelocityVariances(kinematicFilter_t *filter, float baroAltitudeVariance, float velZVariance)
+void kinematicFilterSetBaroAltitudeVariance(kinematicFilter_t *filter, float variance)
 {
-    memset(filter->R3, 0, sizeof(filter->R3));
-    filter->R3[0] = baroAltitudeVariance;
-    filter->R3[3] = velZVariance;
+    kinematicFilterSetCovarianceDiagonal(filter->R3, KINEMATIC_OBS_DIM_3, variance);
 }
 
 void kinematicFilterSetFlowVelocityVariances(kinematicFilter_t *filter, float velXVariance, float velYVariance)
@@ -127,7 +125,7 @@ void kinematicFilterUpdatePositionZRaw(kinematicFilter_t *filter, const float me
     kinematic_update_2(filter->state.raw, filter->P, measurementCopy, filter->R2, NULL);
 }
 
-void kinematicFilterUpdateBaroAltitudeVelocityRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_3])
+void kinematicFilterUpdateBaroAltitudeRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_3])
 {
     float measurementCopy[KINEMATIC_OBS_DIM_3];
 
@@ -152,14 +150,13 @@ void kinematicFilterUpdatePositionZ(kinematicFilter_t *filter, float posZ)
     kinematicFilterUpdatePositionZRaw(filter, measurement.raw);
 }
 
-void kinematicFilterUpdateBaroAltitudeVelocity(kinematicFilter_t *filter, float baroAltitude, float velZ)
+void kinematicFilterUpdateBaroAltitude(kinematicFilter_t *filter, float baroAltitude)
 {
     kinematicObs3_t measurement = {
         .baroAltitude = baroAltitude,
-        .velZ = velZ,
     };
 
-    kinematicFilterUpdateBaroAltitudeVelocityRaw(filter, measurement.raw);
+    kinematicFilterUpdateBaroAltitudeRaw(filter, measurement.raw);
 }
 
 void kinematicFilterUpdateFlowVelocity(kinematicFilter_t *filter, float velX, float velY, const kinematicQuaternion_t *flowQuaternion)

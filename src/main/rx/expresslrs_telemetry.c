@@ -56,6 +56,7 @@ typedef enum {
   CRSF_FRAME_BATTERY_SENSOR_INDEX = 0,
 #endif
   CRSF_FRAME_ATTITUDE_INDEX,
+  CRSF_FRAME_KINEMATIC_STATE_INDEX,
 #if defined(SEND_IMU_TELEMETRY)
   CRSF_FRAME_RAW_IMU_INDEX,
 #endif
@@ -86,6 +87,7 @@ static crsfFrameType_e payloadTypes[] = {
 #endif
     CRSF_FRAMETYPE_BATTERY_SENSOR,
     CRSF_FRAMETYPE_ATTITUDE,
+    CRSF_FRAMETYPE_KINEMATIC_STATE,
 #if defined(SEND_IMU_TELEMETRY)
     CRSF_FRAMETYPE_RAW_IMU,
 #endif
@@ -109,7 +111,7 @@ static crsfFrameType_e payloadTypes[] = {
 #endif
 };
 
-STATIC_UNIT_TESTED uint8_t tlmSensors = 0;
+STATIC_UNIT_TESTED uint32_t tlmSensors = 0;
 STATIC_UNIT_TESTED uint8_t currentPayloadIndex;
 
 static uint8_t *data = NULL;
@@ -367,6 +369,12 @@ void initTelemetry(void) {
 #ifdef SEND_IMU_TELEMETRY
     tlmSensors |= BIT(CRSF_FRAME_RAW_IMU_INDEX);
 #endif
+  }
+
+  if (sensors(SENSOR_ACC) &&
+      telemetryIsSensorEnabled(SENSOR_ALTITUDE | SENSOR_PITCH | SENSOR_ROLL |
+                               SENSOR_HEADING)) {
+    tlmSensors |= BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX);
   }
 #if defined(USE_BARO) && defined(USE_VARIO)
   if (telemetryIsSensorEnabled(SENSOR_ALTITUDE)) {

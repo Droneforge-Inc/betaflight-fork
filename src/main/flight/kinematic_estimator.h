@@ -26,11 +26,13 @@ extern "C" {
 
 #include "ekf/kinematic_filter.h"
 #include "flight/imu.h"
+#include "sensors/rangefinder.h"
 
 void kinematicEstimatorInit(void);
 void kinematicEstimatorReset(void);
 void kinematicEstimatorResetState(const kinematicState_t *state);
 void kinematicEstimatorPredictFromImu(float accelBodyX, float accelBodyY, float accelBodyZ, const quaternion *attitudeQuat, float dt);
+void kinematicEstimatorUpdateFromRangefinder(const rangefinderMeasurement_t *rangefinderMeasurement);
 
 const kinematicFilter_t *kinematicEstimatorGetFilter(void);
 const kinematicState_t *kinematicEstimatorGetState(void);

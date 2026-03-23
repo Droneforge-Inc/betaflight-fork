@@ -115,7 +115,11 @@ void kinematicFilterUpdatePositionZRaw(kinematicFilter_t *filter, const float me
 void kinematicFilterUpdateBaroAltitudeRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_3]);
 void kinematicFilterUpdateFlowVelocityRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_4], const float flowQuaternion[KINEMATIC_EXTRA_DIM_4]);
 
-void kinematicFilterUpdatePositionZ(kinematicFilter_t *filter, float posZ);
+void kinematicFilterUpdatePositionZ(kinematicFilter_t *filter, float posZ, float varianceScale);
+static inline void kinematicFilterUpdatePositionZNominal(kinematicFilter_t *filter, float posZ)
+{
+    kinematicFilterUpdatePositionZ(filter, posZ, 1.0f);
+}
 void kinematicFilterUpdateBaroAltitude(kinematicFilter_t *filter, float baroAltitude);
 void kinematicFilterUpdateFlowVelocity(kinematicFilter_t *filter, float velX, float velY, const kinematicQuaternion_t *flowQuaternion);
 

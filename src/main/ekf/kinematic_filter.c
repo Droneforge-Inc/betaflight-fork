@@ -33,6 +33,11 @@ static void kinematicFilterSetCovarianceDiagonal(float *matrix, int dimension, f
     }
 }
 
+static float kinematicFilterSanitizeVarianceScale(float varianceScale)
+{
+    return (varianceScale > 0.0f) ? varianceScale : 1.0f;
+}
+
 void kinematicFilterInit(kinematicFilter_t *filter)
 {
     memset(filter, 0, sizeof(*filter));
@@ -143,11 +148,14 @@ void kinematicFilterUpdateFlowVelocityRaw(kinematicFilter_t *filter, const float
     kinematic_update_4(filter->state.raw, filter->P, measurementCopy, filter->R4, extraArgs);
 }
 
-void kinematicFilterUpdatePositionZ(kinematicFilter_t *filter, float posZ)
+void kinematicFilterUpdatePositionZ(kinematicFilter_t *filter, float posZ, float varianceScale)
 {
     kinematicObs2_t measurement = { .posZ = posZ };
+    float scaledR[KINEMATIC_OBS_COVARIANCE_DIM_2];
 
-    kinematicFilterUpdatePositionZRaw(filter, measurement.raw);
+    scaledR[0] = filter->R2[0] * kinematicFilterSanitizeVarianceScale(varianceScale);
+
+    kinematic_update_2(filter->state.raw, filter->P, measurement.raw, scaledR, NULL);
 }
 
 void kinematicFilterUpdateBaroAltitude(kinematicFilter_t *filter, float baroAltitude)

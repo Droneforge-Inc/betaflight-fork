@@ -187,6 +187,28 @@ bool rangefinderInit(void)
     return true;
 }
 
+void rangefinderGetLatestMeasurement(rangefinderMeasurement_t *measurement)
+{
+    if (!measurement) {
+        return;
+    }
+
+    measurement->rawAltitudeCm = rangefinder.rawAltitude;
+    measurement->calculatedAltitudeCm = rangefinder.calculatedAltitude;
+    measurement->snr = rangefinder.snr;
+    measurement->isHealthy = rangefinderIsHealthy();
+    measurement->snrThresholdReached = rangefinder.snrThresholdReached;
+    measurement->dynamicDistanceThresholdCm = rangefinder.dynamicDistanceThreshold;
+#ifdef USE_RANGEFINDER_TF
+    measurement->strength = rangefinder.strength;
+#endif
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    measurement->distStrength = rangefinder.distStrength;
+    measurement->distPrecision = rangefinder.distPrecision;
+    measurement->distStatus = rangefinder.distStatus;
+#endif
+}
+
 static int32_t applyMedianFilter(int32_t newReading)
 {
     #define DISTANCE_SAMPLES_MEDIAN 5
@@ -421,4 +443,3 @@ bool rangefinderIsHealthy(void)
     return (millis() - rangefinder.lastValidResponseTimeMs) < RANGEFINDER_HARDWARE_TIMEOUT_MS;
 }
 #endif
-

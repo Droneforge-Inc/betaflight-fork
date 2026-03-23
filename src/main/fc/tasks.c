@@ -55,6 +55,7 @@
 
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
+#include "flight/kinematic_estimator.h"
 #include "flight/mixer.h"
 #include "flight/pid.h"
 #include "flight/position.h"
@@ -300,9 +301,18 @@ void taskUpdateRangefinder(timeUs_t currentTimeUs) {
     return;
   }
 
-  rangefinderUpdate();
+  bool hasNewMeasurement;
+  rangefinderMeasurement_t rangefinderMeasurement;
 
-  rangefinderProcess(getCosTiltAngle());
+  rangefinderUpdate();
+  hasNewMeasurement = rangefinderProcess(getCosTiltAngle());
+
+  if (!hasNewMeasurement) {
+    return;
+  }
+
+  rangefinderGetLatestMeasurement(&rangefinderMeasurement);
+  kinematicEstimatorUpdateFromRangefinder(&rangefinderMeasurement);
 }
 #endif
 

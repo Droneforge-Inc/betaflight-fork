@@ -65,9 +65,27 @@ typedef struct rangefinder_s {
     int16_t snr;
 } rangefinder_t;
 
+typedef struct rangefinderMeasurement_s {
+    int32_t rawAltitudeCm;
+    int32_t calculatedAltitudeCm;
+    int16_t snr;
+    bool isHealthy;
+    bool snrThresholdReached;
+    int32_t dynamicDistanceThresholdCm;
+#ifdef USE_RANGEFINDER_TF
+    uint16_t strength;
+#endif
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    uint8_t distStrength;
+    uint8_t distPrecision;
+    uint8_t distStatus;
+#endif
+} rangefinderMeasurement_t;
+
 void rangefinderResetDynamicThreshold(void);
 bool rangefinderInit(void);
 
+void rangefinderGetLatestMeasurement(rangefinderMeasurement_t *measurement);
 int32_t rangefinderGetLatestAltitude(void);
 int32_t rangefinderGetLatestRawAltitude(void);
 #ifdef USE_RANGEFINDER_TF

@@ -53,7 +53,9 @@
 #include "fc/runtime_config.h"
 
 #include "flight/imu.h"
+#ifdef USE_EKF
 #include "flight/kinematic_estimator.h"
+#endif
 #include "flight/mixer.h"
 #include "flight/position.h"
 
@@ -441,6 +443,17 @@ static int16_t decidegrees2Radians10000(int16_t angle_decidegree) {
   return (int16_t)(RAD * 1000.0f * angle_decidegree);
 }
 
+// fill dst buffer with crsf-attitude telemetry frame
+void crsfFrameAttitude(sbuf_t *dst) {
+  sbufWriteU8(dst,
+              CRSF_FRAME_ATTITUDE_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+  sbufWriteU8(dst, CRSF_FRAMETYPE_ATTITUDE);
+  sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.pitch));
+  sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.roll));
+  sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.yaw));
+}
+
+#ifdef USE_EKF
 static int16_t crsfFloatToInt16(float value) {
   return (int16_t)lrintf(
       constrainf(value, (float)INT16_MIN, (float)INT16_MAX));
@@ -453,16 +466,7 @@ static int16_t crsfMetersToMillimeters(float value) {
 static int16_t crsfMetersPerSecondToMillimetersPerSecond(float value) {
   return crsfFloatToInt16(value * 1000.0f);
 }
-
-// fill dst buffer with crsf-attitude telemetry frame
-void crsfFrameAttitude(sbuf_t *dst) {
-  sbufWriteU8(dst,
-              CRSF_FRAME_ATTITUDE_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
-  sbufWriteU8(dst, CRSF_FRAMETYPE_ATTITUDE);
-  sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.pitch));
-  sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.roll));
-  sbufWriteU16BigEndian(dst, decidegrees2Radians10000(attitude.values.yaw));
-}
+#endif
 
 #if defined(SEND_IMU_TELEMETRY)
 void crsfFrameRawImu(sbuf_t *dst) {
@@ -486,6 +490,7 @@ void crsfFrameRawImu(sbuf_t *dst) {
 }
 #endif
 
+#ifdef USE_EKF
 /*
 0xD4 Kinematic state
 Payload:
@@ -518,6 +523,7 @@ static void crsfFrameKinematicState(sbuf_t *dst) {
   sbufWriteU16BigEndian(dst,
                         (uint16_t)decidegrees2Radians10000(attitude.values.yaw));
 }
+#endif
 
 /*
 0x21 Flight mode text based
@@ -865,7 +871,9 @@ static void crsfFrameMotorRpm(sbuf_t *dst) {
 typedef enum {
   CRSF_FRAME_START_INDEX = 0,
   CRSF_FRAME_ATTITUDE_INDEX = CRSF_FRAME_START_INDEX,
+#ifdef USE_EKF
   CRSF_FRAME_KINEMATIC_STATE_INDEX,
+#endif
   CRSF_FRAME_BARO_ALTITUDE_INDEX,
   CRSF_FRAME_RAW_IMU_DATA_INDEX,
   CRSF_FRAME_BATTERY_SENSOR_INDEX,
@@ -933,11 +941,13 @@ static void processCrsf(void) {
     crsfFrameAttitude(dst);
     crsfFinalize(dst);
   }
+#ifdef USE_EKF
   if (currentSchedule & BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX)) {
     crsfInitializeFrame(dst);
     crsfFrameKinematicState(dst);
     crsfFinalize(dst);
   }
+#endif
 #if defined(SEND_IMU_TELEMETRY)
   if (currentSchedule & BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX)) {
     crsfInitializeFrame(dst);
@@ -1058,11 +1068,13 @@ void initCrsfTelemetry(void) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX);
 #endif
   }
+#ifdef USE_EKF
   if (sensors(SENSOR_ACC) &&
       telemetryIsSensorEnabled(SENSOR_ALTITUDE | SENSOR_PITCH | SENSOR_ROLL |
                                SENSOR_HEADING)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX);
   }
+#endif
 #if defined(USE_BARO) && defined(USE_VARIO)
   if (telemetryIsSensorEnabled(SENSOR_ALTITUDE)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_BARO_ALTITUDE_INDEX);
@@ -1333,9 +1345,11 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType) {
     crsfFrameRawImu(sbuf);
     break;
 #endif
+#ifdef USE_EKF
   case CRSF_FRAMETYPE_KINEMATIC_STATE:
     crsfFrameKinematicState(sbuf);
     break;
+#endif
 #if defined(USE_RANGEFINDER_TF)
   case CRSF_FRAMETYPE_RANGEFINDER_TF:
     crsfFrameRangefinderTF(sbuf);

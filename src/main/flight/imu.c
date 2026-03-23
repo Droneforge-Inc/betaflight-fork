@@ -42,7 +42,9 @@
 
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
+#ifdef USE_EKF
 #include "flight/kinematic_estimator.h"
+#endif
 #include "flight/mixer.h"
 #include "flight/pid.h"
 #include "fc/rc.h"
@@ -737,6 +739,7 @@ void imuUpdateAttitude(timeUs_t currentTimeUs)
 
         imuCalculateEstimatedAttitude(currentTimeUs, dt);
 
+#ifdef USE_EKF
         quaternion attitudeQuat;
         getQuaternion(&attitudeQuat);
 
@@ -746,6 +749,7 @@ void imuUpdateAttitude(timeUs_t currentTimeUs)
             acc.accADC[Z],
             &attitudeQuat,
             dt);
+#endif
         IMU_UNLOCK;
 
         // Update the throttle correction for angle and supply it to the mixer

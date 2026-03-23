@@ -96,7 +96,9 @@
 
 #include "flight/failsafe.h"
 #include "flight/imu.h"
+#ifdef USE_EKF
 #include "flight/kinematic_estimator.h"
+#endif
 #include "flight/mixer.h"
 #include "flight/gps_rescue.h"
 #include "flight/pid.h"
@@ -754,7 +756,9 @@ void init(void)
     LED1_OFF;
 
     imuInit();
+#ifdef USE_EKF
     kinematicEstimatorInit();
+#endif
 
     failsafeInit();
 

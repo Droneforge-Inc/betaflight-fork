@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include "common/quaternion.h"
 #include "ekf/kinematic.h"
 
 #define KINEMATIC_STATE_COVARIANCE_DIM (KINEMATIC_ERROR_DIM * KINEMATIC_ERROR_DIM)
@@ -75,16 +76,6 @@ typedef union {
     };
 } kinematicObs4_t;
 
-typedef union {
-    float raw[KINEMATIC_EXTRA_DIM_4];
-    struct {
-        float w;
-        float x;
-        float y;
-        float z;
-    };
-} kinematicQuaternion_t;
-
 typedef struct kinematicFilter_s {
     kinematicState_t state;
     float P[KINEMATIC_STATE_COVARIANCE_DIM];
@@ -121,7 +112,11 @@ static inline void kinematicFilterUpdatePositionZNominal(kinematicFilter_t *filt
     kinematicFilterUpdatePositionZ(filter, posZ, 1.0f);
 }
 void kinematicFilterUpdateBaroAltitude(kinematicFilter_t *filter, float baroAltitude);
-void kinematicFilterUpdateFlowVelocity(kinematicFilter_t *filter, float velX, float velY, const kinematicQuaternion_t *flowQuaternion);
+void kinematicFilterUpdateFlowVelocity(kinematicFilter_t *filter, float velX, float velY, const quaternion_t *flowQuaternion, float varianceScale);
+static inline void kinematicFilterUpdateFlowVelocityNominal(kinematicFilter_t *filter, float velX, float velY, const quaternion_t *flowQuaternion)
+{
+    kinematicFilterUpdateFlowVelocity(filter, velX, velY, flowQuaternion, 1.0f);
+}
 
 #ifdef __cplusplus
 }

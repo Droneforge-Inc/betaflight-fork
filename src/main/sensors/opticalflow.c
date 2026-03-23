@@ -90,6 +90,20 @@ bool opticalflowInit(void) {
   return true;
 }
 
+void opticalflowGetLatestMeasurement(opticalflowMeasurement_t *measurement) {
+  if (!measurement) {
+    return;
+  }
+
+  measurement->velX = opticalflow.velX;
+  measurement->velY = opticalflow.velY;
+  measurement->isHealthy = opticalflowIsHealthy();
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+  measurement->flowQuality = opticalflow.flowQuality;
+  measurement->flowStatus = opticalflow.flowStatus;
+#endif
+}
+
 static int16_t applyMedianFilter(int16_t newReading, bool isVelX) {
 #define FLOW_SAMPLES_MEDIAN 5
   static int16_t filterVelX[FLOW_SAMPLES_MEDIAN];
@@ -144,6 +158,8 @@ void opticalflowUpdate(void) {
 }
 
 bool opticalflowProcess(void) {
+  bool hasMeasurement = false;
+
   if (opticalflow.dev.readFlow) {
     optrangeFlowData_t flowData = opticalflow.dev.readFlow(&opticalflow.dev);
     opticalflow.velX =
@@ -157,6 +173,7 @@ bool opticalflowProcess(void) {
 #endif
 
     opticalflow.lastValidResponseTimeMs = millis();
+    hasMeasurement = true;
   } else {
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
     opticalflow.flowStatus = 0;
@@ -165,7 +182,7 @@ bool opticalflowProcess(void) {
 
   DEBUG_SET(DEBUG_OPTICALFLOW, 1, opticalflow.velX);
   DEBUG_SET(DEBUG_OPTICALFLOW, 2, opticalflow.velY);
-  return true;
+  return hasMeasurement;
 }
 
 int16_t opticalflowGetLatestVelX(void) { return opticalflow.velX; }

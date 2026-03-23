@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "common/time.h"
@@ -29,8 +30,19 @@ typedef struct opticalflow_s {
   timeMs_t lastValidResponseTimeMs;
 } opticalflow_t;
 
+typedef struct opticalflowMeasurement_s {
+  int16_t velX; // cm/s @ 1m
+  int16_t velY; // cm/s @ 1m
+  bool isHealthy;
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+  uint8_t flowQuality; // 0-255, higher is better
+  uint8_t flowStatus;  // 0 is invalid, 1 is valid
+#endif
+} opticalflowMeasurement_t;
+
 bool opticalflowInit(void);
 
+void opticalflowGetLatestMeasurement(opticalflowMeasurement_t *measurement);
 int16_t opticalflowGetLatestVelX(void);
 int16_t opticalflowGetLatestVelY(void);
 

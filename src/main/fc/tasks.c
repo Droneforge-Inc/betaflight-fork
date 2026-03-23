@@ -332,7 +332,27 @@ static void taskUpdateOpticalflow(timeUs_t currentTimeUs) {
   }
 
   opticalflowUpdate();
+
+#if defined(USE_EKF) && defined(USE_RANGEFINDER)
+  const bool hasNewMeasurement = opticalflowProcess();
+  opticalflowMeasurement_t opticalflowMeasurement;
+  rangefinderMeasurement_t rangefinderMeasurement;
+  quaternion_t attitudeQuat;
+
+  if (!hasNewMeasurement || !sensors(SENSOR_RANGEFINDER)) {
+    return;
+  }
+
+  opticalflowGetLatestMeasurement(&opticalflowMeasurement);
+  rangefinderGetLatestMeasurement(&rangefinderMeasurement);
+  getQuaternion(&attitudeQuat);
+
+  kinematicEstimatorUpdateFromOpticalflow(&opticalflowMeasurement,
+                                          &rangefinderMeasurement,
+                                          &attitudeQuat);
+#else
   opticalflowProcess();
+#endif
 }
 #endif
 

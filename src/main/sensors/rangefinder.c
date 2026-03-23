@@ -335,7 +335,8 @@ bool rangefinderProcess(float cosTiltAngle)
         rangefinder.strength = applyMedianFilterStrength(strength);
 #elif defined(USE_RANGEFINDER_OPTFLOW_MTF)
         const optrangeRangefinderData_t data = rangefinder.dev.readRangefinder(&rangefinder.dev);
-        const int32_t distance = data.distValue;
+        const int32_t distanceMm = (int32_t)data.distValue;
+        const int32_t distance = (distanceMm >= 0) ? ((distanceMm + 5) / 10) : distanceMm;
         const uint8_t strength = data.distStrength;
 
         rangefinder.distStrength = strength;

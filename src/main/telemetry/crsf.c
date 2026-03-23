@@ -810,11 +810,12 @@ static void crsfFrameOpticalflowRangefinder(sbuf_t *dst) {
               CRSF_FRAME_OPTRANGE_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
   sbufWriteU8(dst, CRSF_FRAMETYPE_OPTRANGE);
 
-  const int32_t distValue = rangefinderGetLatestAltitude();
+  const int32_t distValueCm = rangefinderGetLatestAltitude();
+  const int32_t distValueMm = (distValueCm >= 0) ? (distValueCm * 10) : distValueCm;
   const uint8_t distStrength = rangefinderGetLatestDistStrength();
   const uint8_t distPrecision = rangefinderGetLatestDistPrecision();
 
-  sbufWriteU16BigEndian(dst, (distValue >= 0) ? constrain(distValue, 0, 65535)
+  sbufWriteU16BigEndian(dst, (distValueMm >= 0) ? constrain(distValueMm, 0, 65535)
                                               : UINT16_MAX);
   sbufWriteU8(dst, distStrength);
   sbufWriteU8(dst, distPrecision);

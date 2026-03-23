@@ -55,7 +55,9 @@
 
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
+#ifdef USE_EKF
 #include "flight/kinematic_estimator.h"
+#endif
 #include "flight/mixer.h"
 #include "flight/pid.h"
 #include "flight/position.h"
@@ -301,10 +303,12 @@ void taskUpdateRangefinder(timeUs_t currentTimeUs) {
     return;
   }
 
+  rangefinderUpdate();
+
+#ifdef USE_EKF
   bool hasNewMeasurement;
   rangefinderMeasurement_t rangefinderMeasurement;
 
-  rangefinderUpdate();
   hasNewMeasurement = rangefinderProcess(getCosTiltAngle());
 
   if (!hasNewMeasurement) {
@@ -313,6 +317,9 @@ void taskUpdateRangefinder(timeUs_t currentTimeUs) {
 
   rangefinderGetLatestMeasurement(&rangefinderMeasurement);
   kinematicEstimatorUpdateFromRangefinder(&rangefinderMeasurement);
+#else
+  rangefinderProcess(getCosTiltAngle());
+#endif
 }
 #endif
 
@@ -405,10 +412,20 @@ task_attribute_t task_attributes[TASK_COUNT] = {
                     TASK_GYROPID_DESIRED_PERIOD, TASK_PRIORITY_REALTIME),
 
 #ifdef USE_ACC
+#ifdef USE_EKF
+    [TASK_ACCEL] =
+        DEFINE_TASK("ACC", NULL, NULL, taskUpdateAccelerometer,
+                    TASK_PERIOD_HZ(1000), TASK_PRIORITY_MEDIUM_HIGH),
+    [TASK_STATE] =
+        DEFINE_TASK("STATE", NULL, NULL, imuUpdateAttitude,
+                    TASK_PERIOD_HZ(STATE_TASK_DEFAULT_RATE_HZ),
+                    TASK_PRIORITY_MEDIUM_HIGH),
+#else
     [TASK_ACCEL] = DEFINE_TASK("ACC", NULL, NULL, taskUpdateAccelerometer,
-                               TASK_PERIOD_HZ(1000), TASK_PRIORITY_MEDIUM_HIGH),
+                               TASK_PERIOD_HZ(1000), TASK_PRIORITY_MEDIUM),
     [TASK_STATE] = DEFINE_TASK("STATE", NULL, NULL, imuUpdateAttitude,
-                               TASK_PERIOD_HZ(STATE_TASK_DEFAULT_RATE_HZ), TASK_PRIORITY_MEDIUM_HIGH),
+                               TASK_PERIOD_HZ(100), TASK_PRIORITY_MEDIUM),
+#endif
 #endif
 
     [TASK_RX] = DEFINE_TASK(

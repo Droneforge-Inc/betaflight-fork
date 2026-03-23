@@ -90,9 +90,6 @@ COMMON_SRC = \
             flight/gps_rescue.c \
             fc/gps_lap_timer.c \
             flight/dyn_notch_filter.c \
-            ekf/kinematic.c \
-            ekf/kinematic_filter.c \
-            flight/kinematic_estimator.c \
             flight/imu.c \
             flight/mixer.c \
             flight/mixer_init.c \
@@ -207,6 +204,13 @@ COMMON_SRC = \
             io/vtx_control.c \
             io/vtx_msp.c \
             cms/cms_menu_vtx_msp.c
+
+ifneq ($(filter USE_EKF,$(OPTIONS)),)
+COMMON_SRC += \
+            ekf/kinematic.c \
+            ekf/kinematic_filter.c \
+            flight/kinematic_estimator.c
+endif
 
 ifneq ($(SIMULATOR_BUILD),yes)
 

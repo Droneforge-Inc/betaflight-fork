@@ -21,17 +21,13 @@
 #pragma once
 
 #include "common/axis.h"
+#include "common/quaternion.h"
 #include "common/time.h"
 #include "common/maths.h"
 #include "pg/pg.h"
 
 // Exported symbols
 extern bool canUseGPSHeading;
-
-typedef struct {
-    float w,x,y,z;
-} quaternion;
-#define QUATERNION_INITIALIZE  {.w=1, .x=0, .y=0,.z=0}
 
 typedef struct {
     float ww,wx,wy,wz,xx,xy,xz,yy,yz,zz;
@@ -74,7 +70,7 @@ typedef struct imuRuntimeConfig_s {
 void imuConfigure(uint16_t throttle_correction_angle, uint8_t throttle_correction_value);
 
 float getCosTiltAngle(void);
-void getQuaternion(quaternion * q);
+void getQuaternion(quaternion_t * q);
 void imuUpdateAttitude(timeUs_t currentTimeUs);
 
 void imuInit(void);

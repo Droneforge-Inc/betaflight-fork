@@ -44,7 +44,7 @@ void kinematicFilterInit(kinematicFilter_t *filter) {
   kinematicFilterSetProcessNoiseDiagonal(filter, 0.0f);
   kinematicFilterSetPositionZVariance(filter, 1e-3f);
   kinematicFilterSetBaroAltitudeVariance(filter, 1.0f);
-  kinematicFilterSetFlowVelocityVariances(filter, 1.0f, 1.0f);
+  kinematicFilterSetFlowVelocityVariances(filter, 1e-2f, 1e-2f);
 }
 
 void kinematicFilterReset(kinematicFilter_t *filter) {
@@ -176,14 +176,23 @@ void kinematicFilterUpdateBaroAltitude(kinematicFilter_t *filter,
   kinematicFilterUpdateBaroAltitudeRaw(filter, measurement.raw);
 }
 
-void kinematicFilterUpdateFlowVelocity(
-    kinematicFilter_t *filter, float velX, float velY,
-    const kinematicQuaternion_t *flowQuaternion) {
+void kinematicFilterUpdateFlowVelocity(kinematicFilter_t *filter, float velX,
+                                       float velY,
+                                       const quaternion_t *flowQuaternion,
+                                       float varianceScale) {
   kinematicObs4_t measurement = {
       .velX = velX,
       .velY = velY,
   };
+  float scaledR[KINEMATIC_OBS_COVARIANCE_DIM_4] = {0};
+  float extraArgs[KINEMATIC_EXTRA_DIM_4];
+  const float sanitizedVarianceScale =
+      kinematicFilterSanitizeVarianceScale(varianceScale);
 
-  kinematicFilterUpdateFlowVelocityRaw(filter, measurement.raw,
-                                       flowQuaternion->raw);
+  scaledR[0] = filter->R4[0] * sanitizedVarianceScale;
+  scaledR[3] = filter->R4[3] * sanitizedVarianceScale;
+  memcpy(extraArgs, flowQuaternion->raw, sizeof(extraArgs));
+
+  kinematic_update_4(filter->state.raw, filter->P, measurement.raw, scaledR,
+                     extraArgs);
 }

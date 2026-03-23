@@ -26,9 +26,12 @@
 
 #define METERS_PER_SECOND_SQUARED_PER_G 9.80665f
 #define METERS_PER_CENTIMETER 0.01f
+#define METERS_PER_CENTIMETER_SQUARED (METERS_PER_CENTIMETER * METERS_PER_CENTIMETER)
 #define RANGEFINDER_VARIANCE_SCALE_MAX 20.0f
+#define OPTICALFLOW_VARIANCE_SCALE_MAX 20.0f
 #define RANGEFINDER_STRENGTH_GAIN 4.0f
-#define RANGEFINDER_DISTANCE_GAIN 2.5f
+#define DISTANCE_VARIANCE_GAIN 2.5f
+#define OPTICALFLOW_QUALITY_GAIN 4.0f
 
 // Flight-level runtime owner for the generated kinematic EKF model.
 static kinematicFilter_t kinematicEstimator;
@@ -43,10 +46,25 @@ static float kinematicEstimatorCentimetersToMeters(float valueCm)
     return valueCm * METERS_PER_CENTIMETER;
 }
 
+static float kinematicEstimatorOpticalflowToMetersPerSecond(float flowVelocityCmPerSecondAtOneMeter, float altitudeCm)
+{
+    return flowVelocityCmPerSecondAtOneMeter * altitudeCm * METERS_PER_CENTIMETER_SQUARED;
+}
+
+static float kinematicEstimatorGetDistanceVarianceScale(int32_t distanceCm)
+{
+    if (distanceCm > 0 && rangefinderMaxRangeCm > 0) {
+        const float distanceNorm = constrainf(distanceCm / (float)rangefinderMaxRangeCm, 0.0f, 1.0f);
+
+        return 1.0f + DISTANCE_VARIANCE_GAIN * distanceNorm * distanceNorm;
+    }
+
+    return 1.0f;
+}
+
 static float kinematicEstimatorGetRangefinderVarianceScale(const rangefinderMeasurement_t *rangefinderMeasurement)
 {
     float strengthScale = 1.0f;
-    float distanceScale = 1.0f;
 
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
     const float strengthNorm = constrainf(rangefinderMeasurement->distStrength / 255.0f, 0.0f, 1.0f);
@@ -54,13 +72,23 @@ static float kinematicEstimatorGetRangefinderVarianceScale(const rangefinderMeas
     strengthScale = 1.0f + RANGEFINDER_STRENGTH_GAIN * (1.0f - strengthNorm);
 #endif
 
-    if (rangefinderMeasurement->rawAltitudeCm > 0 && rangefinderMaxRangeCm > 0) {
-        const float distanceNorm = constrainf(rangefinderMeasurement->rawAltitudeCm / (float)rangefinderMaxRangeCm, 0.0f, 1.0f);
+    return constrainf(strengthScale * kinematicEstimatorGetDistanceVarianceScale(rangefinderMeasurement->rawAltitudeCm), 1.0f, RANGEFINDER_VARIANCE_SCALE_MAX);
+}
 
-        distanceScale = 1.0f + RANGEFINDER_DISTANCE_GAIN * distanceNorm * distanceNorm;
-    }
+static float kinematicEstimatorGetOpticalflowVarianceScale(const opticalflowMeasurement_t *opticalflowMeasurement, const rangefinderMeasurement_t *rangefinderMeasurement)
+{
+    float qualityScale = 1.0f;
 
-    return constrainf(strengthScale * distanceScale, 1.0f, RANGEFINDER_VARIANCE_SCALE_MAX);
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    const float qualityNorm = constrainf(opticalflowMeasurement->flowQuality / 255.0f, 0.0f, 1.0f);
+    const float qualityError = 1.0f - qualityNorm;
+
+    qualityScale = 1.0f + OPTICALFLOW_QUALITY_GAIN * qualityError * qualityError;
+#else
+    UNUSED(opticalflowMeasurement);
+#endif
+
+    return constrainf(qualityScale * kinematicEstimatorGetDistanceVarianceScale(rangefinderMeasurement->rawAltitudeCm), 1.0f, OPTICALFLOW_VARIANCE_SCALE_MAX);
 }
 
 void kinematicEstimatorInit(void)
@@ -83,7 +111,7 @@ void kinematicEstimatorResetState(const kinematicState_t *state)
     kinematicFilterResetState(&kinematicEstimator, state);
 }
 
-void kinematicEstimatorPredictFromImu(float accelBodyX, float accelBodyY, float accelBodyZ, const quaternion *attitudeQuat, float dt)
+void kinematicEstimatorPredictFromImu(float accelBodyX, float accelBodyY, float accelBodyZ, const quaternion_t *attitudeQuat, float dt)
 {
     if (!attitudeQuat || dt <= 0.0f) {
         return;
@@ -95,6 +123,32 @@ void kinematicEstimatorPredictFromImu(float accelBodyX, float accelBodyY, float 
         kinematicEstimatorAccelToMetersPerSecondSquared(accelBodyZ),
         attitudeQuat->w, attitudeQuat->x, attitudeQuat->y, attitudeQuat->z,
         dt);
+}
+
+void kinematicEstimatorUpdateFromOpticalflow(const opticalflowMeasurement_t *opticalflowMeasurement, const rangefinderMeasurement_t *rangefinderMeasurement, const quaternion_t *attitudeQuat)
+{
+    if (!opticalflowMeasurement || !rangefinderMeasurement || !attitudeQuat) {
+        return;
+    }
+
+    if (!opticalflowMeasurement->isHealthy || !rangefinderMeasurement->isHealthy || rangefinderMeasurement->calculatedAltitudeCm < 0) {
+        return;
+    }
+
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+    if (opticalflowMeasurement->flowStatus == 0 || rangefinderMeasurement->distStatus == 0) {
+        return;
+    }
+#endif
+
+    const float altitudeCm = (float)rangefinderMeasurement->calculatedAltitudeCm;
+    const float opticalflowVarianceScale = kinematicEstimatorGetOpticalflowVarianceScale(opticalflowMeasurement, rangefinderMeasurement);
+
+    kinematicFilterUpdateFlowVelocity(&kinematicEstimator,
+        kinematicEstimatorOpticalflowToMetersPerSecond((float)opticalflowMeasurement->velX, altitudeCm),
+        kinematicEstimatorOpticalflowToMetersPerSecond((float)opticalflowMeasurement->velY, altitudeCm),
+        attitudeQuat,
+        opticalflowVarianceScale);
 }
 
 void kinematicEstimatorUpdateFromRangefinder(const rangefinderMeasurement_t *rangefinderMeasurement)

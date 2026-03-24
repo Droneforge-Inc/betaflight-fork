@@ -104,53 +104,6 @@ void opticalflowGetLatestMeasurement(opticalflowMeasurement_t *measurement) {
 #endif
 }
 
-static int16_t applyMedianFilter(int16_t newReading, bool isVelX) {
-#define FLOW_SAMPLES_MEDIAN 5
-  static int16_t filterVelX[FLOW_SAMPLES_MEDIAN];
-  static int16_t filterVelY[FLOW_SAMPLES_MEDIAN];
-  static int filterVelXIndex = 0;
-  static int filterVelYIndex = 0;
-  static bool medianFilterReadyX = false;
-  static bool medianFilterReadyY = false;
-
-  if (isVelX) {
-    filterVelX[filterVelXIndex] = newReading;
-    ++filterVelXIndex;
-    if (filterVelXIndex == FLOW_SAMPLES_MEDIAN) {
-      filterVelXIndex = 0;
-      medianFilterReadyX = true;
-    }
-  } else {
-    filterVelY[filterVelYIndex] = newReading;
-    ++filterVelYIndex;
-    if (filterVelYIndex == FLOW_SAMPLES_MEDIAN) {
-      filterVelYIndex = 0;
-      medianFilterReadyY = true;
-    }
-  }
-
-  return newReading;
-  return isVelX && medianFilterReadyX
-             ? quickMedianFilter5((int32_t *)filterVelX)
-         : !isVelX && medianFilterReadyY
-             ? quickMedianFilter5((int32_t *)filterVelY)
-             : newReading;
-}
-
-static int16_t applyLowPassFilter(int16_t newReading, bool isVelX) {
-  static float smoothX = 0.0f;
-  static float smoothY = 0.0f;
-
-  float alpha = 1.0f;
-
-  if (isVelX) {
-    smoothX = alpha * newReading + (1 - alpha) * smoothX;
-  } else {
-    smoothY = alpha * newReading + (1 - alpha) * smoothY;
-  }
-  return (int16_t)(isVelX ? smoothX : smoothY);
-}
-
 void opticalflowUpdate(void) {
   if (opticalflow.dev.update) {
     opticalflow.dev.update(&opticalflow.dev);
@@ -162,10 +115,8 @@ bool opticalflowProcess(void) {
 
   if (opticalflow.dev.readFlow) {
     optrangeFlowData_t flowData = opticalflow.dev.readFlow(&opticalflow.dev);
-    opticalflow.velX =
-        applyLowPassFilter(applyMedianFilter(flowData.velX, true), true);
-    opticalflow.velY =
-        applyLowPassFilter(applyMedianFilter(flowData.velY, false), false);
+    opticalflow.velX = flowData.velX;
+    opticalflow.velY = flowData.velY;
 
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
     opticalflow.flowQuality = flowData.flowQuality;

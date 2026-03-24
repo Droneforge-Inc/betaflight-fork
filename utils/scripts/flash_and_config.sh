@@ -8,13 +8,15 @@ show_help() {
 Usage: $0 <command> [arguments]
 
 Commands:
-    flash [--fc <type>] [--port <device>]     Flash firmware only (default FC: betafpv, options: betafpv, axis, lionbee)
+    flash [--fc <type>] [--port <device>]
+                               Flash firmware only (default FC: betafpv, options: betafpv, axis, lionbee, halo)
     vtx [--port <device>] <band> <ch> [power] Flash VTX binary, configure VTX, then flash firmware + config (betafpv only)
 
 Examples:
     $0 flash                  # Just flash firmware (betafpv)
     $0 flash --fc axis        # Flash firmware for axis
     $0 flash --fc lionbee     # Flash firmware for lionbee
+    $0 flash --fc halo        # Flash firmware for HDZero Halo
     $0 flash --port /dev/tty.usbmodem1234
                                # Flash using a specific serial port
     $0 vtx --port /dev/tty.usbmodem1234 5 1
@@ -83,8 +85,11 @@ cmd_flash() {
         lionbee)
             hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_LIONBEE_V2_REVB.hex"
             ;;
+        halo)
+            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32H743_HDZERO_HALO.hex"
+            ;;
         *)
-            echo "Error: Unknown FC type '$fc_type'. Must be 'betafpv', 'axis', or 'lionbee'."
+            echo "Error: Unknown FC type '$fc_type'. Must be 'betafpv', 'axis', 'lionbee', or 'halo'."
             exit 1
             ;;
     esac
@@ -100,13 +105,16 @@ cmd_flash() {
         lionbee)
             config_file="$SCRIPT_DIR/../config/lionbee.txt"
             ;;
+        halo)
+            config_file="$SCRIPT_DIR/../config/halo.txt"
+            ;;
     esac
     
     arm-none-eabi-objcopy -I ihex -O binary "$hex_file" $SCRIPT_DIR/../bin/firmware.bin
     python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -x bl
     sleep 1
     dfu-util -a 0 -s 0x08000000:leave -D "$SCRIPT_DIR/../bin/firmware.bin"
-    sleep 3
+    sleep 5
     python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -f "$config_file"
     
     echo "=========================================="

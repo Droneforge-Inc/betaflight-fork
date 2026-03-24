@@ -7,6 +7,7 @@
 #define EDIM 10
 #define MEDIM 10
 #define MAX_ZDIM 2
+#define H_MOD_IS_IDENTITY 1
 #define Q_SYM_IS_DISCRETE 1
 typedef void (*ObsFun)(float *, float *, float *);
 
@@ -15,421 +16,394 @@ static const float MAHA_THRESH_3 = 3.8414588206941227f;
 static const float MAHA_THRESH_4 = 5.9914645471079808f;
 
 
-/******************************************************************************
- *                      Code generated with SymPy 1.14.0                      *
- *                                                                            *
- *              See http://www.sympy.org/ for more information.               *
- *                                                                            *
- *                         This file is part of 'ekf'                         *
- ******************************************************************************/
-static void err_fun(float *nom_x, float *delta_x, float *out_8400715136570573408) {
-   out_8400715136570573408[0] = delta_x[0] + nom_x[0];
-   out_8400715136570573408[1] = delta_x[1] + nom_x[1];
-   out_8400715136570573408[2] = delta_x[2] + nom_x[2];
-   out_8400715136570573408[3] = delta_x[3] + nom_x[3];
-   out_8400715136570573408[4] = delta_x[4] + nom_x[4];
-   out_8400715136570573408[5] = delta_x[5] + nom_x[5];
-   out_8400715136570573408[6] = delta_x[6] + nom_x[6];
-   out_8400715136570573408[7] = delta_x[7] + nom_x[7];
-   out_8400715136570573408[8] = delta_x[8] + nom_x[8];
-   out_8400715136570573408[9] = delta_x[9] + nom_x[9];
+static void err_fun(float *nom_x, float *delta_x, float *out) {
+  out[0] = delta_x[0] + nom_x[0];
+  out[1] = delta_x[1] + nom_x[1];
+  out[2] = delta_x[2] + nom_x[2];
+  out[3] = delta_x[3] + nom_x[3];
+  out[4] = delta_x[4] + nom_x[4];
+  out[5] = delta_x[5] + nom_x[5];
+  out[6] = delta_x[6] + nom_x[6];
+  out[7] = delta_x[7] + nom_x[7];
+  out[8] = delta_x[8] + nom_x[8];
+  out[9] = delta_x[9] + nom_x[9];
 }
-static void inv_err_fun(float *nom_x, float *true_x, float *out_5838504077766560278) {
-   out_5838504077766560278[0] = -nom_x[0] + true_x[0];
-   out_5838504077766560278[1] = -nom_x[1] + true_x[1];
-   out_5838504077766560278[2] = -nom_x[2] + true_x[2];
-   out_5838504077766560278[3] = -nom_x[3] + true_x[3];
-   out_5838504077766560278[4] = -nom_x[4] + true_x[4];
-   out_5838504077766560278[5] = -nom_x[5] + true_x[5];
-   out_5838504077766560278[6] = -nom_x[6] + true_x[6];
-   out_5838504077766560278[7] = -nom_x[7] + true_x[7];
-   out_5838504077766560278[8] = -nom_x[8] + true_x[8];
-   out_5838504077766560278[9] = -nom_x[9] + true_x[9];
+
+static void inv_err_fun(float *nom_x, float *true_x, float *out) {
+  out[0] = -nom_x[0] + true_x[0];
+  out[1] = -nom_x[1] + true_x[1];
+  out[2] = -nom_x[2] + true_x[2];
+  out[3] = -nom_x[3] + true_x[3];
+  out[4] = -nom_x[4] + true_x[4];
+  out[5] = -nom_x[5] + true_x[5];
+  out[6] = -nom_x[6] + true_x[6];
+  out[7] = -nom_x[7] + true_x[7];
+  out[8] = -nom_x[8] + true_x[8];
+  out[9] = -nom_x[9] + true_x[9];
 }
-static void H_mod_fun(float *state, float *out_5879640092950765585) {
+
+static void H_mod_fun(float *state, float *out) {
   (void)state;
-   out_5879640092950765585[0] = 1.0;
-   out_5879640092950765585[1] = 0.0;
-   out_5879640092950765585[2] = 0.0;
-   out_5879640092950765585[3] = 0.0;
-   out_5879640092950765585[4] = 0.0;
-   out_5879640092950765585[5] = 0.0;
-   out_5879640092950765585[6] = 0.0;
-   out_5879640092950765585[7] = 0.0;
-   out_5879640092950765585[8] = 0.0;
-   out_5879640092950765585[9] = 0.0;
-   out_5879640092950765585[10] = 0.0;
-   out_5879640092950765585[11] = 1.0;
-   out_5879640092950765585[12] = 0.0;
-   out_5879640092950765585[13] = 0.0;
-   out_5879640092950765585[14] = 0.0;
-   out_5879640092950765585[15] = 0.0;
-   out_5879640092950765585[16] = 0.0;
-   out_5879640092950765585[17] = 0.0;
-   out_5879640092950765585[18] = 0.0;
-   out_5879640092950765585[19] = 0.0;
-   out_5879640092950765585[20] = 0.0;
-   out_5879640092950765585[21] = 0.0;
-   out_5879640092950765585[22] = 1.0;
-   out_5879640092950765585[23] = 0.0;
-   out_5879640092950765585[24] = 0.0;
-   out_5879640092950765585[25] = 0.0;
-   out_5879640092950765585[26] = 0.0;
-   out_5879640092950765585[27] = 0.0;
-   out_5879640092950765585[28] = 0.0;
-   out_5879640092950765585[29] = 0.0;
-   out_5879640092950765585[30] = 0.0;
-   out_5879640092950765585[31] = 0.0;
-   out_5879640092950765585[32] = 0.0;
-   out_5879640092950765585[33] = 1.0;
-   out_5879640092950765585[34] = 0.0;
-   out_5879640092950765585[35] = 0.0;
-   out_5879640092950765585[36] = 0.0;
-   out_5879640092950765585[37] = 0.0;
-   out_5879640092950765585[38] = 0.0;
-   out_5879640092950765585[39] = 0.0;
-   out_5879640092950765585[40] = 0.0;
-   out_5879640092950765585[41] = 0.0;
-   out_5879640092950765585[42] = 0.0;
-   out_5879640092950765585[43] = 0.0;
-   out_5879640092950765585[44] = 1.0;
-   out_5879640092950765585[45] = 0.0;
-   out_5879640092950765585[46] = 0.0;
-   out_5879640092950765585[47] = 0.0;
-   out_5879640092950765585[48] = 0.0;
-   out_5879640092950765585[49] = 0.0;
-   out_5879640092950765585[50] = 0.0;
-   out_5879640092950765585[51] = 0.0;
-   out_5879640092950765585[52] = 0.0;
-   out_5879640092950765585[53] = 0.0;
-   out_5879640092950765585[54] = 0.0;
-   out_5879640092950765585[55] = 1.0;
-   out_5879640092950765585[56] = 0.0;
-   out_5879640092950765585[57] = 0.0;
-   out_5879640092950765585[58] = 0.0;
-   out_5879640092950765585[59] = 0.0;
-   out_5879640092950765585[60] = 0.0;
-   out_5879640092950765585[61] = 0.0;
-   out_5879640092950765585[62] = 0.0;
-   out_5879640092950765585[63] = 0.0;
-   out_5879640092950765585[64] = 0.0;
-   out_5879640092950765585[65] = 0.0;
-   out_5879640092950765585[66] = 1.0;
-   out_5879640092950765585[67] = 0.0;
-   out_5879640092950765585[68] = 0.0;
-   out_5879640092950765585[69] = 0.0;
-   out_5879640092950765585[70] = 0.0;
-   out_5879640092950765585[71] = 0.0;
-   out_5879640092950765585[72] = 0.0;
-   out_5879640092950765585[73] = 0.0;
-   out_5879640092950765585[74] = 0.0;
-   out_5879640092950765585[75] = 0.0;
-   out_5879640092950765585[76] = 0.0;
-   out_5879640092950765585[77] = 1.0;
-   out_5879640092950765585[78] = 0.0;
-   out_5879640092950765585[79] = 0.0;
-   out_5879640092950765585[80] = 0.0;
-   out_5879640092950765585[81] = 0.0;
-   out_5879640092950765585[82] = 0.0;
-   out_5879640092950765585[83] = 0.0;
-   out_5879640092950765585[84] = 0.0;
-   out_5879640092950765585[85] = 0.0;
-   out_5879640092950765585[86] = 0.0;
-   out_5879640092950765585[87] = 0.0;
-   out_5879640092950765585[88] = 1.0;
-   out_5879640092950765585[89] = 0.0;
-   out_5879640092950765585[90] = 0.0;
-   out_5879640092950765585[91] = 0.0;
-   out_5879640092950765585[92] = 0.0;
-   out_5879640092950765585[93] = 0.0;
-   out_5879640092950765585[94] = 0.0;
-   out_5879640092950765585[95] = 0.0;
-   out_5879640092950765585[96] = 0.0;
-   out_5879640092950765585[97] = 0.0;
-   out_5879640092950765585[98] = 0.0;
-   out_5879640092950765585[99] = 1.0;
+  memset(out, 0, 100 * sizeof(float));
+  out[0] = 1.0F;
+  out[11] = 1.0F;
+  out[22] = 1.0F;
+  out[33] = 1.0F;
+  out[44] = 1.0F;
+  out[55] = 1.0F;
+  out[66] = 1.0F;
+  out[77] = 1.0F;
+  out[88] = 1.0F;
+  out[99] = 1.0F;
 }
-static void f_fun(float *state, float *u, float dt, float *out_3330065704444319255) {
-   out_3330065704444319255[0] = (1.0/2.0)*powf(dt, 2)*((2*u[3]*u[5] + 2*u[4]*u[6])*(-state[9] + u[2]) + (-2*u[3]*u[6] + 2*u[4]*u[5])*(-state[8] + u[1]) + (-state[7] + u[0])*(powf(u[3], 2) + powf(u[4], 2) - powf(u[5], 2) - powf(u[6], 2))) + dt*state[3] + state[0];
-   out_3330065704444319255[1] = (1.0/2.0)*powf(dt, 2)*((-2*u[3]*u[4] + 2*u[5]*u[6])*(-state[9] + u[2]) + (2*u[3]*u[6] + 2*u[4]*u[5])*(-state[7] + u[0]) + (-state[8] + u[1])*(powf(u[3], 2) - powf(u[4], 2) + powf(u[5], 2) - powf(u[6], 2))) + dt*state[4] + state[1];
-   out_3330065704444319255[2] = (1.0/2.0)*powf(dt, 2)*((2*u[3]*u[4] + 2*u[5]*u[6])*(-state[8] + u[1]) + (-2*u[3]*u[5] + 2*u[4]*u[6])*(-state[7] + u[0]) + (-state[9] + u[2])*(powf(u[3], 2) - powf(u[4], 2) - powf(u[5], 2) + powf(u[6], 2)) - 9.8066499999999994) + dt*state[5] + state[2];
-   out_3330065704444319255[3] = dt*((2*u[3]*u[5] + 2*u[4]*u[6])*(-state[9] + u[2]) + (-2*u[3]*u[6] + 2*u[4]*u[5])*(-state[8] + u[1]) + (-state[7] + u[0])*(powf(u[3], 2) + powf(u[4], 2) - powf(u[5], 2) - powf(u[6], 2))) + state[3];
-   out_3330065704444319255[4] = dt*((-2*u[3]*u[4] + 2*u[5]*u[6])*(-state[9] + u[2]) + (2*u[3]*u[6] + 2*u[4]*u[5])*(-state[7] + u[0]) + (-state[8] + u[1])*(powf(u[3], 2) - powf(u[4], 2) + powf(u[5], 2) - powf(u[6], 2))) + state[4];
-   out_3330065704444319255[5] = dt*((2*u[3]*u[4] + 2*u[5]*u[6])*(-state[8] + u[1]) + (-2*u[3]*u[5] + 2*u[4]*u[6])*(-state[7] + u[0]) + (-state[9] + u[2])*(powf(u[3], 2) - powf(u[4], 2) - powf(u[5], 2) + powf(u[6], 2)) - 9.8066499999999994) + state[5];
-   out_3330065704444319255[6] = state[6];
-   out_3330065704444319255[7] = state[7];
-   out_3330065704444319255[8] = state[8];
-   out_3330065704444319255[9] = state[9];
+
+static void f_fun(float *state, float *u, float dt, float *out) {
+  const float cse_tmp_0 = -state[9] + u[2];
+  const float cse_tmp_1 = 2*u[3];
+  const float cse_tmp_2 = cse_tmp_1*u[5];
+  const float cse_tmp_3 = 2*u[4];
+  const float cse_tmp_4 = -state[8] + u[1];
+  const float cse_tmp_5 = cse_tmp_1*u[6];
+  const float cse_tmp_6 = -state[7] + u[0];
+  const float cse_tmp_7 = (u[4]) * (u[4]);
+  const float cse_tmp_8 = (u[5]) * (u[5]);
+  const float cse_tmp_9 = -cse_tmp_8;
+  const float cse_tmp_10 = (u[3]) * (u[3]);
+  const float cse_tmp_11 = (u[6]) * (u[6]);
+  const float cse_tmp_12 = cse_tmp_10 - cse_tmp_11;
+  const float cse_tmp_13 = cse_tmp_0*(cse_tmp_2 + cse_tmp_3*u[6]) + cse_tmp_4*(-cse_tmp_5 + 2*u[4]*u[5]) + cse_tmp_6*(cse_tmp_12 + cse_tmp_7 + cse_tmp_9);
+  const float cse_tmp_14 = (1.0F/2.0F)*(dt) * (dt);
+  const float cse_tmp_15 = cse_tmp_1*u[4];
+  const float cse_tmp_16 = -cse_tmp_7;
+  const float cse_tmp_17 = cse_tmp_0*(-cse_tmp_15 + 2*u[5]*u[6]) + cse_tmp_4*(cse_tmp_12 + cse_tmp_16 + cse_tmp_8) + cse_tmp_6*(cse_tmp_3*u[5] + cse_tmp_5);
+  const float cse_tmp_18 = cse_tmp_0*(cse_tmp_10 + cse_tmp_11 + cse_tmp_16 + cse_tmp_9) + cse_tmp_4*(cse_tmp_15 + 2*u[5]*u[6]) + cse_tmp_6*(-cse_tmp_2 + 2*u[4]*u[6]) - 9.80665F;
+  out[0] = cse_tmp_13*cse_tmp_14 + dt*state[3] + state[0];
+  out[1] = cse_tmp_14*cse_tmp_17 + dt*state[4] + state[1];
+  out[2] = cse_tmp_14*cse_tmp_18 + dt*state[5] + state[2];
+  out[3] = cse_tmp_13*dt + state[3];
+  out[4] = cse_tmp_17*dt + state[4];
+  out[5] = cse_tmp_18*dt + state[5];
+  out[6] = state[6];
+  out[7] = state[7];
+  out[8] = state[8];
+  out[9] = state[9];
 }
-static void F_fun(float *state, float *u, float dt, float *out_3624662214306482855) {
+
+static void F_fun(float *state, float *u, float dt, float *out) {
   (void)state;
-   out_3624662214306482855[0] = 1;
-   out_3624662214306482855[1] = 0;
-   out_3624662214306482855[2] = 0;
-   out_3624662214306482855[3] = dt;
-   out_3624662214306482855[4] = 0;
-   out_3624662214306482855[5] = 0;
-   out_3624662214306482855[6] = 0;
-   out_3624662214306482855[7] = (1.0/2.0)*powf(dt, 2)*(-powf(u[3], 2) - powf(u[4], 2) + powf(u[5], 2) + powf(u[6], 2));
-   out_3624662214306482855[8] = (1.0/2.0)*powf(dt, 2)*(2*u[3]*u[6] - 2*u[4]*u[5]);
-   out_3624662214306482855[9] = (1.0/2.0)*powf(dt, 2)*(-2*u[3]*u[5] - 2*u[4]*u[6]);
-   out_3624662214306482855[10] = 0;
-   out_3624662214306482855[11] = 1;
-   out_3624662214306482855[12] = 0;
-   out_3624662214306482855[13] = 0;
-   out_3624662214306482855[14] = dt;
-   out_3624662214306482855[15] = 0;
-   out_3624662214306482855[16] = 0;
-   out_3624662214306482855[17] = (1.0/2.0)*powf(dt, 2)*(-2*u[3]*u[6] - 2*u[4]*u[5]);
-   out_3624662214306482855[18] = (1.0/2.0)*powf(dt, 2)*(-powf(u[3], 2) + powf(u[4], 2) - powf(u[5], 2) + powf(u[6], 2));
-   out_3624662214306482855[19] = (1.0/2.0)*powf(dt, 2)*(2*u[3]*u[4] - 2*u[5]*u[6]);
-   out_3624662214306482855[20] = 0;
-   out_3624662214306482855[21] = 0;
-   out_3624662214306482855[22] = 1;
-   out_3624662214306482855[23] = 0;
-   out_3624662214306482855[24] = 0;
-   out_3624662214306482855[25] = dt;
-   out_3624662214306482855[26] = 0;
-   out_3624662214306482855[27] = (1.0/2.0)*powf(dt, 2)*(2*u[3]*u[5] - 2*u[4]*u[6]);
-   out_3624662214306482855[28] = (1.0/2.0)*powf(dt, 2)*(-2*u[3]*u[4] - 2*u[5]*u[6]);
-   out_3624662214306482855[29] = (1.0/2.0)*powf(dt, 2)*(-powf(u[3], 2) + powf(u[4], 2) + powf(u[5], 2) - powf(u[6], 2));
-   out_3624662214306482855[30] = 0;
-   out_3624662214306482855[31] = 0;
-   out_3624662214306482855[32] = 0;
-   out_3624662214306482855[33] = 1;
-   out_3624662214306482855[34] = 0;
-   out_3624662214306482855[35] = 0;
-   out_3624662214306482855[36] = 0;
-   out_3624662214306482855[37] = dt*(-powf(u[3], 2) - powf(u[4], 2) + powf(u[5], 2) + powf(u[6], 2));
-   out_3624662214306482855[38] = dt*(2*u[3]*u[6] - 2*u[4]*u[5]);
-   out_3624662214306482855[39] = dt*(-2*u[3]*u[5] - 2*u[4]*u[6]);
-   out_3624662214306482855[40] = 0;
-   out_3624662214306482855[41] = 0;
-   out_3624662214306482855[42] = 0;
-   out_3624662214306482855[43] = 0;
-   out_3624662214306482855[44] = 1;
-   out_3624662214306482855[45] = 0;
-   out_3624662214306482855[46] = 0;
-   out_3624662214306482855[47] = dt*(-2*u[3]*u[6] - 2*u[4]*u[5]);
-   out_3624662214306482855[48] = dt*(-powf(u[3], 2) + powf(u[4], 2) - powf(u[5], 2) + powf(u[6], 2));
-   out_3624662214306482855[49] = dt*(2*u[3]*u[4] - 2*u[5]*u[6]);
-   out_3624662214306482855[50] = 0;
-   out_3624662214306482855[51] = 0;
-   out_3624662214306482855[52] = 0;
-   out_3624662214306482855[53] = 0;
-   out_3624662214306482855[54] = 0;
-   out_3624662214306482855[55] = 1;
-   out_3624662214306482855[56] = 0;
-   out_3624662214306482855[57] = dt*(2*u[3]*u[5] - 2*u[4]*u[6]);
-   out_3624662214306482855[58] = dt*(-2*u[3]*u[4] - 2*u[5]*u[6]);
-   out_3624662214306482855[59] = dt*(-powf(u[3], 2) + powf(u[4], 2) + powf(u[5], 2) - powf(u[6], 2));
-   out_3624662214306482855[60] = 0;
-   out_3624662214306482855[61] = 0;
-   out_3624662214306482855[62] = 0;
-   out_3624662214306482855[63] = 0;
-   out_3624662214306482855[64] = 0;
-   out_3624662214306482855[65] = 0;
-   out_3624662214306482855[66] = 1;
-   out_3624662214306482855[67] = 0;
-   out_3624662214306482855[68] = 0;
-   out_3624662214306482855[69] = 0;
-   out_3624662214306482855[70] = 0;
-   out_3624662214306482855[71] = 0;
-   out_3624662214306482855[72] = 0;
-   out_3624662214306482855[73] = 0;
-   out_3624662214306482855[74] = 0;
-   out_3624662214306482855[75] = 0;
-   out_3624662214306482855[76] = 0;
-   out_3624662214306482855[77] = 1;
-   out_3624662214306482855[78] = 0;
-   out_3624662214306482855[79] = 0;
-   out_3624662214306482855[80] = 0;
-   out_3624662214306482855[81] = 0;
-   out_3624662214306482855[82] = 0;
-   out_3624662214306482855[83] = 0;
-   out_3624662214306482855[84] = 0;
-   out_3624662214306482855[85] = 0;
-   out_3624662214306482855[86] = 0;
-   out_3624662214306482855[87] = 0;
-   out_3624662214306482855[88] = 1;
-   out_3624662214306482855[89] = 0;
-   out_3624662214306482855[90] = 0;
-   out_3624662214306482855[91] = 0;
-   out_3624662214306482855[92] = 0;
-   out_3624662214306482855[93] = 0;
-   out_3624662214306482855[94] = 0;
-   out_3624662214306482855[95] = 0;
-   out_3624662214306482855[96] = 0;
-   out_3624662214306482855[97] = 0;
-   out_3624662214306482855[98] = 0;
-   out_3624662214306482855[99] = 1;
+  const float cse_tmp_0 = (u[4]) * (u[4]);
+  const float cse_tmp_1 = (u[5]) * (u[5]);
+  const float cse_tmp_2 = -cse_tmp_1;
+  const float cse_tmp_3 = (u[3]) * (u[3]);
+  const float cse_tmp_4 = (u[6]) * (u[6]);
+  const float cse_tmp_5 = cse_tmp_3 - cse_tmp_4;
+  const float cse_tmp_6 = -cse_tmp_0 - cse_tmp_2 - cse_tmp_5;
+  const float cse_tmp_7 = (1.0F/2.0F)*(dt) * (dt);
+  const float cse_tmp_8 = 2*u[6];
+  const float cse_tmp_9 = cse_tmp_8*u[3];
+  const float cse_tmp_10 = 2*u[5];
+  const float cse_tmp_11 = cse_tmp_10*u[4];
+  const float cse_tmp_12 = -cse_tmp_11 + cse_tmp_9;
+  const float cse_tmp_13 = cse_tmp_10*u[3];
+  const float cse_tmp_14 = cse_tmp_8*u[4];
+  const float cse_tmp_15 = -cse_tmp_13 - cse_tmp_14;
+  const float cse_tmp_16 = -cse_tmp_11 - cse_tmp_9;
+  const float cse_tmp_17 = -cse_tmp_0;
+  const float cse_tmp_18 = -cse_tmp_1 - cse_tmp_17 - cse_tmp_5;
+  const float cse_tmp_19 = 2*u[3]*u[4];
+  const float cse_tmp_20 = cse_tmp_10*u[6];
+  const float cse_tmp_21 = cse_tmp_19 - cse_tmp_20;
+  const float cse_tmp_22 = cse_tmp_13 - cse_tmp_14;
+  const float cse_tmp_23 = -cse_tmp_19 - cse_tmp_20;
+  const float cse_tmp_24 = -cse_tmp_17 - cse_tmp_2 - cse_tmp_3 - cse_tmp_4;
+  out[0] = 1;
+  out[1] = 0;
+  out[2] = 0;
+  out[3] = dt;
+  out[4] = 0;
+  out[5] = 0;
+  out[6] = 0;
+  out[7] = cse_tmp_6*cse_tmp_7;
+  out[8] = cse_tmp_12*cse_tmp_7;
+  out[9] = cse_tmp_15*cse_tmp_7;
+  out[10] = 0;
+  out[11] = 1;
+  out[12] = 0;
+  out[13] = 0;
+  out[14] = dt;
+  out[15] = 0;
+  out[16] = 0;
+  out[17] = cse_tmp_16*cse_tmp_7;
+  out[18] = cse_tmp_18*cse_tmp_7;
+  out[19] = cse_tmp_21*cse_tmp_7;
+  out[20] = 0;
+  out[21] = 0;
+  out[22] = 1;
+  out[23] = 0;
+  out[24] = 0;
+  out[25] = dt;
+  out[26] = 0;
+  out[27] = cse_tmp_22*cse_tmp_7;
+  out[28] = cse_tmp_23*cse_tmp_7;
+  out[29] = cse_tmp_24*cse_tmp_7;
+  out[30] = 0;
+  out[31] = 0;
+  out[32] = 0;
+  out[33] = 1;
+  out[34] = 0;
+  out[35] = 0;
+  out[36] = 0;
+  out[37] = cse_tmp_6*dt;
+  out[38] = cse_tmp_12*dt;
+  out[39] = cse_tmp_15*dt;
+  out[40] = 0;
+  out[41] = 0;
+  out[42] = 0;
+  out[43] = 0;
+  out[44] = 1;
+  out[45] = 0;
+  out[46] = 0;
+  out[47] = cse_tmp_16*dt;
+  out[48] = cse_tmp_18*dt;
+  out[49] = cse_tmp_21*dt;
+  out[50] = 0;
+  out[51] = 0;
+  out[52] = 0;
+  out[53] = 0;
+  out[54] = 0;
+  out[55] = 1;
+  out[56] = 0;
+  out[57] = cse_tmp_22*dt;
+  out[58] = cse_tmp_23*dt;
+  out[59] = cse_tmp_24*dt;
+  out[60] = 0;
+  out[61] = 0;
+  out[62] = 0;
+  out[63] = 0;
+  out[64] = 0;
+  out[65] = 0;
+  out[66] = 1;
+  out[67] = 0;
+  out[68] = 0;
+  out[69] = 0;
+  out[70] = 0;
+  out[71] = 0;
+  out[72] = 0;
+  out[73] = 0;
+  out[74] = 0;
+  out[75] = 0;
+  out[76] = 0;
+  out[77] = 1;
+  out[78] = 0;
+  out[79] = 0;
+  out[80] = 0;
+  out[81] = 0;
+  out[82] = 0;
+  out[83] = 0;
+  out[84] = 0;
+  out[85] = 0;
+  out[86] = 0;
+  out[87] = 0;
+  out[88] = 1;
+  out[89] = 0;
+  out[90] = 0;
+  out[91] = 0;
+  out[92] = 0;
+  out[93] = 0;
+  out[94] = 0;
+  out[95] = 0;
+  out[96] = 0;
+  out[97] = 0;
+  out[98] = 0;
+  out[99] = 1;
 }
-static void Q_fun(float *state, float *u, float dt, float *out_8645926798053728310) {
+
+static void Q_fun(float *state, float *u, float dt, float *out) {
   (void)state;
   (void)u;
-   out_8645926798053728310[0] = 0.25*powf(dt, 4);
-   out_8645926798053728310[1] = 0;
-   out_8645926798053728310[2] = 0;
-   out_8645926798053728310[3] = 0.5*powf(dt, 3);
-   out_8645926798053728310[4] = 0;
-   out_8645926798053728310[5] = 0;
-   out_8645926798053728310[6] = 0;
-   out_8645926798053728310[7] = 0;
-   out_8645926798053728310[8] = 0;
-   out_8645926798053728310[9] = 0;
-   out_8645926798053728310[10] = 0;
-   out_8645926798053728310[11] = 0.25*powf(dt, 4);
-   out_8645926798053728310[12] = 0;
-   out_8645926798053728310[13] = 0;
-   out_8645926798053728310[14] = 0.5*powf(dt, 3);
-   out_8645926798053728310[15] = 0;
-   out_8645926798053728310[16] = 0;
-   out_8645926798053728310[17] = 0;
-   out_8645926798053728310[18] = 0;
-   out_8645926798053728310[19] = 0;
-   out_8645926798053728310[20] = 0;
-   out_8645926798053728310[21] = 0;
-   out_8645926798053728310[22] = 0.25*powf(dt, 4);
-   out_8645926798053728310[23] = 0;
-   out_8645926798053728310[24] = 0;
-   out_8645926798053728310[25] = 0.5*powf(dt, 3);
-   out_8645926798053728310[26] = 0;
-   out_8645926798053728310[27] = 0;
-   out_8645926798053728310[28] = 0;
-   out_8645926798053728310[29] = 0;
-   out_8645926798053728310[30] = 0.5*powf(dt, 3);
-   out_8645926798053728310[31] = 0;
-   out_8645926798053728310[32] = 0;
-   out_8645926798053728310[33] = 1.0*powf(dt, 2);
-   out_8645926798053728310[34] = 0;
-   out_8645926798053728310[35] = 0;
-   out_8645926798053728310[36] = 0;
-   out_8645926798053728310[37] = 0;
-   out_8645926798053728310[38] = 0;
-   out_8645926798053728310[39] = 0;
-   out_8645926798053728310[40] = 0;
-   out_8645926798053728310[41] = 0.5*powf(dt, 3);
-   out_8645926798053728310[42] = 0;
-   out_8645926798053728310[43] = 0;
-   out_8645926798053728310[44] = 1.0*powf(dt, 2);
-   out_8645926798053728310[45] = 0;
-   out_8645926798053728310[46] = 0;
-   out_8645926798053728310[47] = 0;
-   out_8645926798053728310[48] = 0;
-   out_8645926798053728310[49] = 0;
-   out_8645926798053728310[50] = 0;
-   out_8645926798053728310[51] = 0;
-   out_8645926798053728310[52] = 0.5*powf(dt, 3);
-   out_8645926798053728310[53] = 0;
-   out_8645926798053728310[54] = 0;
-   out_8645926798053728310[55] = 1.0*powf(dt, 2);
-   out_8645926798053728310[56] = 0;
-   out_8645926798053728310[57] = 0;
-   out_8645926798053728310[58] = 0;
-   out_8645926798053728310[59] = 0;
-   out_8645926798053728310[60] = 0;
-   out_8645926798053728310[61] = 0;
-   out_8645926798053728310[62] = 0;
-   out_8645926798053728310[63] = 0;
-   out_8645926798053728310[64] = 0;
-   out_8645926798053728310[65] = 0;
-   out_8645926798053728310[66] = 0.0001*dt;
-   out_8645926798053728310[67] = 0;
-   out_8645926798053728310[68] = 0;
-   out_8645926798053728310[69] = 0;
-   out_8645926798053728310[70] = 0;
-   out_8645926798053728310[71] = 0;
-   out_8645926798053728310[72] = 0;
-   out_8645926798053728310[73] = 0;
-   out_8645926798053728310[74] = 0;
-   out_8645926798053728310[75] = 0;
-   out_8645926798053728310[76] = 0;
-   out_8645926798053728310[77] = 2.5000000000000001e-5*dt;
-   out_8645926798053728310[78] = 0;
-   out_8645926798053728310[79] = 0;
-   out_8645926798053728310[80] = 0;
-   out_8645926798053728310[81] = 0;
-   out_8645926798053728310[82] = 0;
-   out_8645926798053728310[83] = 0;
-   out_8645926798053728310[84] = 0;
-   out_8645926798053728310[85] = 0;
-   out_8645926798053728310[86] = 0;
-   out_8645926798053728310[87] = 0;
-   out_8645926798053728310[88] = 2.5000000000000001e-5*dt;
-   out_8645926798053728310[89] = 0;
-   out_8645926798053728310[90] = 0;
-   out_8645926798053728310[91] = 0;
-   out_8645926798053728310[92] = 0;
-   out_8645926798053728310[93] = 0;
-   out_8645926798053728310[94] = 0;
-   out_8645926798053728310[95] = 0;
-   out_8645926798053728310[96] = 0;
-   out_8645926798053728310[97] = 0;
-   out_8645926798053728310[98] = 0;
-   out_8645926798053728310[99] = 2.5000000000000001e-5*dt;
+  const float cse_tmp_0 = 0.25F*(dt) * (dt) * (dt) * (dt);
+  const float cse_tmp_1 = 0.5F*(dt) * (dt) * (dt);
+  const float cse_tmp_2 = 1.0F*(dt) * (dt);
+  const float cse_tmp_3 = 2.5e-5F*dt;
+  out[0] = cse_tmp_0;
+  out[1] = 0;
+  out[2] = 0;
+  out[3] = cse_tmp_1;
+  out[4] = 0;
+  out[5] = 0;
+  out[6] = 0;
+  out[7] = 0;
+  out[8] = 0;
+  out[9] = 0;
+  out[10] = 0;
+  out[11] = cse_tmp_0;
+  out[12] = 0;
+  out[13] = 0;
+  out[14] = cse_tmp_1;
+  out[15] = 0;
+  out[16] = 0;
+  out[17] = 0;
+  out[18] = 0;
+  out[19] = 0;
+  out[20] = 0;
+  out[21] = 0;
+  out[22] = cse_tmp_0;
+  out[23] = 0;
+  out[24] = 0;
+  out[25] = cse_tmp_1;
+  out[26] = 0;
+  out[27] = 0;
+  out[28] = 0;
+  out[29] = 0;
+  out[30] = cse_tmp_1;
+  out[31] = 0;
+  out[32] = 0;
+  out[33] = cse_tmp_2;
+  out[34] = 0;
+  out[35] = 0;
+  out[36] = 0;
+  out[37] = 0;
+  out[38] = 0;
+  out[39] = 0;
+  out[40] = 0;
+  out[41] = cse_tmp_1;
+  out[42] = 0;
+  out[43] = 0;
+  out[44] = cse_tmp_2;
+  out[45] = 0;
+  out[46] = 0;
+  out[47] = 0;
+  out[48] = 0;
+  out[49] = 0;
+  out[50] = 0;
+  out[51] = 0;
+  out[52] = cse_tmp_1;
+  out[53] = 0;
+  out[54] = 0;
+  out[55] = cse_tmp_2;
+  out[56] = 0;
+  out[57] = 0;
+  out[58] = 0;
+  out[59] = 0;
+  out[60] = 0;
+  out[61] = 0;
+  out[62] = 0;
+  out[63] = 0;
+  out[64] = 0;
+  out[65] = 0;
+  out[66] = 0.0001F*dt;
+  out[67] = 0;
+  out[68] = 0;
+  out[69] = 0;
+  out[70] = 0;
+  out[71] = 0;
+  out[72] = 0;
+  out[73] = 0;
+  out[74] = 0;
+  out[75] = 0;
+  out[76] = 0;
+  out[77] = cse_tmp_3;
+  out[78] = 0;
+  out[79] = 0;
+  out[80] = 0;
+  out[81] = 0;
+  out[82] = 0;
+  out[83] = 0;
+  out[84] = 0;
+  out[85] = 0;
+  out[86] = 0;
+  out[87] = 0;
+  out[88] = cse_tmp_3;
+  out[89] = 0;
+  out[90] = 0;
+  out[91] = 0;
+  out[92] = 0;
+  out[93] = 0;
+  out[94] = 0;
+  out[95] = 0;
+  out[96] = 0;
+  out[97] = 0;
+  out[98] = 0;
+  out[99] = cse_tmp_3;
 }
-static void h_2(float *state, float *unused, float *out_6293215938335595047) {
+
+static void h_2(float *state, float *unused, float *out) {
   (void)unused;
-   out_6293215938335595047[0] = state[2];
+  out[0] = state[2];
 }
-static void H_2(float *state, float *unused, float *out_4758000223035142537) {
+
+static void H_2(float *state, float *unused, float *out) {
   (void)state;
   (void)unused;
-   out_4758000223035142537[0] = 0;
-   out_4758000223035142537[1] = 0;
-   out_4758000223035142537[2] = 1;
-   out_4758000223035142537[3] = 0;
-   out_4758000223035142537[4] = 0;
-   out_4758000223035142537[5] = 0;
-   out_4758000223035142537[6] = 0;
-   out_4758000223035142537[7] = 0;
-   out_4758000223035142537[8] = 0;
-   out_4758000223035142537[9] = 0;
+  out[0] = 0;
+  out[1] = 0;
+  out[2] = 1;
+  out[3] = 0;
+  out[4] = 0;
+  out[5] = 0;
+  out[6] = 0;
+  out[7] = 0;
+  out[8] = 0;
+  out[9] = 0;
 }
-static void h_3(float *state, float *unused, float *out_8182581982159968412) {
+
+static void h_3(float *state, float *unused, float *out) {
   (void)unused;
-   out_8182581982159968412[0] = state[2] + state[6];
+  out[0] = state[2] + state[6];
 }
-static void H_3(float *state, float *unused, float *out_119584145151623248) {
+
+static void H_3(float *state, float *unused, float *out) {
   (void)state;
   (void)unused;
-   out_119584145151623248[0] = 0;
-   out_119584145151623248[1] = 0;
-   out_119584145151623248[2] = 1;
-   out_119584145151623248[3] = 0;
-   out_119584145151623248[4] = 0;
-   out_119584145151623248[5] = 0;
-   out_119584145151623248[6] = 1;
-   out_119584145151623248[7] = 0;
-   out_119584145151623248[8] = 0;
-   out_119584145151623248[9] = 0;
+  out[0] = 0;
+  out[1] = 0;
+  out[2] = 1;
+  out[3] = 0;
+  out[4] = 0;
+  out[5] = 0;
+  out[6] = 1;
+  out[7] = 0;
+  out[8] = 0;
+  out[9] = 0;
 }
-static void h_4(float *state, float *flow_q, float *out_4944527014070724334) {
-   out_4944527014070724334[0] = (-2*flow_q[0]*flow_q[2] + 2*flow_q[1]*flow_q[3])*state[5] + (2*flow_q[0]*flow_q[3] + 2*flow_q[1]*flow_q[2])*state[4] + (powf(flow_q[0], 2) + powf(flow_q[1], 2) - powf(flow_q[2], 2) - powf(flow_q[3], 2))*state[3];
-   out_4944527014070724334[1] = (2*flow_q[0]*flow_q[1] + 2*flow_q[2]*flow_q[3])*state[5] + (-2*flow_q[0]*flow_q[3] + 2*flow_q[1]*flow_q[2])*state[3] + (powf(flow_q[0], 2) - powf(flow_q[1], 2) + powf(flow_q[2], 2) - powf(flow_q[3], 2))*state[4];
+
+static void h_4(float *state, float *flow_q, float *out) {
+  const float cse_tmp_0 = 2*flow_q[0];
+  const float cse_tmp_1 = cse_tmp_0*flow_q[3];
+  const float cse_tmp_2 = (flow_q[1]) * (flow_q[1]);
+  const float cse_tmp_3 = (flow_q[2]) * (flow_q[2]);
+  const float cse_tmp_4 = (flow_q[0]) * (flow_q[0]) - (flow_q[3]) * (flow_q[3]);
+  out[0] = (cse_tmp_1 + 2*flow_q[1]*flow_q[2])*state[4] + (-cse_tmp_0*flow_q[2] + 2*flow_q[1]*flow_q[3])*state[5] + (cse_tmp_2 - cse_tmp_3 + cse_tmp_4)*state[3];
+  out[1] = (-cse_tmp_1 + 2*flow_q[1]*flow_q[2])*state[3] + (cse_tmp_0*flow_q[1] + 2*flow_q[2]*flow_q[3])*state[5] + (-cse_tmp_2 + cse_tmp_3 + cse_tmp_4)*state[4];
 }
-static void H_4(float *state, float *flow_q, float *out_3268541180516938844) {
+
+static void H_4(float *state, float *flow_q, float *out) {
   (void)state;
-   out_3268541180516938844[0] = 0;
-   out_3268541180516938844[1] = 0;
-   out_3268541180516938844[2] = 0;
-   out_3268541180516938844[3] = powf(flow_q[0], 2) + powf(flow_q[1], 2) - powf(flow_q[2], 2) - powf(flow_q[3], 2);
-   out_3268541180516938844[4] = 2*flow_q[0]*flow_q[3] + 2*flow_q[1]*flow_q[2];
-   out_3268541180516938844[5] = -2*flow_q[0]*flow_q[2] + 2*flow_q[1]*flow_q[3];
-   out_3268541180516938844[6] = 0;
-   out_3268541180516938844[7] = 0;
-   out_3268541180516938844[8] = 0;
-   out_3268541180516938844[9] = 0;
-   out_3268541180516938844[10] = 0;
-   out_3268541180516938844[11] = 0;
-   out_3268541180516938844[12] = 0;
-   out_3268541180516938844[13] = -2*flow_q[0]*flow_q[3] + 2*flow_q[1]*flow_q[2];
-   out_3268541180516938844[14] = powf(flow_q[0], 2) - powf(flow_q[1], 2) + powf(flow_q[2], 2) - powf(flow_q[3], 2);
-   out_3268541180516938844[15] = 2*flow_q[0]*flow_q[1] + 2*flow_q[2]*flow_q[3];
-   out_3268541180516938844[16] = 0;
-   out_3268541180516938844[17] = 0;
-   out_3268541180516938844[18] = 0;
-   out_3268541180516938844[19] = 0;
+  const float cse_tmp_0 = (flow_q[1]) * (flow_q[1]);
+  const float cse_tmp_1 = (flow_q[2]) * (flow_q[2]);
+  const float cse_tmp_2 = (flow_q[0]) * (flow_q[0]) - (flow_q[3]) * (flow_q[3]);
+  const float cse_tmp_3 = 2*flow_q[0];
+  const float cse_tmp_4 = cse_tmp_3*flow_q[3];
+  out[0] = 0;
+  out[1] = 0;
+  out[2] = 0;
+  out[3] = cse_tmp_0 - cse_tmp_1 + cse_tmp_2;
+  out[4] = cse_tmp_4 + 2*flow_q[1]*flow_q[2];
+  out[5] = -cse_tmp_3*flow_q[2] + 2*flow_q[1]*flow_q[3];
+  out[6] = 0;
+  out[7] = 0;
+  out[8] = 0;
+  out[9] = 0;
+  out[10] = 0;
+  out[11] = 0;
+  out[12] = 0;
+  out[13] = -cse_tmp_4 + 2*flow_q[1]*flow_q[2];
+  out[14] = -cse_tmp_0 + cse_tmp_1 + cse_tmp_2;
+  out[15] = cse_tmp_3*flow_q[1] + 2*flow_q[2]*flow_q[3];
+  out[16] = 0;
+  out[17] = 0;
+  out[18] = 0;
+  out[19] = 0;
 }
 static void __attribute__((unused)) normalize_quaternion_slice(float *state, int start, int len) {
   float norm_sq = 0.0f;
@@ -449,7 +423,7 @@ static void __attribute__((unused)) normalize_quaternion_slice(float *state, int
 }
 
 
-static void mat_mul(const float *a, int a_rows, int a_cols, const float *b, int b_cols, float *out) {
+static inline void mat_mul(const float *a, int a_rows, int a_cols, const float *b, int b_cols, float *out) {
   for (int i = 0; i < a_rows; ++i) {
     for (int j = 0; j < b_cols; ++j) {
       float sum = 0.0f;
@@ -462,7 +436,7 @@ static void mat_mul(const float *a, int a_rows, int a_cols, const float *b, int 
 }
 
 
-static void mat_mul_transpose_right(const float *a, int a_rows, int a_cols, const float *b, int b_rows, float *out) {
+static inline void mat_mul_transpose_right(const float *a, int a_rows, int a_cols, const float *b, int b_rows, float *out) {
   for (int i = 0; i < a_rows; ++i) {
     for (int j = 0; j < b_rows; ++j) {
       float sum = 0.0f;
@@ -475,7 +449,7 @@ static void mat_mul_transpose_right(const float *a, int a_rows, int a_cols, cons
 }
 
 
-static void mat_mul_transpose_left(const float *a, int a_rows, int a_cols, const float *b, int b_cols, float *out) {
+static inline void mat_mul_transpose_left(const float *a, int a_rows, int a_cols, const float *b, int b_cols, float *out) {
   for (int i = 0; i < a_cols; ++i) {
     for (int j = 0; j < b_cols; ++j) {
       float sum = 0.0f;
@@ -488,7 +462,7 @@ static void mat_mul_transpose_left(const float *a, int a_rows, int a_cols, const
 }
 
 
-static void mat_transpose_vec_mul(const float *a, int rows, int cols, const float *x, float *out) {
+static inline void mat_transpose_vec_mul(const float *a, int rows, int cols, const float *x, float *out) {
   for (int i = 0; i < cols; ++i) {
     float sum = 0.0f;
     for (int j = 0; j < rows; ++j) {
@@ -499,7 +473,7 @@ static void mat_transpose_vec_mul(const float *a, int rows, int cols, const floa
 }
 
 
-static float dot_product(const float *a, const float *b, int len) {
+static inline float dot_product(const float *a, const float *b, int len) {
   float sum = 0.0f;
   for (int i = 0; i < len; ++i) {
     sum += a[i] * b[i];
@@ -508,7 +482,88 @@ static float dot_product(const float *a, const float *b, int len) {
 }
 
 
+static inline int solve_linear_system_1x1(float *a, float *b, int nrhs) {
+  const float pivot_eps = 1.0e-9f;
+  const float pivot_abs = fabsf(a[0]);
+
+  if (pivot_abs < pivot_eps) {
+    return 0;
+  }
+
+  const float inv_pivot = 1.0f / a[0];
+  a[0] = 1.0f;
+  for (int j = 0; j < nrhs; ++j) {
+    b[j] *= inv_pivot;
+  }
+
+  return 1;
+}
+
+
+static inline int solve_linear_system_2x2(float *a, float *b, int nrhs) {
+  const float pivot_eps = 1.0e-9f;
+
+  if (fabsf(a[2]) > fabsf(a[0])) {
+    const float a00 = a[0];
+    const float a01 = a[1];
+    a[0] = a[2];
+    a[1] = a[3];
+    a[2] = a00;
+    a[3] = a01;
+
+    for (int j = 0; j < nrhs; ++j) {
+      const float tmp = b[j];
+      b[j] = b[nrhs + j];
+      b[nrhs + j] = tmp;
+    }
+  }
+
+  if (fabsf(a[0]) < pivot_eps) {
+    return 0;
+  }
+
+  const float inv_a00 = 1.0f / a[0];
+  a[0] = 1.0f;
+  a[1] *= inv_a00;
+  for (int j = 0; j < nrhs; ++j) {
+    b[j] *= inv_a00;
+  }
+
+  const float factor10 = a[2];
+  a[2] = 0.0f;
+  a[3] -= factor10 * a[1];
+  for (int j = 0; j < nrhs; ++j) {
+    b[nrhs + j] -= factor10 * b[j];
+  }
+
+  if (fabsf(a[3]) < pivot_eps) {
+    return 0;
+  }
+
+  const float inv_a11 = 1.0f / a[3];
+  a[3] = 1.0f;
+  for (int j = 0; j < nrhs; ++j) {
+    b[nrhs + j] *= inv_a11;
+  }
+
+  const float factor01 = a[1];
+  a[1] = 0.0f;
+  for (int j = 0; j < nrhs; ++j) {
+    b[j] -= factor01 * b[nrhs + j];
+  }
+
+  return 1;
+}
+
+
 static int solve_linear_system(int dim, float *a, float *b, int nrhs) {
+  if (dim == 1) {
+    return solve_linear_system_1x1(a, b, nrhs);
+  }
+  if (dim == 2) {
+    return solve_linear_system_2x2(a, b, nrhs);
+  }
+
   const float pivot_eps = 1.0e-9f;
 
   for (int col = 0; col < dim; ++col) {
@@ -576,42 +631,11 @@ static void predict_covariance(float *in_P, float *in_Q, const float *in_F, floa
 #ifdef Q_SYM_IS_DISCRETE
   (void)dt;
 #endif
-  float p_prev[EDIM * EDIM] = {0};
-  float p_next[EDIM * EDIM] = {0};
-  memcpy(p_prev, in_P, sizeof(p_prev));
-  memcpy(p_next, p_prev, sizeof(p_next));
+  float tmp[EDIM * EDIM];
+  float p_next[EDIM * EDIM];
 
-  for (int row = 0; row < MEDIM; ++row) {
-    for (int col = 0; col < MEDIM; ++col) {
-      float sum = 0.0f;
-      for (int k = 0; k < MEDIM; ++k) {
-        for (int l = 0; l < MEDIM; ++l) {
-          sum += in_F[row * EDIM + k] * p_prev[k * EDIM + l] * in_F[col * EDIM + l];
-        }
-      }
-      p_next[row * EDIM + col] = sum;
-    }
-  }
-
-  for (int row = 0; row < MEDIM; ++row) {
-    for (int col = MEDIM; col < EDIM; ++col) {
-      float sum = 0.0f;
-      for (int k = 0; k < MEDIM; ++k) {
-        sum += in_F[row * EDIM + k] * p_prev[k * EDIM + col];
-      }
-      p_next[row * EDIM + col] = sum;
-    }
-  }
-
-  for (int row = MEDIM; row < EDIM; ++row) {
-    for (int col = 0; col < MEDIM; ++col) {
-      float sum = 0.0f;
-      for (int k = 0; k < MEDIM; ++k) {
-        sum += p_prev[row * EDIM + k] * in_F[col * EDIM + k];
-      }
-      p_next[row * EDIM + col] = sum;
-    }
-  }
+  mat_mul(in_F, EDIM, EDIM, in_P, EDIM, tmp);
+  mat_mul_transpose_right(tmp, EDIM, EDIM, in_F, EDIM, p_next);
 
   for (int i = 0; i < EDIM * EDIM; ++i) {
 #ifdef Q_SYM_IS_DISCRETE
@@ -627,29 +651,36 @@ static void predict_covariance(float *in_P, float *in_Q, const float *in_F, floa
 
 static int update_core(int zdim, float *in_x, float *in_P, ObsFun h_fun, ObsFun H_fun, float *in_z, float *in_R,
                        float *in_ea, float maha_threshold, int do_maha) {
-  float h[MAX_ZDIM] = {0};
-  float H[MAX_ZDIM * DIM] = {0};
-  float H_mod[DIM * EDIM] = {0};
-  float H_err[MAX_ZDIM * EDIM] = {0};
-  float y[MAX_ZDIM] = {0};
-  float R[MAX_ZDIM * MAX_ZDIM] = {0};
-  float HP[MAX_ZDIM * EDIM] = {0};
-  float S[MAX_ZDIM * MAX_ZDIM] = {0};
-  float S_work[MAX_ZDIM * MAX_ZDIM] = {0};
-  float KT[MAX_ZDIM * EDIM] = {0};
-  float KH[EDIM * EDIM] = {0};
-  float I_KH[EDIM * EDIM] = {0};
-  float dx[EDIM] = {0};
-  float x_new[DIM] = {0};
-  float temp[EDIM * EDIM] = {0};
-  float p_new[EDIM * EDIM] = {0};
-  float RKT[MAX_ZDIM * EDIM] = {0};
-  float KRKT[EDIM * EDIM] = {0};
-  float maha_rhs[MAX_ZDIM] = {0};
+  float h[MAX_ZDIM];
+  float H[MAX_ZDIM * DIM];
+#ifndef H_MOD_IS_IDENTITY
+  float H_mod[DIM * EDIM];
+#endif
+  float H_err[MAX_ZDIM * EDIM];
+  float y[MAX_ZDIM];
+  float R[MAX_ZDIM * MAX_ZDIM];
+  float HP[MAX_ZDIM * EDIM];
+  float S[MAX_ZDIM * MAX_ZDIM];
+  float S_work[MAX_ZDIM * MAX_ZDIM];
+  float KT[MAX_ZDIM * EDIM];
+  float KH[EDIM * EDIM];
+  float I_KH[EDIM * EDIM];
+  float dx[EDIM];
+  float x_new[DIM];
+  float temp[EDIM * EDIM];
+  float p_new[EDIM * EDIM];
+  float RKT[MAX_ZDIM * EDIM];
+  float KRKT[EDIM * EDIM];
+  float maha_rhs[MAX_ZDIM];
 
   h_fun(in_x, in_ea, h);
   H_fun(in_x, in_ea, H);
+#ifdef H_MOD_IS_IDENTITY
+  memcpy(H_err, H, (size_t)(zdim * EDIM) * sizeof(float));
+#else
   H_mod_fun(in_x, H_mod);
+  mat_mul(H, zdim, DIM, H_mod, EDIM, H_err);
+#endif
 
   for (int i = 0; i < zdim; ++i) {
     y[i] = in_z[i] - h[i];
@@ -658,7 +689,6 @@ static int update_core(int zdim, float *in_x, float *in_P, ObsFun h_fun, ObsFun 
     }
   }
 
-  mat_mul(H, zdim, DIM, H_mod, EDIM, H_err);
   mat_mul(H_err, zdim, EDIM, in_P, EDIM, HP);
   mat_mul_transpose_right(HP, zdim, EDIM, H_err, zdim, S);
   for (int i = 0; i < zdim; ++i) {

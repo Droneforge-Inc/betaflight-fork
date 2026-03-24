@@ -3,7 +3,7 @@
 # dump
 
 # version
-# Betaflight / LIONBEE_V2_REVB (LionBee V2 REV_B) 4.5.2 Mar 20 2026 / 09:25:08 (8ced40b65) MSP API: 1.46
+# Betaflight / LIONBEE_V2_REVB (LionBee V2 REV_B) 4.5.2 Mar 24 2026 / 11:26:09 (norevision) MSP API: 1.46
 
 # start the command batch
 batch start
@@ -619,8 +619,8 @@ set vbat_sag_lpf_period = 2
 set ibat_lpf_period = 10
 set vbat_duration_for_warning = 0
 set vbat_duration_for_critical = 0
-set vbat_scale = 58
-set vbat_divider = 10
+set vbat_scale = 68
+set vbat_divider = 6
 set vbat_multiplier = 1
 set ibata_scale = 513
 set ibata_offset = 0

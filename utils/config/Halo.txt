@@ -3,7 +3,7 @@
 # dump
 
 # version
-# Betaflight / STM32H743 (SH74) 4.5.2 Feb 26 2026 / 20:58:18 (norevision) MSP API: 1.46
+# Betaflight / STM32H743 (SH74) 4.5.2 Mar 23 2026 / 19:22:15 (fd7a8a7ad) MSP API: 1.46
 
 # start the command batch
 batch start
@@ -250,6 +250,7 @@ feature -ESC_SENSOR
 feature -ANTI_GRAVITY
 feature -OPTICALFLOW
 feature RX_SERIAL
+feature GPS
 feature RANGEFINDER
 feature TELEMETRY
 feature LED_STRIP
@@ -261,7 +262,7 @@ feature OPTICALFLOW
 # serial
 serial 20 1 115200 57600 0 115200
 serial 0 64 115200 57600 0 115200
-serial 1 0 115200 57600 0 115200
+serial 1 2 115200 57600 0 115200
 serial 2 0 115200 57600 0 115200
 serial 3 0 115200 57600 0 115200
 serial 4 0 115200 57600 0 115200
@@ -557,7 +558,7 @@ set acc_hardware = AUTO
 set acc_lpf_hz = 25
 set acc_trim_pitch = 0
 set acc_trim_roll = 0
-set acc_calibration = 0,0,0,0
+set acc_calibration = 78,2,5,1
 set mid_rc = 1500
 set min_check = 1050
 set max_check = 1900
@@ -641,7 +642,7 @@ set failsafe_recovery_delay = 5
 set failsafe_stick_threshold = 30
 set align_board_roll = 0
 set align_board_pitch = 0
-set align_board_yaw = 0
+set align_board_yaw = 45
 set gimbal_mode = NORMAL
 set bat_capacity = 0
 set vbat_max_cell_voltage = 430
@@ -955,10 +956,10 @@ set gyro_1_bustype = SPI
 set gyro_1_spibus = 1
 set gyro_1_i2cBus = 0
 set gyro_1_i2c_address = 0
-set gyro_1_sensor_align = CW0
+set gyro_1_sensor_align = CW180FLIP
 set gyro_1_align_roll = 0
-set gyro_1_align_pitch = 0
-set gyro_1_align_yaw = 0
+set gyro_1_align_pitch = 1800
+set gyro_1_align_yaw = 1800
 set gyro_2_bustype = SPI
 set gyro_2_spibus = 1
 set gyro_2_i2cBus = 0

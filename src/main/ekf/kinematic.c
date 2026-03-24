@@ -627,29 +627,14 @@ static int solve_linear_system(int dim, float *a, float *b, int nrhs) {
 }
 
 
+static void kinematic_predict_covariance_sparse(float *in_P, float *in_Q, const float *in_F, float dt);
+
 static void predict_covariance(float *in_P, float *in_Q, const float *in_F, float dt) {
-#ifdef Q_SYM_IS_DISCRETE
-  (void)dt;
-#endif
-  float tmp[EDIM * EDIM];
-  float p_next[EDIM * EDIM];
-
-  mat_mul(in_F, EDIM, EDIM, in_P, EDIM, tmp);
-  mat_mul_transpose_right(tmp, EDIM, EDIM, in_F, EDIM, p_next);
-
-  for (int i = 0; i < EDIM * EDIM; ++i) {
-#ifdef Q_SYM_IS_DISCRETE
-    p_next[i] += in_Q[i];
-#else
-    p_next[i] += dt * in_Q[i];
-#endif
-  }
-
-  memcpy(in_P, p_next, sizeof(p_next));
+  kinematic_predict_covariance_sparse(in_P, in_Q, in_F, dt);
 }
 
 
-static int update_core(int zdim, float *in_x, float *in_P, ObsFun h_fun, ObsFun H_fun, float *in_z, float *in_R,
+static int __attribute__((unused)) update_core(int zdim, float *in_x, float *in_P, ObsFun h_fun, ObsFun H_fun, float *in_z, float *in_R,
                        float *in_ea, float maha_threshold, int do_maha) {
   float h[MAX_ZDIM];
   float H[MAX_ZDIM * DIM];
@@ -748,6 +733,270 @@ static int update_core(int zdim, float *in_x, float *in_P, ObsFun h_fun, ObsFun 
   return 1;
 }
 
+/* kinematic_embedded_postprocess_v1 */
+void kinematic_normalize_state(float *state);
+
+static void kinematic_predict_covariance_sparse(float *in_P, float *in_Q, const float *in_F, float dt) {
+#ifdef Q_SYM_IS_DISCRETE
+  (void)dt;
+#endif
+  const float f03 = in_F[3];
+  const float f07 = in_F[7];
+  const float f08 = in_F[8];
+  const float f09 = in_F[9];
+  const float f14 = in_F[14];
+  const float f17 = in_F[17];
+  const float f18 = in_F[18];
+  const float f19 = in_F[19];
+  const float f25 = in_F[25];
+  const float f27 = in_F[27];
+  const float f28 = in_F[28];
+  const float f29 = in_F[29];
+  const float f37 = in_F[37];
+  const float f38 = in_F[38];
+  const float f39 = in_F[39];
+  const float f47 = in_F[47];
+  const float f48 = in_F[48];
+  const float f49 = in_F[49];
+  const float f57 = in_F[57];
+  const float f58 = in_F[58];
+  const float f59 = in_F[59];
+  float p_next[EDIM * EDIM];
+
+  for (int row = 0; row < EDIM; ++row) {
+    float t[EDIM];
+    for (int col = 0; col < EDIM; ++col) {
+      const float p0 = in_P[col];
+      const float p1 = in_P[EDIM + col];
+      const float p2 = in_P[2 * EDIM + col];
+      const float p3 = in_P[3 * EDIM + col];
+      const float p4 = in_P[4 * EDIM + col];
+      const float p5 = in_P[5 * EDIM + col];
+      const float p6 = in_P[6 * EDIM + col];
+      const float p7 = in_P[7 * EDIM + col];
+      const float p8 = in_P[8 * EDIM + col];
+      const float p9 = in_P[9 * EDIM + col];
+
+      switch (row) {
+        case 0:
+          t[col] = p0 + f03 * p3 + f07 * p7 + f08 * p8 + f09 * p9;
+          break;
+        case 1:
+          t[col] = p1 + f14 * p4 + f17 * p7 + f18 * p8 + f19 * p9;
+          break;
+        case 2:
+          t[col] = p2 + f25 * p5 + f27 * p7 + f28 * p8 + f29 * p9;
+          break;
+        case 3:
+          t[col] = p3 + f37 * p7 + f38 * p8 + f39 * p9;
+          break;
+        case 4:
+          t[col] = p4 + f47 * p7 + f48 * p8 + f49 * p9;
+          break;
+        case 5:
+          t[col] = p5 + f57 * p7 + f58 * p8 + f59 * p9;
+          break;
+        case 6:
+          t[col] = p6;
+          break;
+        case 7:
+          t[col] = p7;
+          break;
+        case 8:
+          t[col] = p8;
+          break;
+        default:
+          t[col] = p9;
+          break;
+      }
+    }
+
+    const int base = row * EDIM;
+    p_next[base] = t[0] + f03 * t[3] + f07 * t[7] + f08 * t[8] + f09 * t[9];
+    p_next[base + 1] = t[1] + f14 * t[4] + f17 * t[7] + f18 * t[8] + f19 * t[9];
+    p_next[base + 2] = t[2] + f25 * t[5] + f27 * t[7] + f28 * t[8] + f29 * t[9];
+    p_next[base + 3] = t[3] + f37 * t[7] + f38 * t[8] + f39 * t[9];
+    p_next[base + 4] = t[4] + f47 * t[7] + f48 * t[8] + f49 * t[9];
+    p_next[base + 5] = t[5] + f57 * t[7] + f58 * t[8] + f59 * t[9];
+    p_next[base + 6] = t[6];
+    p_next[base + 7] = t[7];
+    p_next[base + 8] = t[8];
+    p_next[base + 9] = t[9];
+  }
+
+#ifdef Q_SYM_IS_DISCRETE
+  p_next[0] += in_Q[0];
+  p_next[3] += in_Q[3];
+  p_next[11] += in_Q[11];
+  p_next[14] += in_Q[14];
+  p_next[22] += in_Q[22];
+  p_next[25] += in_Q[25];
+  p_next[30] += in_Q[30];
+  p_next[33] += in_Q[33];
+  p_next[41] += in_Q[41];
+  p_next[44] += in_Q[44];
+  p_next[52] += in_Q[52];
+  p_next[55] += in_Q[55];
+  p_next[66] += in_Q[66];
+  p_next[77] += in_Q[77];
+  p_next[88] += in_Q[88];
+  p_next[99] += in_Q[99];
+#else
+  p_next[0] += dt * in_Q[0];
+  p_next[3] += dt * in_Q[3];
+  p_next[11] += dt * in_Q[11];
+  p_next[14] += dt * in_Q[14];
+  p_next[22] += dt * in_Q[22];
+  p_next[25] += dt * in_Q[25];
+  p_next[30] += dt * in_Q[30];
+  p_next[33] += dt * in_Q[33];
+  p_next[41] += dt * in_Q[41];
+  p_next[44] += dt * in_Q[44];
+  p_next[52] += dt * in_Q[52];
+  p_next[55] += dt * in_Q[55];
+  p_next[66] += dt * in_Q[66];
+  p_next[77] += dt * in_Q[77];
+  p_next[88] += dt * in_Q[88];
+  p_next[99] += dt * in_Q[99];
+#endif
+
+  memcpy(in_P, p_next, sizeof(p_next));
+}
+
+
+static void kinematic_update_scalar_sparse(float *in_x, float *in_P, float *in_z, float r, int primary_idx,
+                                           int secondary_idx, int use_secondary, float maha_threshold, int do_maha) {
+  const float pivot_eps = 1.0e-9f;
+  float hp[EDIM];
+  float k[EDIM];
+  float p_new[EDIM * EDIM];
+  const float predicted = in_x[primary_idx] + (use_secondary ? in_x[secondary_idx] : 0.0f);
+  const float y = in_z[0] - predicted;
+
+  for (int j = 0; j < EDIM; ++j) {
+    hp[j] = in_P[primary_idx * EDIM + j];
+    if (use_secondary) {
+      hp[j] += in_P[secondary_idx * EDIM + j];
+    }
+  }
+
+  float s = hp[primary_idx] + (use_secondary ? hp[secondary_idx] : 0.0f) + r;
+  if (fabsf(s) < pivot_eps) {
+    return;
+  }
+
+  if (do_maha && (y * y) / s > maha_threshold) {
+    r *= 1.0e16f;
+    s = hp[primary_idx] + (use_secondary ? hp[secondary_idx] : 0.0f) + r;
+    if (fabsf(s) < pivot_eps) {
+      return;
+    }
+  }
+
+  const float inv_s = 1.0f / s;
+  for (int i = 0; i < EDIM; ++i) {
+    k[i] = hp[i] * inv_s;
+  }
+
+  for (int i = 0; i < EDIM; ++i) {
+    const float ki = k[i];
+    const int row_base = i * EDIM;
+    float temp_row[EDIM];
+
+    for (int j = 0; j < EDIM; ++j) {
+      temp_row[j] = in_P[row_base + j] - ki * hp[j];
+    }
+
+    const float temp_h = temp_row[primary_idx] + (use_secondary ? temp_row[secondary_idx] : 0.0f);
+    for (int j = 0; j < EDIM; ++j) {
+      p_new[row_base + j] = temp_row[j] - temp_h * k[j] + r * ki * k[j];
+    }
+  }
+
+  for (int i = 0; i < EDIM; ++i) {
+    in_x[i] += k[i] * y;
+  }
+  kinematic_normalize_state(in_x);
+
+  memcpy(in_P, p_new, sizeof(p_new));
+  in_z[0] = y;
+}
+
+
+static void kinematic_update_flow_sparse(float *in_x, float *in_P, float *in_z, float *in_R, float *flow_q) {
+  float h[2];
+  float H[2 * EDIM];
+  float hp0[EDIM];
+  float hp1[EDIM];
+  float s[4];
+  float s_work[4];
+  float kt[2 * EDIM];
+  float p_new[EDIM * EDIM];
+  float y[2];
+
+  h_4(in_x, flow_q, h);
+  H_4(in_x, flow_q, H);
+
+  const float h00 = H[3];
+  const float h01 = H[4];
+  const float h02 = H[5];
+  const float h10 = H[13];
+  const float h11 = H[14];
+  const float h12 = H[15];
+
+  y[0] = in_z[0] - h[0];
+  y[1] = in_z[1] - h[1];
+
+  for (int j = 0; j < EDIM; ++j) {
+    const float p3 = in_P[3 * EDIM + j];
+    const float p4 = in_P[4 * EDIM + j];
+    const float p5 = in_P[5 * EDIM + j];
+    hp0[j] = h00 * p3 + h01 * p4 + h02 * p5;
+    hp1[j] = h10 * p3 + h11 * p4 + h12 * p5;
+    kt[j] = hp0[j];
+    kt[EDIM + j] = hp1[j];
+  }
+
+  s[0] = hp0[3] * h00 + hp0[4] * h01 + hp0[5] * h02 + in_R[0];
+  s[1] = hp0[3] * h10 + hp0[4] * h11 + hp0[5] * h12 + in_R[1];
+  s[2] = hp1[3] * h00 + hp1[4] * h01 + hp1[5] * h02 + in_R[2];
+  s[3] = hp1[3] * h10 + hp1[4] * h11 + hp1[5] * h12 + in_R[3];
+
+  memcpy(s_work, s, sizeof(s_work));
+  if (!solve_linear_system_2x2(s_work, kt, EDIM)) {
+    return;
+  }
+
+  for (int i = 0; i < EDIM; ++i) {
+    in_x[i] += kt[i] * y[0] + kt[EDIM + i] * y[1];
+  }
+  kinematic_normalize_state(in_x);
+
+  for (int i = 0; i < EDIM; ++i) {
+    const float ki0 = kt[i];
+    const float ki1 = kt[EDIM + i];
+    const int row_base = i * EDIM;
+    float temp_row[EDIM];
+
+    for (int j = 0; j < EDIM; ++j) {
+      temp_row[j] = in_P[row_base + j] - ki0 * hp0[j] - ki1 * hp1[j];
+    }
+
+    const float temp_h0 = temp_row[3] * h00 + temp_row[4] * h01 + temp_row[5] * h02;
+    const float temp_h1 = temp_row[3] * h10 + temp_row[4] * h11 + temp_row[5] * h12;
+
+    for (int j = 0; j < EDIM; ++j) {
+      const float kj0 = kt[j];
+      const float kj1 = kt[EDIM + j];
+      const float krkt = ki0 * (in_R[0] * kj0 + in_R[1] * kj1) + ki1 * (in_R[2] * kj0 + in_R[3] * kj1);
+      p_new[row_base + j] = temp_row[j] - temp_h0 * kj0 - temp_h1 * kj1 + krkt;
+    }
+  }
+
+  memcpy(in_P, p_new, sizeof(p_new));
+  memcpy(in_z, y, sizeof(y));
+}
+
 void kinematic_normalize_state(float *state) {
   (void)state;
 }
@@ -813,13 +1062,16 @@ void kinematic_predict(float *in_x, float *in_P, float *in_u, float dt) {
 }
 
 void kinematic_update_2(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea) {
-  (void)update_core(1, in_x, in_P, h_2, H_2, in_z, in_R, in_ea, MAHA_THRESH_2, 0);
+  (void)in_ea;
+  kinematic_update_scalar_sparse(in_x, in_P, in_z, in_R[0], 2, 0, 0, MAHA_THRESH_2, 0);
 }
 
 void kinematic_update_3(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea) {
-  (void)update_core(1, in_x, in_P, h_3, H_3, in_z, in_R, in_ea, MAHA_THRESH_3, 1);
+  (void)in_ea;
+  kinematic_update_scalar_sparse(in_x, in_P, in_z, in_R[0], 2, 6, 1, MAHA_THRESH_3, 1);
 }
 
 void kinematic_update_4(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea) {
-  (void)update_core(2, in_x, in_P, h_4, H_4, in_z, in_R, in_ea, MAHA_THRESH_4, 0);
+  (void)MAHA_THRESH_4;
+  kinematic_update_flow_sparse(in_x, in_P, in_z, in_R, in_ea);
 }

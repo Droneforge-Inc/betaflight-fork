@@ -42,7 +42,44 @@ PG_REGISTER_WITH_RESET_TEMPLATE(opticalflowConfig_t, opticalflowConfig,
                                 PG_OPTICALFLOW_CONFIG, 0);
 
 PG_RESET_TEMPLATE(opticalflowConfig_t, opticalflowConfig,
-                  .opticalflow_hardware = OPTICALFLOW_NONE, );
+                  .opticalflow_hardware = OPTICALFLOW_NONE,
+                  .opticalflow_align = OPTICALFLOW_ALIGN_CW0_DEG, );
+
+static void opticalflowAlign(int16_t *velX, int16_t *velY, uint8_t rotation) {
+  const int16_t x = *velX;
+  const int16_t y = *velY;
+
+  switch (rotation) {
+  default:
+  case OPTICALFLOW_ALIGN_CW0_DEG:
+    break;
+  case OPTICALFLOW_ALIGN_CW90_DEG:
+    *velX = y;
+    *velY = -x;
+    break;
+  case OPTICALFLOW_ALIGN_CW180_DEG:
+    *velX = -x;
+    *velY = -y;
+    break;
+  case OPTICALFLOW_ALIGN_CW270_DEG:
+    *velX = -y;
+    *velY = x;
+    break;
+  }
+}
+
+static void opticalflowMapRawToFlightFrame(int16_t *velX, int16_t *velY,
+                                           uint8_t hardware) {
+  UNUSED(velX);
+
+  switch (hardware) {
+  case OPTICALFLOW_MTF02:
+    *velY = -*velY;
+    break;
+  default:
+    break;
+  }
+}
 
 static bool opticalflowDetect(optrangeDev_t *dev,
                               uint8_t opticalflowHardwareToUse) {
@@ -115,8 +152,14 @@ bool opticalflowProcess(void) {
 
   if (opticalflow.dev.readFlow) {
     optrangeFlowData_t flowData = opticalflow.dev.readFlow(&opticalflow.dev);
-    opticalflow.velX = flowData.velX;
-    opticalflow.velY = -flowData.velY;
+    int16_t velX = flowData.velX;
+    int16_t velY = flowData.velY;
+
+    opticalflowMapRawToFlightFrame(&velX, &velY,
+                                   opticalflowConfig()->opticalflow_hardware);
+    opticalflowAlign(&velX, &velY, opticalflowConfig()->opticalflow_align);
+    opticalflow.velX = velX;
+    opticalflow.velY = velY;
 
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
     opticalflow.flowQuality = flowData.flowQuality;

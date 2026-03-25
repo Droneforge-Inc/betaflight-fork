@@ -3,7 +3,7 @@
 # dump
 
 # version
-# Betaflight / LIONBEE_V2_REVB (LionBee V2 REV_B) 4.5.2 Mar 24 2026 / 11:26:09 (norevision) MSP API: 1.46
+# Betaflight / LIONBEE_V2_REVB (LionBee V2 REV_B) 4.5.2 Mar 25 2026 / 14:16:07 (norevision) MSP API: 1.46
 
 # start the command batch
 batch start
@@ -497,7 +497,7 @@ set acc_hardware = AUTO
 set acc_lpf_hz = 25
 set acc_trim_pitch = 0
 set acc_trim_roll = 0
-set acc_calibration = 76,119,8,1
+set acc_calibration = -73,9,-15,1
 set align_mag = CW180
 set mag_align_roll = 0
 set mag_align_pitch = 0
@@ -913,6 +913,7 @@ set dashboard_i2c_bus = 0
 set dashboard_i2c_addr = 60
 set rangefinder_hardware = MTF02
 set opticalflow_hardware = MTF02
+set opticalflow_align = CW0
 set pinio_config = 1,1,1,1
 set pinio_box = 255,255,255,255
 set usb_msc_pin_pullup = ON

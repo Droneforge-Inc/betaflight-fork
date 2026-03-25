@@ -12,8 +12,16 @@ typedef enum {
   OPTICALFLOW_MTF02 = 1,
 } opticalflowType_e;
 
+typedef enum {
+  OPTICALFLOW_ALIGN_CW0_DEG = 0,
+  OPTICALFLOW_ALIGN_CW90_DEG,
+  OPTICALFLOW_ALIGN_CW180_DEG,
+  OPTICALFLOW_ALIGN_CW270_DEG,
+} opticalflowAlign_e;
+
 typedef struct opticalflowConfig_s {
   uint8_t opticalflow_hardware;
+  uint8_t opticalflow_align;
 } opticalflowConfig_t;
 
 PG_DECLARE(opticalflowConfig_t, opticalflowConfig);

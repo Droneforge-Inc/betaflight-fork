@@ -172,6 +172,12 @@ const char * const lookupTableOpticalflowHardware[] = {
 };
 #endif
 
+#ifdef USE_OPTICALFLOW
+static const char * const lookupTableOpticalflowAlignment[] = {
+    "CW0", "CW90", "CW180", "CW270"
+};
+#endif
+
 const char * const lookupTableOffOn[] = {
     "OFF", "ON"
 };
@@ -597,6 +603,7 @@ const lookupTableEntry_t lookupTables[] = {
 #endif
 #ifdef USE_OPTICALFLOW
     LOOKUP_TABLE_ENTRY(lookupTableOpticalflowHardware),
+    LOOKUP_TABLE_ENTRY(lookupTableOpticalflowAlignment),
 #endif
 #ifdef USE_GYRO_OVERFLOW_CHECK
     LOOKUP_TABLE_ENTRY(lookupTableGyroOverflowCheck),
@@ -1645,6 +1652,7 @@ const clivalue_t valueTable[] = {
 // PG_OPTICALFLOW_CONFIG
 #ifdef USE_OPTICALFLOW
     { "opticalflow_hardware", VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OPTICALFLOW_HARDWARE }, PG_OPTICALFLOW_CONFIG, offsetof(opticalflowConfig_t, opticalflow_hardware) },
+    { "opticalflow_align", VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OPTICALFLOW_ALIGNMENT }, PG_OPTICALFLOW_CONFIG, offsetof(opticalflowConfig_t, opticalflow_align) },
 #endif
 
 // PG_PINIO_CONFIG

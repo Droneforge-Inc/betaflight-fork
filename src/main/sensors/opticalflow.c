@@ -116,7 +116,7 @@ bool opticalflowProcess(void) {
   if (opticalflow.dev.readFlow) {
     optrangeFlowData_t flowData = opticalflow.dev.readFlow(&opticalflow.dev);
     opticalflow.velX = flowData.velX;
-    opticalflow.velY = flowData.velY;
+    opticalflow.velY = -flowData.velY;
 
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
     opticalflow.flowQuality = flowData.flowQuality;

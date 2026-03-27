@@ -3,7 +3,7 @@
 # dump
 
 # version
-# Betaflight / STM32H743 (SH74) 4.5.2 Mar 23 2026 / 19:22:15 (fd7a8a7ad) MSP API: 1.46
+# Betaflight / STM32H743 (SH74) 4.5.2 Mar 27 2026 / 13:30:34 (45450bd98) MSP API: 1.46
 
 # start the command batch
 batch start
@@ -425,10 +425,10 @@ mode_color 6 10 0
 mode_color 7 0 3
 
 # aux
-aux 0 0 0 900 900 0 0
-aux 1 0 0 900 900 0 0
-aux 2 0 0 900 900 0 0
-aux 3 0 0 900 900 0 0
+aux 0 0 0 1700 2100 0 0
+aux 1 1 1 900 1300 0 0
+aux 2 2 1 1300 1700 0 0
+aux 3 55 4 1500 2100 0 0
 aux 4 0 0 900 900 0 0
 aux 5 0 0 900 900 0 0
 aux 6 0 0 900 900 0 0
@@ -558,7 +558,7 @@ set acc_hardware = AUTO
 set acc_lpf_hz = 25
 set acc_trim_pitch = 0
 set acc_trim_roll = 0
-set acc_calibration = 78,2,5,1
+set acc_calibration = 61,-37,8,1
 set mid_rc = 1500
 set min_check = 1050
 set max_check = 1900
@@ -704,6 +704,7 @@ set small_angle = 25
 set imu_process_denom = 2
 set auto_disarm_delay = 5
 set gyro_cal_on_first_arm = OFF
+set reset_kinematic_state_on_arm = ON
 set gps_provider = UBLOX
 set gps_sbas_mode = NONE
 set gps_auto_config = ON
@@ -943,6 +944,7 @@ set dashboard_i2c_bus = 0
 set dashboard_i2c_addr = 60
 set rangefinder_hardware = MTF02
 set opticalflow_hardware = MTF02
+set opticalflow_align = CW0
 set pinio_config = 1,1,1,1
 set pinio_box = 255,255,255,255
 set usb_hid_cdc = OFF

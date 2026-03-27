@@ -1030,6 +1030,9 @@ const clivalue_t valueTable[] = {
 // PG_ARMING_CONFIG
     { "auto_disarm_delay",          VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 60 }, PG_ARMING_CONFIG, offsetof(armingConfig_t, auto_disarm_delay) },
     { PARAM_NAME_GYRO_CAL_ON_FIRST_ARM, VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_ARMING_CONFIG, offsetof(armingConfig_t, gyro_cal_on_first_arm) },
+#ifdef USE_EKF
+    { PARAM_NAME_RESET_KINEMATIC_STATE_ON_ARM, VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_ARMING_CONFIG, offsetof(armingConfig_t, reset_kinematic_state_on_arm) },
+#endif
 
 // PG_GPS_CONFIG
 #ifdef USE_GPS

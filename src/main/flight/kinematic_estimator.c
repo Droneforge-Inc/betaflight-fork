@@ -78,9 +78,11 @@ static float kinematicEstimatorCentimetersToMeters(float valueCm) {
   return valueCm * METERS_PER_CENTIMETER;
 }
 
+#ifdef USE_GPS
 static float kinematicEstimatorMillimetersToMeters(float valueMm) {
   return valueMm * 0.001f;
 }
+#endif
 
 static float kinematicEstimatorOpticalflowToMetersPerSecond(
     float flowVelocityCmPerSecondAtOneMeter, float altitudeCm) {
@@ -88,6 +90,7 @@ static float kinematicEstimatorOpticalflowToMetersPerSecond(
          METERS_PER_CENTIMETER_SQUARED;
 }
 
+#ifdef USE_GPS
 static float kinematicEstimatorVarianceScaleFromSigma(float sigma,
                                                       float defaultSigma,
                                                       float maxVarianceScale) {
@@ -97,6 +100,7 @@ static float kinematicEstimatorVarianceScaleFromSigma(float sigma,
 
   return constrainf(sq(sigma / defaultSigma), 1.0e-3f, maxVarianceScale);
 }
+#endif
 
 static void kinematicEstimatorResetPositionVelocityState(void) {
   kinematicState_t state = kinematicEstimator.state;

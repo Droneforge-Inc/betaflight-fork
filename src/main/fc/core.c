@@ -66,6 +66,9 @@
 #include "flight/dyn_notch_filter.h"
 #endif
 
+#ifdef USE_EKF
+#include "flight/kinematic_estimator.h"
+#endif
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/pid.h"
@@ -572,6 +575,10 @@ void tryArm(void)
         mixerResetRpmLimiter();
 #endif
         ENABLE_ARMING_FLAG(ARMED);
+
+#ifdef USE_EKF
+        kinematicEstimatorOnArm();
+#endif
 
 #ifdef USE_RC_STATS
         NotifyRcStatsArming();

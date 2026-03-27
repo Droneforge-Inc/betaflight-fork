@@ -3,7 +3,7 @@
 # dump
 
 # version
-# Betaflight / LIONBEE_V2_REVB (LionBee V2 REV_B) 4.5.2 Mar 25 2026 / 14:16:07 (norevision) MSP API: 1.46
+# Betaflight / LIONBEE_V2_REVB (LionBee V2 REV_B) 4.5.2 Mar 27 2026 / 10:46:14 (norevision) MSP API: 1.46
 
 # start the command batch
 batch start
@@ -368,9 +368,9 @@ mode_color 7 0 3
 aux 0 0 0 1700 2100 0 0
 aux 1 1 1 900 1300 0 0
 aux 2 2 1 1300 1700 0 0
-aux 3 35 2 1700 2100 0 0
-aux 4 26 3 1700 2100 0 0
-aux 5 0 0 900 900 0 0
+aux 3 26 3 1700 2100 0 0
+aux 4 35 2 1700 2100 0 0
+aux 5 55 255 1500 2100 0 0
 aux 6 0 0 900 900 0 0
 aux 7 0 0 900 900 0 0
 aux 8 0 0 900 900 0 0
@@ -661,6 +661,7 @@ set imu_process_denom = 2
 set mag_declination = 0
 set auto_disarm_delay = 5
 set gyro_cal_on_first_arm = OFF
+set reset_kinematic_state_on_arm = ON
 set gps_provider = UBLOX
 set gps_sbas_mode = NONE
 set gps_auto_config = ON

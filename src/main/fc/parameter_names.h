@@ -65,6 +65,9 @@
 #define PARAM_NAME_THROTTLE_LIMIT_TYPE "throttle_limit_type"
 #define PARAM_NAME_THROTTLE_LIMIT_PERCENT "throttle_limit_percent"
 #define PARAM_NAME_GYRO_CAL_ON_FIRST_ARM "gyro_cal_on_first_arm"
+#ifdef USE_EKF
+#define PARAM_NAME_RESET_KINEMATIC_STATE_ON_ARM "reset_kinematic_state_on_arm"
+#endif
 #define PARAM_NAME_DEADBAND "deadband"
 #define PARAM_NAME_YAW_DEADBAND "yaw_deadband"
 #define PARAM_NAME_PID_PROCESS_DENOM "pid_process_denom"

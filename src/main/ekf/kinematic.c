@@ -14,6 +14,9 @@ typedef void (*ObsFun)(float *, float *, float *);
 static const float MAHA_THRESH_2 = 3.8414588206941227f;
 static const float MAHA_THRESH_3 = 3.8414588206941227f;
 static const float MAHA_THRESH_4 = 5.9914645471079808f;
+static const float MAHA_THRESH_5 = 3.8414588206941227f;
+static const float MAHA_THRESH_6 = 5.9914645471079808f;
+static const float MAHA_THRESH_7 = 5.9914645471079808f;
 
 
 static void err_fun(float *nom_x, float *delta_x, float *out) {
@@ -400,6 +403,88 @@ static void H_4(float *state, float *flow_q, float *out) {
   out[13] = -cse_tmp_4 + 2*flow_q[1]*flow_q[2];
   out[14] = -cse_tmp_0 + cse_tmp_1 + cse_tmp_2;
   out[15] = cse_tmp_3*flow_q[1] + 2*flow_q[2]*flow_q[3];
+  out[16] = 0;
+  out[17] = 0;
+  out[18] = 0;
+  out[19] = 0;
+}
+
+static void h_5(float *state, float *unused, float *out) {
+  (void)unused;
+  out[0] = state[2];
+}
+
+static void H_5(float *state, float *unused, float *out) {
+  (void)state;
+  (void)unused;
+  out[0] = 0;
+  out[1] = 0;
+  out[2] = 1;
+  out[3] = 0;
+  out[4] = 0;
+  out[5] = 0;
+  out[6] = 0;
+  out[7] = 0;
+  out[8] = 0;
+  out[9] = 0;
+}
+
+static void h_6(float *state, float *unused, float *out) {
+  (void)unused;
+  out[0] = state[0];
+  out[1] = state[1];
+}
+
+static void H_6(float *state, float *unused, float *out) {
+  (void)state;
+  (void)unused;
+  out[0] = 1;
+  out[1] = 0;
+  out[2] = 0;
+  out[3] = 0;
+  out[4] = 0;
+  out[5] = 0;
+  out[6] = 0;
+  out[7] = 0;
+  out[8] = 0;
+  out[9] = 0;
+  out[10] = 0;
+  out[11] = 1;
+  out[12] = 0;
+  out[13] = 0;
+  out[14] = 0;
+  out[15] = 0;
+  out[16] = 0;
+  out[17] = 0;
+  out[18] = 0;
+  out[19] = 0;
+}
+
+static void h_7(float *state, float *unused, float *out) {
+  (void)unused;
+  out[0] = state[3];
+  out[1] = state[4];
+}
+
+static void H_7(float *state, float *unused, float *out) {
+  (void)state;
+  (void)unused;
+  out[0] = 0;
+  out[1] = 0;
+  out[2] = 0;
+  out[3] = 1;
+  out[4] = 0;
+  out[5] = 0;
+  out[6] = 0;
+  out[7] = 0;
+  out[8] = 0;
+  out[9] = 0;
+  out[10] = 0;
+  out[11] = 0;
+  out[12] = 0;
+  out[13] = 0;
+  out[14] = 1;
+  out[15] = 0;
   out[16] = 0;
   out[17] = 0;
   out[18] = 0;
@@ -997,6 +1082,91 @@ static void kinematic_update_flow_sparse(float *in_x, float *in_P, float *in_z, 
   memcpy(in_z, y, sizeof(y));
 }
 
+
+static void kinematic_update_two_state_sparse(float *in_x, float *in_P, float *in_z, float *in_R,
+                                              int primary_idx0, int primary_idx1,
+                                              float maha_threshold, int do_maha) {
+  float hp0[EDIM];
+  float hp1[EDIM];
+  float s[4];
+  float s_work[4];
+  float maha_rhs[2];
+  float kt[2 * EDIM];
+  float p_new[EDIM * EDIM];
+  float y[2];
+  float r00 = in_R[0];
+  float r01 = in_R[1];
+  float r10 = in_R[2];
+  float r11 = in_R[3];
+
+  y[0] = in_z[0] - in_x[primary_idx0];
+  y[1] = in_z[1] - in_x[primary_idx1];
+
+  for (int j = 0; j < EDIM; ++j) {
+    hp0[j] = in_P[primary_idx0 * EDIM + j];
+    hp1[j] = in_P[primary_idx1 * EDIM + j];
+    kt[j] = hp0[j];
+    kt[EDIM + j] = hp1[j];
+  }
+
+  s[0] = hp0[primary_idx0] + r00;
+  s[1] = hp0[primary_idx1] + r01;
+  s[2] = hp1[primary_idx0] + r10;
+  s[3] = hp1[primary_idx1] + r11;
+
+  if (do_maha) {
+    memcpy(s_work, s, sizeof(s_work));
+    memcpy(maha_rhs, y, sizeof(maha_rhs));
+    if (!solve_linear_system_2x2(s_work, maha_rhs, 1)) {
+      return;
+    }
+    if (y[0] * maha_rhs[0] + y[1] * maha_rhs[1] > maha_threshold) {
+      r00 *= 1.0e16f;
+      r01 *= 1.0e16f;
+      r10 *= 1.0e16f;
+      r11 *= 1.0e16f;
+      s[0] = hp0[primary_idx0] + r00;
+      s[1] = hp0[primary_idx1] + r01;
+      s[2] = hp1[primary_idx0] + r10;
+      s[3] = hp1[primary_idx1] + r11;
+    }
+  }
+
+  memcpy(s_work, s, sizeof(s_work));
+  if (!solve_linear_system_2x2(s_work, kt, EDIM)) {
+    return;
+  }
+
+  for (int i = 0; i < EDIM; ++i) {
+    in_x[i] += kt[i] * y[0] + kt[EDIM + i] * y[1];
+  }
+  kinematic_normalize_state(in_x);
+
+  for (int i = 0; i < EDIM; ++i) {
+    const float ki0 = kt[i];
+    const float ki1 = kt[EDIM + i];
+    const int row_base = i * EDIM;
+    float temp_row[EDIM];
+
+    for (int j = 0; j < EDIM; ++j) {
+      temp_row[j] = in_P[row_base + j] - ki0 * hp0[j] - ki1 * hp1[j];
+    }
+
+    const float temp_h0 = temp_row[primary_idx0];
+    const float temp_h1 = temp_row[primary_idx1];
+
+    for (int j = 0; j < EDIM; ++j) {
+      const float kj0 = kt[j];
+      const float kj1 = kt[EDIM + j];
+      const float krkt = ki0 * (r00 * kj0 + r01 * kj1) + ki1 * (r10 * kj0 + r11 * kj1);
+      p_new[row_base + j] = temp_row[j] - temp_h0 * kj0 - temp_h1 * kj1 + krkt;
+    }
+  }
+
+  memcpy(in_P, p_new, sizeof(p_new));
+  memcpy(in_z, y, sizeof(y));
+}
+
 void kinematic_normalize_state(float *state) {
   (void)state;
 }
@@ -1049,6 +1219,30 @@ void kinematic_H_4(float *state, float *extra_args, float *out) {
   H_4(state, extra_args, out);
 }
 
+void kinematic_h_5(float *state, float *extra_args, float *out) {
+  h_5(state, extra_args, out);
+}
+
+void kinematic_H_5(float *state, float *extra_args, float *out) {
+  H_5(state, extra_args, out);
+}
+
+void kinematic_h_6(float *state, float *extra_args, float *out) {
+  h_6(state, extra_args, out);
+}
+
+void kinematic_H_6(float *state, float *extra_args, float *out) {
+  H_6(state, extra_args, out);
+}
+
+void kinematic_h_7(float *state, float *extra_args, float *out) {
+  h_7(state, extra_args, out);
+}
+
+void kinematic_H_7(float *state, float *extra_args, float *out) {
+  H_7(state, extra_args, out);
+}
+
 void kinematic_predict(float *in_x, float *in_P, float *in_u, float dt) {
   float nx[DIM] = {0};
   float in_F[EDIM * EDIM] = {0};
@@ -1074,4 +1268,19 @@ void kinematic_update_3(float *in_x, float *in_P, float *in_z, float *in_R, floa
 void kinematic_update_4(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea) {
   (void)MAHA_THRESH_4;
   kinematic_update_flow_sparse(in_x, in_P, in_z, in_R, in_ea);
+}
+
+void kinematic_update_5(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea) {
+  (void)in_ea;
+  kinematic_update_scalar_sparse(in_x, in_P, in_z, in_R[0], 2, 0, 0, MAHA_THRESH_5, 1);
+}
+
+void kinematic_update_6(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea) {
+  (void)in_ea;
+  kinematic_update_two_state_sparse(in_x, in_P, in_z, in_R, 0, 1, MAHA_THRESH_6, 1);
+}
+
+void kinematic_update_7(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea) {
+  (void)in_ea;
+  kinematic_update_two_state_sparse(in_x, in_P, in_z, in_R, 3, 4, MAHA_THRESH_7, 1);
 }

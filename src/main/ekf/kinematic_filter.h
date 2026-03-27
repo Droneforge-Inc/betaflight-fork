@@ -11,6 +11,9 @@ extern "C" {
 #define KINEMATIC_OBS_COVARIANCE_DIM_2 (KINEMATIC_OBS_DIM_2 * KINEMATIC_OBS_DIM_2)
 #define KINEMATIC_OBS_COVARIANCE_DIM_3 (KINEMATIC_OBS_DIM_3 * KINEMATIC_OBS_DIM_3)
 #define KINEMATIC_OBS_COVARIANCE_DIM_4 (KINEMATIC_OBS_DIM_4 * KINEMATIC_OBS_DIM_4)
+#define KINEMATIC_OBS_COVARIANCE_DIM_5 (KINEMATIC_OBS_DIM_5 * KINEMATIC_OBS_DIM_5)
+#define KINEMATIC_OBS_COVARIANCE_DIM_6 (KINEMATIC_OBS_DIM_6 * KINEMATIC_OBS_DIM_6)
+#define KINEMATIC_OBS_COVARIANCE_DIM_7 (KINEMATIC_OBS_DIM_7 * KINEMATIC_OBS_DIM_7)
 
 typedef enum {
     KINEMATIC_STATE_POS_X = 0,
@@ -76,6 +79,29 @@ typedef union {
     };
 } kinematicObs4_t;
 
+typedef union {
+    float raw[KINEMATIC_OBS_DIM_5];
+    struct {
+        float gpsAltitude;
+    };
+} kinematicObs5_t;
+
+typedef union {
+    float raw[KINEMATIC_OBS_DIM_6];
+    struct {
+        float posX;
+        float posY;
+    };
+} kinematicObs6_t;
+
+typedef union {
+    float raw[KINEMATIC_OBS_DIM_7];
+    struct {
+        float velX;
+        float velY;
+    };
+} kinematicObs7_t;
+
 typedef struct kinematicFilter_s {
     kinematicState_t state;
     float P[KINEMATIC_STATE_COVARIANCE_DIM];
@@ -83,6 +109,9 @@ typedef struct kinematicFilter_s {
     float R2[KINEMATIC_OBS_COVARIANCE_DIM_2];
     float R3[KINEMATIC_OBS_COVARIANCE_DIM_3];
     float R4[KINEMATIC_OBS_COVARIANCE_DIM_4];
+    float R5[KINEMATIC_OBS_COVARIANCE_DIM_5];
+    float R6[KINEMATIC_OBS_COVARIANCE_DIM_6];
+    float R7[KINEMATIC_OBS_COVARIANCE_DIM_7];
 } kinematicFilter_t;
 
 void kinematicFilterInit(kinematicFilter_t *filter);
@@ -94,6 +123,9 @@ void kinematicFilterSetProcessNoiseDiagonal(kinematicFilter_t *filter, float var
 void kinematicFilterSetPositionZVariance(kinematicFilter_t *filter, float variance);
 void kinematicFilterSetBaroAltitudeVariance(kinematicFilter_t *filter, float variance);
 void kinematicFilterSetFlowVelocityVariances(kinematicFilter_t *filter, float velXVariance, float velYVariance);
+void kinematicFilterSetGpsAltitudeVariance(kinematicFilter_t *filter, float variance);
+void kinematicFilterSetGpsPositionVariances(kinematicFilter_t *filter, float posXVariance, float posYVariance);
+void kinematicFilterSetGpsVelocityVariances(kinematicFilter_t *filter, float velXVariance, float velYVariance);
 
 void kinematicFilterPredictRaw(kinematicFilter_t *filter, const float control[KINEMATIC_CONTROL_DIM], float dt);
 void kinematicFilterPredict(kinematicFilter_t *filter, const kinematicControl_t *control, float dt);
@@ -105,6 +137,9 @@ void kinematicFilterPredictInputs(kinematicFilter_t *filter,
 void kinematicFilterUpdatePositionZRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_2]);
 void kinematicFilterUpdateBaroAltitudeRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_3]);
 void kinematicFilterUpdateFlowVelocityRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_4], const float flowQuaternion[KINEMATIC_EXTRA_DIM_4]);
+void kinematicFilterUpdateGpsAltitudeRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_5]);
+void kinematicFilterUpdateGpsPositionRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_6]);
+void kinematicFilterUpdateGpsVelocityRaw(kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_7]);
 
 void kinematicFilterUpdatePositionZ(kinematicFilter_t *filter, float posZ, float varianceScale);
 static inline void kinematicFilterUpdatePositionZNominal(kinematicFilter_t *filter, float posZ)
@@ -116,6 +151,21 @@ void kinematicFilterUpdateFlowVelocity(kinematicFilter_t *filter, float velX, fl
 static inline void kinematicFilterUpdateFlowVelocityNominal(kinematicFilter_t *filter, float velX, float velY, const quaternion_t *flowQuaternion)
 {
     kinematicFilterUpdateFlowVelocity(filter, velX, velY, flowQuaternion, 1.0f);
+}
+void kinematicFilterUpdateGpsAltitude(kinematicFilter_t *filter, float gpsAltitude, float varianceScale);
+static inline void kinematicFilterUpdateGpsAltitudeNominal(kinematicFilter_t *filter, float gpsAltitude)
+{
+    kinematicFilterUpdateGpsAltitude(filter, gpsAltitude, 1.0f);
+}
+void kinematicFilterUpdateGpsPosition(kinematicFilter_t *filter, float posX, float posY, float varianceScale);
+static inline void kinematicFilterUpdateGpsPositionNominal(kinematicFilter_t *filter, float posX, float posY)
+{
+    kinematicFilterUpdateGpsPosition(filter, posX, posY, 1.0f);
+}
+void kinematicFilterUpdateGpsVelocity(kinematicFilter_t *filter, float velX, float velY, float varianceScale);
+static inline void kinematicFilterUpdateGpsVelocityNominal(kinematicFilter_t *filter, float velX, float velY)
+{
+    kinematicFilterUpdateGpsVelocity(filter, velX, velY, 1.0f);
 }
 
 #ifdef __cplusplus

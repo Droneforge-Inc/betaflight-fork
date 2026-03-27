@@ -54,6 +54,9 @@
 #include "fc/runtime_config.h"
 
 #include "flight/imu.h"
+#ifdef USE_EKF
+#include "flight/kinematic_estimator.h"
+#endif
 #include "flight/pid.h"
 #include "flight/gps_rescue.h"
 
@@ -2610,6 +2613,9 @@ void onGpsNewData(void)
         GPS_calculateDistanceFlown(false);
     }
 
+#ifdef USE_EKF
+    kinematicEstimatorUpdateFromGps(&gpsSol);
+#endif
 #ifdef USE_GPS_RESCUE
     gpsRescueNewGpsData();
 #endif
@@ -2639,4 +2645,3 @@ baudRate_e getGpsPortActualBaudRateIndex(void)
 }
 
 #endif // USE_GPS
-

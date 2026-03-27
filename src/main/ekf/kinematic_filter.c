@@ -24,6 +24,10 @@
 
 #include "ekf/kinematic_filter.h"
 
+static const float kinematicGpsAltitudeVarianceDefault = 36.0f;
+static const float kinematicGpsPositionVarianceDefault = 9.0f;
+static const float kinematicGpsVelocityVarianceDefault = 1.0f;
+
 static void kinematicFilterSetCovarianceDiagonal(float *matrix, int dimension,
                                                  float variance) {
   memset(matrix, 0, (size_t)(dimension * dimension) * sizeof(float));
@@ -31,6 +35,14 @@ static void kinematicFilterSetCovarianceDiagonal(float *matrix, int dimension,
   for (int i = 0; i < dimension; i++) {
     matrix[(i * dimension) + i] = variance;
   }
+}
+
+static void kinematicFilterSetCovarianceDiagonal2(float *matrix,
+                                                  float variance0,
+                                                  float variance1) {
+  memset(matrix, 0, 4 * sizeof(float));
+  matrix[0] = variance0;
+  matrix[3] = variance1;
 }
 
 static float kinematicFilterSanitizeVarianceScale(float varianceScale) {
@@ -45,6 +57,14 @@ void kinematicFilterInit(kinematicFilter_t *filter) {
   kinematicFilterSetPositionZVariance(filter, 1e-3f);
   kinematicFilterSetBaroAltitudeVariance(filter, 1.0f);
   kinematicFilterSetFlowVelocityVariances(filter, 1e-2f, 1e-2f);
+  kinematicFilterSetGpsAltitudeVariance(filter,
+                                        kinematicGpsAltitudeVarianceDefault);
+  kinematicFilterSetGpsPositionVariances(filter,
+                                         kinematicGpsPositionVarianceDefault,
+                                         kinematicGpsPositionVarianceDefault);
+  kinematicFilterSetGpsVelocityVariances(filter,
+                                         kinematicGpsVelocityVarianceDefault,
+                                         kinematicGpsVelocityVarianceDefault);
 }
 
 void kinematicFilterReset(kinematicFilter_t *filter) {
@@ -87,6 +107,24 @@ void kinematicFilterSetFlowVelocityVariances(kinematicFilter_t *filter,
   memset(filter->R4, 0, sizeof(filter->R4));
   filter->R4[0] = velXVariance;
   filter->R4[3] = velYVariance;
+}
+
+void kinematicFilterSetGpsAltitudeVariance(kinematicFilter_t *filter,
+                                           float variance) {
+  kinematicFilterSetCovarianceDiagonal(filter->R5, KINEMATIC_OBS_DIM_5,
+                                       variance);
+}
+
+void kinematicFilterSetGpsPositionVariances(kinematicFilter_t *filter,
+                                            float posXVariance,
+                                            float posYVariance) {
+  kinematicFilterSetCovarianceDiagonal2(filter->R6, posXVariance, posYVariance);
+}
+
+void kinematicFilterSetGpsVelocityVariances(kinematicFilter_t *filter,
+                                            float velXVariance,
+                                            float velYVariance) {
+  kinematicFilterSetCovarianceDiagonal2(filter->R7, velXVariance, velYVariance);
 }
 
 void kinematicFilterPredictRaw(kinematicFilter_t *filter,
@@ -155,6 +193,33 @@ void kinematicFilterUpdateFlowVelocityRaw(
                      extraArgs);
 }
 
+void kinematicFilterUpdateGpsAltitudeRaw(
+    kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_5]) {
+  float measurementCopy[KINEMATIC_OBS_DIM_5];
+
+  memcpy(measurementCopy, measurement, sizeof(measurementCopy));
+  kinematic_update_5(filter->state.raw, filter->P, measurementCopy, filter->R5,
+                     NULL);
+}
+
+void kinematicFilterUpdateGpsPositionRaw(
+    kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_6]) {
+  float measurementCopy[KINEMATIC_OBS_DIM_6];
+
+  memcpy(measurementCopy, measurement, sizeof(measurementCopy));
+  kinematic_update_6(filter->state.raw, filter->P, measurementCopy, filter->R6,
+                     NULL);
+}
+
+void kinematicFilterUpdateGpsVelocityRaw(
+    kinematicFilter_t *filter, const float measurement[KINEMATIC_OBS_DIM_7]) {
+  float measurementCopy[KINEMATIC_OBS_DIM_7];
+
+  memcpy(measurementCopy, measurement, sizeof(measurementCopy));
+  kinematic_update_7(filter->state.raw, filter->P, measurementCopy, filter->R7,
+                     NULL);
+}
+
 void kinematicFilterUpdatePositionZ(kinematicFilter_t *filter, float posZ,
                                     float varianceScale) {
   kinematicObs2_t measurement = {.posZ = posZ};
@@ -195,4 +260,53 @@ void kinematicFilterUpdateFlowVelocity(kinematicFilter_t *filter, float velX,
 
   kinematic_update_4(filter->state.raw, filter->P, measurement.raw, scaledR,
                      extraArgs);
+}
+
+void kinematicFilterUpdateGpsAltitude(kinematicFilter_t *filter,
+                                      float gpsAltitude,
+                                      float varianceScale) {
+  kinematicObs5_t measurement = {
+      .gpsAltitude = gpsAltitude,
+  };
+  float scaledR[KINEMATIC_OBS_COVARIANCE_DIM_5];
+
+  scaledR[0] =
+      filter->R5[0] * kinematicFilterSanitizeVarianceScale(varianceScale);
+
+  kinematic_update_5(filter->state.raw, filter->P, measurement.raw, scaledR,
+                     NULL);
+}
+
+void kinematicFilterUpdateGpsPosition(kinematicFilter_t *filter, float posX,
+                                      float posY, float varianceScale) {
+  kinematicObs6_t measurement = {
+      .posX = posX,
+      .posY = posY,
+  };
+  float scaledR[KINEMATIC_OBS_COVARIANCE_DIM_6] = {0};
+  const float sanitizedVarianceScale =
+      kinematicFilterSanitizeVarianceScale(varianceScale);
+
+  scaledR[0] = filter->R6[0] * sanitizedVarianceScale;
+  scaledR[3] = filter->R6[3] * sanitizedVarianceScale;
+
+  kinematic_update_6(filter->state.raw, filter->P, measurement.raw, scaledR,
+                     NULL);
+}
+
+void kinematicFilterUpdateGpsVelocity(kinematicFilter_t *filter, float velX,
+                                      float velY, float varianceScale) {
+  kinematicObs7_t measurement = {
+      .velX = velX,
+      .velY = velY,
+  };
+  float scaledR[KINEMATIC_OBS_COVARIANCE_DIM_7] = {0};
+  const float sanitizedVarianceScale =
+      kinematicFilterSanitizeVarianceScale(varianceScale);
+
+  scaledR[0] = filter->R7[0] * sanitizedVarianceScale;
+  scaledR[3] = filter->R7[3] * sanitizedVarianceScale;
+
+  kinematic_update_7(filter->state.raw, filter->P, measurement.raw, scaledR,
+                     NULL);
 }

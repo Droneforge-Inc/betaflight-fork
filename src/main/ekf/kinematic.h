@@ -33,6 +33,21 @@ void kinematic_update_3(float *in_x, float *in_P, float *in_z, float *in_R, floa
 void kinematic_h_4(float *state, float *extra_args, float *out);
 void kinematic_H_4(float *state, float *extra_args, float *out);
 void kinematic_update_4(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea);
+#define KINEMATIC_OBS_DIM_5 1
+#define KINEMATIC_EXTRA_DIM_5 0
+void kinematic_h_5(float *state, float *extra_args, float *out);
+void kinematic_H_5(float *state, float *extra_args, float *out);
+void kinematic_update_5(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea);
+#define KINEMATIC_OBS_DIM_6 2
+#define KINEMATIC_EXTRA_DIM_6 0
+void kinematic_h_6(float *state, float *extra_args, float *out);
+void kinematic_H_6(float *state, float *extra_args, float *out);
+void kinematic_update_6(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea);
+#define KINEMATIC_OBS_DIM_7 2
+#define KINEMATIC_EXTRA_DIM_7 0
+void kinematic_h_7(float *state, float *extra_args, float *out);
+void kinematic_H_7(float *state, float *extra_args, float *out);
+void kinematic_update_7(float *in_x, float *in_P, float *in_z, float *in_R, float *in_ea);
 void kinematic_predict(float *in_x, float *in_P, float *in_u, float dt);
 
 #ifdef __cplusplus

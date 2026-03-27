@@ -26,15 +26,22 @@ extern "C" {
 
 #include "ekf/kinematic_filter.h"
 #include "common/quaternion.h"
+#ifdef USE_GPS
+#include "io/gps.h"
+#endif
 #include "sensors/opticalflow.h"
 #include "sensors/rangefinder.h"
 
 void kinematicEstimatorInit(void);
 void kinematicEstimatorReset(void);
 void kinematicEstimatorResetState(const kinematicState_t *state);
+void kinematicEstimatorOnArm(void);
 void kinematicEstimatorPredictFromImu(float accelBodyX, float accelBodyY, float accelBodyZ, const quaternion_t *attitudeQuat, float dt);
 void kinematicEstimatorUpdateFromOpticalflow(const opticalflowMeasurement_t *opticalflowMeasurement, const rangefinderMeasurement_t *rangefinderMeasurement, const quaternion_t *attitudeQuat);
 void kinematicEstimatorUpdateFromRangefinder(const rangefinderMeasurement_t *rangefinderMeasurement);
+#ifdef USE_GPS
+void kinematicEstimatorUpdateFromGps(const gpsSolutionData_t *gpsSolution);
+#endif
 
 const kinematicFilter_t *kinematicEstimatorGetFilter(void);
 const kinematicState_t *kinematicEstimatorGetState(void);

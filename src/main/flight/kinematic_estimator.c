@@ -58,7 +58,7 @@
 // Flight-level runtime owner for the generated kinematic EKF model.
 static kinematicFilter_t kinematicEstimator;
 
-#ifdef USE_GPS
+#ifdef USE_EKF_GPS
 typedef struct kinematicEstimatorGpsOrigin_s {
   bool isInitialized;
   int32_t lat;
@@ -78,7 +78,7 @@ static float kinematicEstimatorCentimetersToMeters(float valueCm) {
   return valueCm * METERS_PER_CENTIMETER;
 }
 
-#ifdef USE_GPS
+#ifdef USE_EKF_GPS
 static float kinematicEstimatorMillimetersToMeters(float valueMm) {
   return valueMm * 0.001f;
 }
@@ -90,7 +90,7 @@ static float kinematicEstimatorOpticalflowToMetersPerSecond(
          METERS_PER_CENTIMETER_SQUARED;
 }
 
-#ifdef USE_GPS
+#ifdef USE_EKF_GPS
 static float kinematicEstimatorVarianceScaleFromSigma(float sigma,
                                                       float defaultSigma,
                                                       float maxVarianceScale) {
@@ -136,7 +136,7 @@ static bool kinematicEstimatorResetOnArmEnabled(void) {
   return armingConfig()->reset_kinematic_state_on_arm;
 }
 
-#ifdef USE_GPS
+#ifdef USE_EKF_GPS
 static void kinematicEstimatorResetGpsOrigin(void) {
   kinematicEstimatorGpsOrigin.isInitialized = false;
   kinematicEstimatorGpsOrigin.lat = 0;
@@ -317,14 +317,14 @@ static float kinematicEstimatorGetOpticalflowVarianceScale(
 
 void kinematicEstimatorInit(void) {
   kinematicFilterInit(&kinematicEstimator);
-#ifdef USE_GPS
+#ifdef USE_EKF_GPS
   kinematicEstimatorResetGpsOrigin();
 #endif
 }
 
 void kinematicEstimatorReset(void) {
   kinematicFilterReset(&kinematicEstimator);
-#ifdef USE_GPS
+#ifdef USE_EKF_GPS
   kinematicEstimatorResetGpsOrigin();
 #endif
 }
@@ -343,7 +343,7 @@ void kinematicEstimatorOnArm(void) {
     return;
   }
 
-#ifdef USE_GPS
+#ifdef USE_EKF_GPS
   kinematicEstimatorResetGpsOrigin();
 #endif
 
@@ -424,7 +424,7 @@ void kinematicEstimatorUpdateFromRangefinder(
       rangefinderVarianceScale);
 }
 
-#ifdef USE_GPS
+#ifdef USE_EKF_GPS
 void kinematicEstimatorUpdateFromGps(const gpsSolutionData_t *gpsSolution) {
   float posX;
   float posY;

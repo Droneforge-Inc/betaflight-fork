@@ -1081,8 +1081,19 @@ void expressLrsHandleTelemetryUpdate(void)
 
     uint8_t *nextPayload = 0;
     uint8_t nextPlayloadSize = 0;
-    if (!isTelemetrySenderActive() && getNextTelemetryPayload(&nextPlayloadSize, &nextPayload)) {
-        setTelemetryDataToTransmit(nextPlayloadSize, nextPayload);
+    elrsTelemetryPayloadType_e nextPayloadType = ELRS_PAYLOAD_NONE;
+#ifdef USE_MSP_OVER_TELEMETRY
+    if (hasPriorityTelemetryPending() && isRegularTelemetrySenderActive() &&
+        getNextTelemetryPayload(&nextPlayloadSize, &nextPayload, &nextPayloadType)) {
+        setTelemetryDataToTransmit(nextPlayloadSize, nextPayload, nextPayloadType);
+        nextTelemetryType = ELRS_TELEMETRY_TYPE_DATA;
+    } else
+#endif
+    if (!isTelemetrySenderActive() && getNextTelemetryPayload(&nextPlayloadSize, &nextPayload, &nextPayloadType)) {
+        setTelemetryDataToTransmit(nextPlayloadSize, nextPayload, nextPayloadType);
+        if (nextPayloadType != ELRS_PAYLOAD_REGULAR) {
+            nextTelemetryType = ELRS_TELEMETRY_TYPE_DATA;
+        }
     }
     updateTelemetryBurst();
 }

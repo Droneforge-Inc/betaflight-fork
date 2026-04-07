@@ -402,6 +402,9 @@ STATIC_UNIT_TESTED void crsfDataReceive(uint16_t c, void *data)
                 case CRSF_FRAMETYPE_MSP_REQ:
                 case CRSF_FRAMETYPE_MSP_WRITE: {
                     uint8_t *frameStart = (uint8_t *)&crsfFrame.frame.payload + CRSF_FRAME_ORIGIN_DEST_SIZE;
+                    if (telemetryMspPayloadIsUidRequest(frameStart, crsfFrame.frame.frameLength - 4)) {
+                        crsfRecordUidRequestReceived();
+                    }
                     if (bufferCrsfMspFrame(frameStart, crsfFrame.frame.frameLength - 4)) {
                         crsfScheduleMspResponse(crsfFrame.frame.payload[1]);
                     }

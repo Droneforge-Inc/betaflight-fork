@@ -38,3 +38,6 @@ bool handleMspFrame(uint8_t *const payload, uint8_t const payloadLength, uint8_t
 
 // sends MSP reply from previously handled msp-request over telemetry
 bool sendMspReply(const uint8_t payloadSize_max, mspResponseFnPtr responseFn);
+
+bool telemetryMspPayloadIsUidRequest(const uint8_t *payload, uint8_t payloadLength);
+bool telemetryMspPayloadIsUidResponse(const uint8_t *payload, uint8_t payloadLength);

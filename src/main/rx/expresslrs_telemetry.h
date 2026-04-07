@@ -31,6 +31,7 @@
 #define ELRS_MSP_BYTES_PER_CALL 5
 #define ELRS_MSP_BUFFER_SIZE 65
 #define ELRS_MSP_MAX_PACKAGES ((ELRS_MSP_BUFFER_SIZE / ELRS_MSP_BYTES_PER_CALL) + 1)
+#define ELRS_MSP_ORIGIN_INDEX 4
 #define ELRS_MSP_PACKET_OFFSET 5
 #define ELRS_MSP_COMMAND_INDEX 7
 
@@ -42,11 +43,20 @@ typedef enum {
     ELRS_RESYNC_THEN_SEND, // perform a RESYNC then go to SENDING
 } stubbornSenderState_e;
 
-void initTelemetry(void);
-bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData);
+typedef enum {
+    ELRS_PAYLOAD_NONE = 0,
+    ELRS_PAYLOAD_REGULAR,
+    ELRS_PAYLOAD_DEVICE_INFO,
+    ELRS_PAYLOAD_MSP,
+} elrsTelemetryPayloadType_e;
 
-void setTelemetryDataToTransmit(const uint8_t lengthToTransmit, uint8_t* dataToTransmit);
+void initTelemetry(void);
+bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData, elrsTelemetryPayloadType_e *payloadType);
+bool hasPriorityTelemetryPending(void);
+
+void setTelemetryDataToTransmit(const uint8_t lengthToTransmit, uint8_t* dataToTransmit, elrsTelemetryPayloadType_e payloadType);
 bool isTelemetrySenderActive(void);
+bool isRegularTelemetrySenderActive(void);
 uint8_t getCurrentTelemetryPayload(uint8_t *outData);
 void confirmCurrentTelemetryPayload(const bool telemetryConfirmValue);
 void updateTelemetryRate(const uint16_t airRate, const uint8_t tlmRatio, const uint8_t tlmBurst);
@@ -58,3 +68,5 @@ void receiveMspData(const uint8_t packageIndex, const volatile uint8_t* const re
 bool hasFinishedMspData(void);
 void mspReceiverUnlock(void);
 void processMspPacket(uint8_t *packet);
+uint32_t expressLrsGetUidRequestCount(void);
+uint32_t expressLrsGetUidReplyCount(void);

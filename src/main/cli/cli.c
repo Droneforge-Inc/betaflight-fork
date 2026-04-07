@@ -158,6 +158,9 @@ bool cliMode = false;
 #include "rx/rx_spi.h"
 #ifdef USE_RX_EXPRESSLRS
 #include "rx/expresslrs.h"
+#if defined(USE_MSP_OVER_TELEMETRY)
+#include "rx/expresslrs_telemetry.h"
+#endif
 #endif
 
 #include "scheduler/scheduler.h"
@@ -173,6 +176,9 @@ bool cliMode = false;
 #include "sensors/sensors.h"
 
 #include "telemetry/frsky_hub.h"
+#if defined(USE_TELEMETRY_CRSF)
+#include "telemetry/crsf.h"
+#endif
 #include "telemetry/telemetry.h"
 
 #include "cli.h"
@@ -920,6 +926,30 @@ static void cliExpressLrsInfo(const char *cmdName, char *cmdline)
         lookupTables[TABLE_FREQ_DOMAIN].values[rxExpressLrsSpiConfig()->domain]);
     cliPrintf("state = %s\r\n", cliExpressLrsConnectionStateName(linkInfo.connectionState));
     cliPrintf("binding = %s\r\n", linkInfo.inBindingMode ? "ON" : "OFF");
+}
+#endif
+
+#if defined(USE_MSP_OVER_TELEMETRY)
+static void cliUidStats(const char *cmdName, char *cmdline)
+{
+    UNUSED(cmdName);
+    UNUSED(cmdline);
+
+#if defined(USE_SERIALRX_CRSF) && defined(USE_TELEMETRY_CRSF)
+    cliPrintLinef("serial_crsf_uid_requests = %u", crsfGetUidRequestCount());
+    cliPrintLinef("serial_crsf_uid_replies_sent = %u", crsfGetUidReplyCount());
+#else
+    cliPrintLine("serial_crsf_uid_requests = 0");
+    cliPrintLine("serial_crsf_uid_replies_sent = 0");
+#endif
+
+#if defined(USE_RX_EXPRESSLRS)
+    cliPrintLinef("spi_elrs_uid_requests = %u", expressLrsGetUidRequestCount());
+    cliPrintLinef("spi_elrs_uid_replies_completed = %u", expressLrsGetUidReplyCount());
+#else
+    cliPrintLine("spi_elrs_uid_requests = 0");
+    cliPrintLine("spi_elrs_uid_replies_completed = 0");
+#endif
 }
 #endif
 
@@ -6578,6 +6608,9 @@ const clicmd_t cmdTable[] = {
 #ifdef USE_RX_EXPRESSLRS
     CLI_COMMAND_DEF("elrs_info", "show ELRS SPI link info", NULL, cliExpressLrsInfo),
     CLI_COMMAND_DEF("expresslrs_info", "show ELRS SPI telemetry info", NULL, cliExpressLrsInfo),
+#endif
+#ifdef USE_MSP_OVER_TELEMETRY
+    CLI_COMMAND_DEF("uid_stats", "show MSP UID request/reply counters", NULL, cliUidStats),
 #endif
     CLI_COMMAND_DEF("exit", "exit command line interface and reboot (default)", "[noreboot]", cliExitCmd),
     CLI_COMMAND_DEF("feature", "configure features",

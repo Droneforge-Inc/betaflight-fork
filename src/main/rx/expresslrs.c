@@ -323,14 +323,27 @@ static bool domainIsTeam24(void)
 
 static void setRfLinkRate(const uint8_t index)
 {
-#if defined(USE_RX_SX1280) && defined(USE_RX_SX127X)
-    const uint8_t domainIdx = domainIsTeam24() ? 1 : 0;
-    receiver.modParams = &airRateConfig[domainIdx][index];
-    receiver.rfPerfParams = &rfPerfConfig[domainIdx][index];
-#else
-    receiver.modParams = &airRateConfig[0][index];
-    receiver.rfPerfParams = &rfPerfConfig[0][index];
+    const uint8_t localIndex = MIN(index, (uint8_t)(ELRS_RATE_MAX - 1));
+
+#ifdef USE_RX_SX1280
+    if (domainIsTeam24() && index == ELRS_RATE_INDEX_24_DF) {
+        receiver.modParams = &elrsDfRateConfig24;
+        receiver.rfPerfParams = &elrsDfRfPerfConfig24;
+    } else
 #endif
+    {
+#if defined(USE_RX_SX1280) && defined(USE_RX_SX127X)
+        const uint8_t domainIdx = domainIsTeam24() ? 1 : 0;
+        receiver.modParams = &airRateConfig[domainIdx][localIndex];
+        receiver.rfPerfParams = &rfPerfConfig[domainIdx][localIndex];
+#else
+        receiver.modParams = &airRateConfig[0][localIndex];
+        receiver.rfPerfParams = &rfPerfConfig[0][localIndex];
+#endif
+    }
+    // Use the local rate table as the default telemetry ratio until sync
+    // provides a concrete ratio from the transmitter.
+    currTlmDenom = tlmRatioEnumToValue(receiver.modParams->tlmInterval);
     receiver.currentFreq = fhssGetInitialFreq(receiver.freqOffset);
     // Wait for (11/10) 110% of time it takes to cycle through all freqs in FHSS table (in ms)
     receiver.cycleIntervalMs = ((uint32_t)11U * fhssGetNumEntries() * receiver.modParams->fhssHopInterval * receiver.modParams->interval) / (10U * 1000U);
@@ -1103,6 +1116,47 @@ void expressLrsDoTelem(void)
         // TODO this needs to be DMA aswell, SX127x unlikely to work right now
         receiver.handleFreqCorrection(receiver.freqOffset, receiver.currentFreq); //corrects for RX freq offset
     }
+}
+
+uint8_t expressLrsGetCurrentTlmDenom(void)
+{
+    return currTlmDenom;
+}
+
+uint8_t expressLrsGetDefaultTlmDenom(void)
+{
+    if (receiver.modParams) {
+        return tlmRatioEnumToValue(receiver.modParams->tlmInterval);
+    }
+
+    return currTlmDenom;
+}
+
+void expressLrsGetLinkInfo(expressLrsLinkInfo_t *info)
+{
+    if (!info) {
+        return;
+    }
+
+    info->configuredRateIndex = rxExpressLrsSpiConfig()->rateIndex;
+    info->activeRateIndex = receiver.rateIndex;
+    info->nextRateIndex = receiver.nextRateIndex;
+    info->activeRateHz = receiver.modParams ? rateEnumToHz(receiver.modParams->enumRate) : 0;
+    info->defaultTlmDenom = expressLrsGetDefaultTlmDenom();
+    info->activeTlmDenom = currTlmDenom;
+    info->currentFreq = receiver.currentFreq;
+    info->freqOffset = receiver.freqOffset;
+    info->rssi = receiver.rssi;
+    info->rssiFiltered = receiver.rssiFiltered;
+    info->snr = receiver.snr;
+#ifdef USE_RX_RSNR
+    info->rsnrFiltered = receiver.rsnrFiltered;
+#endif
+    info->uplinkLQ = receiver.uplinkLQ;
+    info->txPowerMw = txPowerIndexToValue(txPower);
+    info->connectionState = receiver.connectionState;
+    info->modelMatch = connectionHasModelMatch;
+    info->inBindingMode = receiver.inBindingMode;
 }
 
 rx_spi_received_e expressLrsDataReceived(uint8_t *payloadBuffer)

@@ -31,6 +31,28 @@
 #include "drivers/timer.h"
 #include "rx/expresslrs_common.h"
 
+typedef struct expressLrsLinkInfo_s {
+    uint8_t configuredRateIndex;
+    uint8_t activeRateIndex;
+    uint8_t nextRateIndex;
+    uint16_t activeRateHz;
+    uint8_t defaultTlmDenom;
+    uint8_t activeTlmDenom;
+    uint32_t currentFreq;
+    int32_t freqOffset;
+    int8_t rssi;
+    int8_t rssiFiltered;
+    int8_t snr;
+#ifdef USE_RX_RSNR
+    int8_t rsnrFiltered;
+#endif
+    uint8_t uplinkLQ;
+    uint16_t txPowerMw;
+    uint8_t connectionState;
+    bool modelMatch;
+    bool inBindingMode;
+} expressLrsLinkInfo_t;
+
 bool expressLrsSpiInit(const struct rxSpiConfig_s *rxConfig, struct rxRuntimeState_s *rxRuntimeState, rxSpiExtiConfig_t *extiConfig);
 void expressLrsSetRcDataFromPayload(uint16_t *rcData, const uint8_t *payload);
 rx_spi_received_e expressLrsDataReceived(uint8_t *payload);
@@ -46,3 +68,6 @@ volatile uint8_t *expressLrsGetPayloadBuffer(void);
 void expressLrsHandleTelemetryUpdate(void);
 void expressLrsStop(void);
 void expressLrsISR(bool runAlways);
+uint8_t expressLrsGetCurrentTlmDenom(void);
+uint8_t expressLrsGetDefaultTlmDenom(void);
+void expressLrsGetLinkInfo(expressLrsLinkInfo_t *info);

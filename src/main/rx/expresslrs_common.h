@@ -55,6 +55,7 @@
 #define FREQ_HZ_TO_REG_VAL_24(freq) ((uint32_t)(freq / SX1280_FREQ_STEP))
 
 #define ELRS_RATE_MAX 4
+#define ELRS_RATE_INDEX_24_DF 4
 #define ELRS_BINDING_RATE_24 3
 #define ELRS_BINDING_RATE_900 2
 
@@ -143,6 +144,11 @@ typedef struct elrsRfPerfParams_s {
     uint16_t syncPktIntervalDisconnected; // how often to send the SYNC_PACKET packet (ms) when there is no response from RX
     uint16_t syncPktIntervalConnected;    // how often to send the SYNC_PACKET packet (ms) when there we have a connection
 } elrsRfPerfParams_t;
+
+#ifdef USE_RX_SX1280
+extern elrsModSettings_t elrsDfRateConfig24;
+extern elrsRfPerfParams_t elrsDfRfPerfConfig24;
+#endif
 
 typedef struct elrsFhssConfig_s {
     uint8_t  domain;

@@ -156,6 +156,9 @@ bool cliMode = false;
 
 #include "rx/rx_bind.h"
 #include "rx/rx_spi.h"
+#ifdef USE_RX_EXPRESSLRS
+#include "rx/expresslrs.h"
+#endif
 
 #include "scheduler/scheduler.h"
 
@@ -862,6 +865,54 @@ static void cliPrintVarRange(const clivalue_t *var)
     break;
     }
 }
+
+#ifdef USE_RX_EXPRESSLRS
+static void cliPrintExpressLrsTlmRatio(const uint8_t denom)
+{
+    if (denom <= 1) {
+        cliPrint("OFF");
+    } else {
+        cliPrintf("1:%u", denom);
+    }
+}
+
+static const char *cliExpressLrsConnectionStateName(const uint8_t state)
+{
+    switch (state) {
+    case 0:
+        return "CONNECTED";
+    case 1:
+        return "TENTATIVE";
+    case 2:
+        return "DISCONNECTED";
+    case 3:
+        return "DISCONNECT_PENDING";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+static void cliExpressLrsInfo(const char *cmdName, char *cmdline)
+{
+    UNUSED(cmdName);
+    UNUSED(cmdline);
+
+    expressLrsLinkInfo_t linkInfo;
+    expressLrsGetLinkInfo(&linkInfo);
+
+    cliPrint("tlm_ratio_profile = ");
+    cliPrintExpressLrsTlmRatio(linkInfo.defaultTlmDenom);
+    cliPrintLinefeed();
+    cliPrint("tlm_ratio_active = ");
+    cliPrintExpressLrsTlmRatio(linkInfo.activeTlmDenom);
+    cliPrintLinefeed();
+    cliPrintf("rate_hz_active = %u\r\n", linkInfo.activeRateHz);
+    cliPrintf("domain = %s\r\n",
+        lookupTables[TABLE_FREQ_DOMAIN].values[rxExpressLrsSpiConfig()->domain]);
+    cliPrintf("state = %s\r\n", cliExpressLrsConnectionStateName(linkInfo.connectionState));
+    cliPrintf("binding = %s\r\n", linkInfo.inBindingMode ? "ON" : "OFF");
+}
+#endif
 
 static void cliSetVar(const clivalue_t *var, const uint32_t value)
 {
@@ -6514,6 +6565,10 @@ const clicmd_t cmdTable[] = {
         "[master|profile|rates|hardware|all] {defaults|bare}", cliDump),
 #ifdef USE_ESCSERIAL
     CLI_COMMAND_DEF("escprog", "passthrough esc to serial", "<mode [sk/bl/ki/cc]> <index>", cliEscPassthrough),
+#endif
+#ifdef USE_RX_EXPRESSLRS
+    CLI_COMMAND_DEF("elrs_info", "show ELRS SPI link info", NULL, cliExpressLrsInfo),
+    CLI_COMMAND_DEF("expresslrs_info", "show ELRS SPI telemetry info", NULL, cliExpressLrsInfo),
 #endif
     CLI_COMMAND_DEF("exit", NULL, NULL, cliExit),
     CLI_COMMAND_DEF("feature", "configure features",

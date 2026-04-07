@@ -50,6 +50,17 @@ static uint32_t freqSpread = 0;
 // @CapnBry - Higher rates shorter timeout. Usually it runs 1-1.5 seconds with complete sync 500Hz.
 //            250Hz is 2-5s. 150Hz 2.5s. 50Hz stays in sync all 5 seconds of my test.
 // The failsafe timeout values come from the ELRS project's ExpressLRS_AirRateConfig definitions.
+#ifdef USE_RX_SX1280
+elrsModSettings_t elrsDfRateConfig24 = {
+    ELRS_RATE_INDEX_24_DF, RATE_LORA_500HZ, SX1280_LORA_BW_0800,
+    SX1280_LORA_SF5, SX1280_LORA_CR_LI_4_6, 2000, TLM_RATIO_1_2, 4, 12
+};
+
+elrsRfPerfParams_t elrsDfRfPerfConfig24 = {
+    ELRS_RATE_INDEX_24_DF, RATE_LORA_500HZ, -105, 1665, 2500, 2500, 3, 5000
+};
+#endif
+
 elrsModSettings_t airRateConfig[][ELRS_RATE_MAX] = {
 #ifdef USE_RX_SX127X
     {
@@ -394,6 +405,8 @@ uint8_t airRateIndexToIndex24(uint8_t airRate, uint8_t currentIndex)
         return currentIndex;
     case 9:
         return 3;
+    case 10:
+        return ELRS_RATE_INDEX_24_DF;
     default:
         return currentIndex;
     }

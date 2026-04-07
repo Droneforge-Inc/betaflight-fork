@@ -894,6 +894,9 @@ static timeUs_t crsfNextScheduleTimeUs;
 #define CRSF_FLIGHT_MODE_PAYLOAD_ESTIMATE 6
 #define CRSF_ASSUMED_LINK_SLOT_INTERVAL_US 5000U
 #define CRSF_ELRS_DATA_CHUNK_BYTES 5U
+#define CRSF_MIN_OTHER_TELEMETRY_HZ 10U
+#define CRSF_MAX_OTHER_TELEMETRY_PERIOD_US \
+  (1000000U / CRSF_MIN_OTHER_TELEMETRY_HZ)
 
 static uint16_t crsfGetScheduledFrameSize(const uint16_t schedule) {
   if (schedule & BIT(CRSF_FRAME_ATTITUDE_INDEX)) {
@@ -958,6 +961,14 @@ static uint16_t crsfGetScheduledFrameSize(const uint16_t schedule) {
   return CRSF_FRAME_LENGTH_NON_PAYLOAD;
 }
 
+static uint32_t crsfGetScheduledFrameIntervalUs(const uint16_t schedule) {
+  const uint32_t frameBytes = crsfGetScheduledFrameSize(schedule);
+  const uint32_t slotCount =
+      (frameBytes + (CRSF_ELRS_DATA_CHUNK_BYTES - 1U)) /
+      CRSF_ELRS_DATA_CHUNK_BYTES;
+  return slotCount * CRSF_ASSUMED_LINK_SLOT_INTERVAL_US;
+}
+
 static void crsfResetScheduleTiming(const timeUs_t currentTimeUs) {
   if (crsfScheduleCount == 0) {
     crsfNextScheduleTimeUs = currentTimeUs;
@@ -974,11 +985,7 @@ static void crsfUpdateScheduleIntervals(void) {
   }
 
   for (uint8_t i = 0; i < crsfScheduleCount; i++) {
-    const uint32_t frameBytes = crsfGetScheduledFrameSize(crsfSchedule[i]);
-    const uint32_t slotCount =
-        (frameBytes + (CRSF_ELRS_DATA_CHUNK_BYTES - 1U)) /
-        CRSF_ELRS_DATA_CHUNK_BYTES;
-    crsfScheduleIntervalUs[i] = slotCount * CRSF_ASSUMED_LINK_SLOT_INTERVAL_US;
+    crsfScheduleIntervalUs[i] = crsfGetScheduledFrameIntervalUs(crsfSchedule[i]);
   }
 }
 
@@ -1148,6 +1155,18 @@ void initCrsfTelemetry(void) {
 #endif
 
   int index = 0;
+#if defined(EKF_ONLY)
+  uint16_t ekfOnlyOtherSchedule[CRSF_SCHEDULE_COUNT_MAX];
+  uint8_t ekfOnlyOtherCount = 0;
+#ifdef USE_EKF
+  const bool kinematicStateEnabled =
+      sensors(SENSOR_ACC) &&
+      telemetryIsSensorEnabled(SENSOR_ALTITUDE | SENSOR_PITCH | SENSOR_ROLL |
+                               SENSOR_HEADING);
+  const uint16_t kinematicSchedule = BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX);
+#endif
+#endif
+#if !defined(EKF_ONLY)
   if (sensors(SENSOR_ACC) &&
       telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_ATTITUDE_INDEX);
@@ -1156,14 +1175,15 @@ void initCrsfTelemetry(void) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX);
 #endif
   }
-#ifdef USE_EKF
+#endif
+#if defined(USE_EKF) && !defined(EKF_ONLY)
   if (sensors(SENSOR_ACC) &&
       telemetryIsSensorEnabled(SENSOR_ALTITUDE | SENSOR_PITCH | SENSOR_ROLL |
                                SENSOR_HEADING)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX);
   }
 #endif
-#if defined(USE_BARO) && defined(USE_VARIO)
+#if defined(USE_BARO) && defined(USE_VARIO) && !defined(EKF_ONLY)
   if (telemetryIsSensorEnabled(SENSOR_ALTITUDE)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_BARO_ALTITUDE_INDEX);
   }
@@ -1172,43 +1192,109 @@ void initCrsfTelemetry(void) {
        telemetryIsSensorEnabled(SENSOR_VOLTAGE)) ||
       (isAmperageConfigured() &&
        telemetryIsSensorEnabled(SENSOR_CURRENT | SENSOR_FUEL))) {
+#if defined(EKF_ONLY)
+    ekfOnlyOtherSchedule[ekfOnlyOtherCount++] =
+        BIT(CRSF_FRAME_BATTERY_SENSOR_INDEX);
+#else
     crsfSchedule[index++] = BIT(CRSF_FRAME_BATTERY_SENSOR_INDEX);
+#endif
   }
 #ifndef IGNORE_FLIGHT_MODE
   if (telemetryIsSensorEnabled(SENSOR_MODE)) {
+#if defined(EKF_ONLY)
+    ekfOnlyOtherSchedule[ekfOnlyOtherCount++] =
+        BIT(CRSF_FRAME_FLIGHT_MODE_INDEX);
+#else
     crsfSchedule[index++] = BIT(CRSF_FRAME_FLIGHT_MODE_INDEX);
+#endif
   }
 #endif
 #ifdef USE_GPS
   if (featureIsEnabled(FEATURE_GPS) &&
       telemetryIsSensorEnabled(SENSOR_ALTITUDE | SENSOR_LAT_LONG |
                                SENSOR_GROUND_SPEED | SENSOR_HEADING)) {
+#if defined(EKF_ONLY)
+    ekfOnlyOtherSchedule[ekfOnlyOtherCount++] = BIT(CRSF_FRAME_GPS_INDEX);
+#else
     crsfSchedule[index++] = BIT(CRSF_FRAME_GPS_INDEX);
+#endif
   }
 #endif
-#ifdef USE_VARIO
+#if defined(USE_VARIO) && !defined(EKF_ONLY)
   if ((sensors(SENSOR_BARO) || featureIsEnabled(FEATURE_GPS)) &&
       telemetryIsSensorEnabled(SENSOR_VARIO)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_VARIO_SENSOR_INDEX);
   }
 #endif
 
-#if defined(USE_RANGEFINDER_TF)
+#if defined(USE_RANGEFINDER_TF) && !defined(EKF_ONLY)
   if (sensors(SENSOR_SONAR) && telemetryIsSensorEnabled(SENSOR_LIDAR)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX);
   }
 #endif
 
-#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
   if (sensors(SENSOR_OPTICALFLOW) &&
       telemetryIsSensorEnabled(SENSOR_OPTRANGE)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_OPTRANGE_INDEX);
   }
 #endif
 
-#ifdef SEND_MOTOR_TELEMETRY
+#if defined(SEND_MOTOR_TELEMETRY) && !defined(EKF_ONLY)
   // Always send motor telemetry if enabled
   crsfSchedule[index++] = BIT(CRSF_FRAME_MOTOR_RPM_INDEX);
+#endif
+
+#if defined(EKF_ONLY)
+#ifdef USE_EKF
+  if (kinematicStateEnabled) {
+    uint8_t kinematicCount = 1;
+
+    if (ekfOnlyOtherCount > 0) {
+      uint32_t otherCycleUs = 0;
+
+      for (uint8_t i = 0; i < ekfOnlyOtherCount; i++) {
+        otherCycleUs +=
+            crsfGetScheduledFrameIntervalUs(ekfOnlyOtherSchedule[i]);
+      }
+
+      const uint32_t kinematicIntervalUs =
+          crsfGetScheduledFrameIntervalUs(kinematicSchedule);
+      const uint32_t weightedCycleUs =
+          otherCycleUs + 2U * ekfOnlyOtherCount * kinematicIntervalUs;
+
+      if (weightedCycleUs <= CRSF_MAX_OTHER_TELEMETRY_PERIOD_US) {
+        kinematicCount = 2U * ekfOnlyOtherCount;
+      } else if (otherCycleUs + kinematicIntervalUs <=
+                 CRSF_MAX_OTHER_TELEMETRY_PERIOD_US) {
+        kinematicCount =
+            (uint8_t)((CRSF_MAX_OTHER_TELEMETRY_PERIOD_US - otherCycleUs) /
+                      kinematicIntervalUs);
+      }
+
+      const uint8_t kinematicBaseCount = kinematicCount / ekfOnlyOtherCount;
+      const uint8_t kinematicExtraCount = kinematicCount % ekfOnlyOtherCount;
+
+      for (uint8_t i = 0; i < ekfOnlyOtherCount; i++) {
+        const uint8_t statesBeforeOther =
+            kinematicBaseCount + ((i < kinematicExtraCount) ? 1U : 0U);
+
+        for (uint8_t j = 0; j < statesBeforeOther; j++) {
+          crsfSchedule[index++] = kinematicSchedule;
+        }
+
+        crsfSchedule[index++] = ekfOnlyOtherSchedule[i];
+      }
+    } else {
+      crsfSchedule[index++] = kinematicSchedule;
+    }
+  } else
+#endif
+  {
+    for (uint8_t i = 0; i < ekfOnlyOtherCount; i++) {
+      crsfSchedule[index++] = ekfOnlyOtherSchedule[i];
+    }
+  }
 #endif
 
   crsfScheduleCount = (uint8_t)index;

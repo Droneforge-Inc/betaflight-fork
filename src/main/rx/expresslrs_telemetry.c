@@ -48,6 +48,12 @@
 
 static uint8_t tlmBuffer[CRSF_FRAME_SIZE_MAX];
 
+#define ELRS_ASSUMED_LINK_SLOT_INTERVAL_US 5000U
+#define ELRS_FLIGHT_MODE_PAYLOAD_ESTIMATE 6U
+#define ELRS_MIN_OTHER_TELEMETRY_HZ 10U
+#define ELRS_MAX_OTHER_TELEMETRY_PERIOD_US \
+  (1000000U / ELRS_MIN_OTHER_TELEMETRY_HZ)
+
 typedef enum {
 #if defined(USE_GPS)
   CRSF_FRAME_GPS_INDEX = 0,
@@ -55,29 +61,31 @@ typedef enum {
 #else
   CRSF_FRAME_BATTERY_SENSOR_INDEX = 0,
 #endif
+#if !defined(EKF_ONLY)
   CRSF_FRAME_ATTITUDE_INDEX,
+#endif
 #ifdef USE_EKF
   CRSF_FRAME_KINEMATIC_STATE_INDEX,
 #endif
-#if defined(SEND_IMU_TELEMETRY)
+#if defined(SEND_IMU_TELEMETRY) && !defined(EKF_ONLY)
   CRSF_FRAME_RAW_IMU_INDEX,
 #endif
 #ifndef IGNORE_FLIGHT_MODE
   CRSF_FRAME_FLIGHT_MODE_INDEX,
 #endif
-#if defined(USE_VARIO)
+#if defined(USE_VARIO) && !defined(EKF_ONLY)
   CRSF_FRAME_VARIO_SENSOR_INDEX,
 #endif
-#if defined(USE_BARO)
+#if defined(USE_BARO) && !defined(EKF_ONLY)
   CRSF_FRAME_BARO_ALTITUDE_INDEX,
 #endif
-#if defined(USE_RANGEFINDER_TF)
+#if defined(USE_RANGEFINDER_TF) && !defined(EKF_ONLY)
   CRSF_FRAME_RANGEFINDER_TF_INDEX,
 #endif
-#if defined(USE_RANGEFINDER_OPTFLOW_MTF)
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
   CRSF_FRAME_OPTRANGE_INDEX,
 #endif
-#if defined(SEND_MOTOR_TELEMETRY)
+#if defined(SEND_MOTOR_TELEMETRY) && !defined(EKF_ONLY)
   CRSF_FRAME_MOTOR_RPM_INDEX,
 #endif
   CRSF_FRAME_PAYLOAD_TYPES_COUNT // should be last
@@ -88,29 +96,31 @@ static crsfFrameType_e payloadTypes[] = {
     CRSF_FRAMETYPE_GPS,
 #endif
     CRSF_FRAMETYPE_BATTERY_SENSOR,
+#if !defined(EKF_ONLY)
     CRSF_FRAMETYPE_ATTITUDE,
+#endif
 #ifdef USE_EKF
     CRSF_FRAMETYPE_KINEMATIC_STATE,
 #endif
-#if defined(SEND_IMU_TELEMETRY)
+#if defined(SEND_IMU_TELEMETRY) && !defined(EKF_ONLY)
     CRSF_FRAMETYPE_RAW_IMU,
 #endif
 #ifndef IGNORE_FLIGHT_MODE
     CRSF_FRAMETYPE_FLIGHT_MODE,
 #endif
-#if defined(USE_VARIO)
+#if defined(USE_VARIO) && !defined(EKF_ONLY)
     CRSF_FRAMETYPE_VARIO_SENSOR,
 #endif
-#if defined(USE_BARO)
+#if defined(USE_BARO) && !defined(EKF_ONLY)
     CRSF_FRAMETYPE_BARO_ALTITUDE,
 #endif
-#if defined(USE_RANGEFINDER_TF)
+#if defined(USE_RANGEFINDER_TF) && !defined(EKF_ONLY)
     CRSF_FRAMETYPE_RANGEFINDER_TF,
 #endif
-#if defined(USE_RANGEFINDER_OPTFLOW_MTF)
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
     CRSF_FRAMETYPE_OPTRANGE,
 #endif
-#if defined(SEND_MOTOR_TELEMETRY)
+#if defined(SEND_MOTOR_TELEMETRY) && !defined(EKF_ONLY)
     CRSF_FRAMETYPE_MOTOR_RPM,
 #endif
 };
@@ -121,6 +131,13 @@ STATIC_UNIT_TESTED uint32_t tlmSensors = 0;
 STATIC_UNIT_TESTED uint8_t tlmSensors = 0;
 #endif
 STATIC_UNIT_TESTED uint8_t currentPayloadIndex;
+#if defined(EKF_ONLY) && defined(USE_EKF)
+STATIC_UNIT_TESTED uint8_t ekfOnlyStatePerOtherBase;
+STATIC_UNIT_TESTED uint8_t ekfOnlyStatePerOtherExtra;
+STATIC_UNIT_TESTED uint8_t ekfOnlyOtherCount;
+STATIC_UNIT_TESTED uint8_t ekfOnlyOtherRoundIndex;
+STATIC_UNIT_TESTED uint8_t ekfOnlyStateSentForCurrentOther;
+#endif
 
 static uint8_t *data = NULL;
 static uint8_t length = 0;
@@ -131,6 +148,64 @@ static bool waitUntilTelemetryConfirm;
 static uint16_t waitCount;
 static uint16_t maxWaitCount;
 static volatile stubbornSenderState_e senderState;
+
+#if defined(EKF_ONLY) && defined(USE_EKF)
+static uint16_t getTelemetryFrameSize(const crsfFrameType_e frameType) {
+  switch (frameType) {
+  default:
+  case CRSF_FRAMETYPE_ATTITUDE:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_ATTITUDE_PAYLOAD_SIZE;
+  case CRSF_FRAMETYPE_BATTERY_SENSOR:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD +
+           CRSF_FRAME_BATTERY_SENSOR_PAYLOAD_SIZE;
+  case CRSF_FRAMETYPE_FLIGHT_MODE:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + ELRS_FLIGHT_MODE_PAYLOAD_ESTIMATE;
+#if defined(USE_GPS)
+  case CRSF_FRAMETYPE_GPS:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_GPS_PAYLOAD_SIZE;
+#endif
+#if defined(USE_VARIO)
+  case CRSF_FRAMETYPE_VARIO_SENSOR:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_VARIO_SENSOR_PAYLOAD_SIZE;
+#endif
+#if defined(USE_BARO) && defined(USE_VARIO)
+  case CRSF_FRAMETYPE_BARO_ALTITUDE:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD +
+           CRSF_FRAME_BARO_ALTITUDE_PAYLOAD_SIZE;
+#endif
+#if defined(SEND_IMU_TELEMETRY)
+  case CRSF_FRAMETYPE_RAW_IMU:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE;
+#endif
+#ifdef USE_EKF
+  case CRSF_FRAMETYPE_KINEMATIC_STATE:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD +
+           CRSF_FRAME_KINEMATIC_STATE_PAYLOAD_SIZE;
+#endif
+#if defined(USE_RANGEFINDER_TF)
+  case CRSF_FRAMETYPE_RANGEFINDER_TF:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD +
+           CRSF_FRAME_RANGEFINDER_TF_PAYLOAD_SIZE;
+#endif
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF)
+  case CRSF_FRAMETYPE_OPTRANGE:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_OPTRANGE_PAYLOAD_SIZE;
+#endif
+#ifdef SEND_MOTOR_TELEMETRY
+  case CRSF_FRAMETYPE_MOTOR_RPM:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE;
+#endif
+  }
+}
+
+static uint32_t getTelemetryFrameIntervalUs(const crsfFrameType_e frameType) {
+  const uint32_t frameBytes = getTelemetryFrameSize(frameType);
+  const uint32_t slotCount =
+      (frameBytes + (ELRS_TELEMETRY_BYTES_PER_CALL - 1U)) /
+      ELRS_TELEMETRY_BYTES_PER_CALL;
+  return slotCount * ELRS_ASSUMED_LINK_SLOT_INTERVAL_US;
+}
+#endif
 
 static void telemetrySenderResetState(void) {
   bytesLastPayload = 0;
@@ -371,6 +446,17 @@ void initTelemetry(void) {
     return;
   }
 
+  tlmSensors = 0;
+  currentPayloadIndex = 0;
+#if defined(EKF_ONLY) && defined(USE_EKF)
+  ekfOnlyStatePerOtherBase = 0;
+  ekfOnlyStatePerOtherExtra = 0;
+  ekfOnlyOtherCount = 0;
+  ekfOnlyOtherRoundIndex = 0;
+  ekfOnlyStateSentForCurrentOther = 0;
+#endif
+
+#if !defined(EKF_ONLY)
   if (sensors(SENSOR_ACC) &&
       telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
     tlmSensors |= BIT(CRSF_FRAME_ATTITUDE_INDEX);
@@ -378,6 +464,7 @@ void initTelemetry(void) {
     tlmSensors |= BIT(CRSF_FRAME_RAW_IMU_INDEX);
 #endif
   }
+#endif
 
 #ifdef USE_EKF
   if (sensors(SENSOR_ACC) &&
@@ -386,7 +473,7 @@ void initTelemetry(void) {
     tlmSensors |= BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX);
   }
 #endif
-#if defined(USE_BARO) && defined(USE_VARIO)
+#if defined(USE_BARO) && defined(USE_VARIO) && !defined(EKF_ONLY)
   if (telemetryIsSensorEnabled(SENSOR_ALTITUDE)) {
     tlmSensors |= BIT(CRSF_FRAME_BARO_ALTITUDE_INDEX);
   }
@@ -402,25 +489,25 @@ void initTelemetry(void) {
     tlmSensors |= BIT(CRSF_FRAME_FLIGHT_MODE_INDEX);
   }
 #endif
-#ifdef USE_VARIO
+#if defined(USE_VARIO) && !defined(EKF_ONLY)
   if ((sensors(SENSOR_BARO) || featureIsEnabled(FEATURE_GPS)) &&
       telemetryIsSensorEnabled(SENSOR_VARIO)) {
     tlmSensors |= BIT(CRSF_FRAME_VARIO_SENSOR_INDEX);
   }
 #endif
-#if defined(USE_RANGEFINDER_TF)
+#if defined(USE_RANGEFINDER_TF) && !defined(EKF_ONLY)
   if (sensors(SENSOR_SONAR) && telemetryIsSensorEnabled(SENSOR_LIDAR)) {
     tlmSensors |= BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX);
   }
 #endif
-#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+#if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
   if (sensors(SENSOR_OPTICALFLOW) &&
       telemetryIsSensorEnabled(SENSOR_OPTRANGE)) {
     tlmSensors |= BIT(CRSF_FRAME_OPTRANGE_INDEX);
   }
 #endif
 
-#ifdef SEND_MOTOR_TELEMETRY
+#if defined(SEND_MOTOR_TELEMETRY) && !defined(EKF_ONLY)
   // Always send motor telemetry if enabled
   tlmSensors |= BIT(CRSF_FRAME_MOTOR_RPM_INDEX);
 #endif
@@ -429,6 +516,41 @@ void initTelemetry(void) {
       telemetryIsSensorEnabled(SENSOR_ALTITUDE | SENSOR_LAT_LONG |
                                SENSOR_GROUND_SPEED | SENSOR_HEADING)) {
     tlmSensors |= BIT(CRSF_FRAME_GPS_INDEX);
+  }
+#endif
+
+#if defined(EKF_ONLY) && defined(USE_EKF)
+  if (tlmSensors & BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX)) {
+    uint8_t stateCount = 1;
+    uint32_t otherCycleUs = 0;
+
+    for (uint8_t i = 0; i < CRSF_FRAME_PAYLOAD_TYPES_COUNT; i++) {
+      if (i == CRSF_FRAME_KINEMATIC_STATE_INDEX || !(tlmSensors & BIT(i))) {
+        continue;
+      }
+
+      ekfOnlyOtherCount++;
+      otherCycleUs += getTelemetryFrameIntervalUs(payloadTypes[i]);
+    }
+
+    if (ekfOnlyOtherCount > 0) {
+      const uint32_t kinematicIntervalUs =
+          getTelemetryFrameIntervalUs(CRSF_FRAMETYPE_KINEMATIC_STATE);
+      const uint32_t weightedCycleUs =
+          otherCycleUs + 2U * ekfOnlyOtherCount * kinematicIntervalUs;
+
+      if (weightedCycleUs <= ELRS_MAX_OTHER_TELEMETRY_PERIOD_US) {
+        stateCount = 2U * ekfOnlyOtherCount;
+      } else if (otherCycleUs + kinematicIntervalUs <=
+                 ELRS_MAX_OTHER_TELEMETRY_PERIOD_US) {
+        stateCount =
+            (uint8_t)((ELRS_MAX_OTHER_TELEMETRY_PERIOD_US - otherCycleUs) /
+                      kinematicIntervalUs);
+      }
+
+      ekfOnlyStatePerOtherBase = stateCount / ekfOnlyOtherCount;
+      ekfOnlyStatePerOtherExtra = stateCount % ekfOnlyOtherCount;
+    }
   }
 #endif
 
@@ -449,6 +571,51 @@ bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData) {
     *nextPayloadSize = mspFrameSize;
     *payloadData = tlmBuffer;
     mspReplyPending = false;
+    return true;
+  } else
+#endif
+#if defined(EKF_ONLY) && defined(USE_EKF)
+      if (tlmSensors & BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX)) {
+    if (ekfOnlyOtherCount == 0) {
+      *nextPayloadSize = getCrsfFrame(tlmBuffer, CRSF_FRAMETYPE_KINEMATIC_STATE);
+      *payloadData = tlmBuffer;
+      return true;
+    }
+
+    const uint8_t stateQuota =
+        ekfOnlyStatePerOtherBase +
+        ((ekfOnlyOtherRoundIndex < ekfOnlyStatePerOtherExtra) ? 1U : 0U);
+
+    if (ekfOnlyStateSentForCurrentOther < stateQuota) {
+      *nextPayloadSize = getCrsfFrame(tlmBuffer, CRSF_FRAMETYPE_KINEMATIC_STATE);
+      *payloadData = tlmBuffer;
+      ekfOnlyStateSentForCurrentOther++;
+      return true;
+    }
+
+    for (uint8_t i = 0; i < CRSF_FRAME_PAYLOAD_TYPES_COUNT; i++) {
+      const uint8_t payloadIndex = currentPayloadIndex;
+      currentPayloadIndex =
+          (currentPayloadIndex + 1) % CRSF_FRAME_PAYLOAD_TYPES_COUNT;
+
+      if (payloadIndex == CRSF_FRAME_KINEMATIC_STATE_INDEX) {
+        continue;
+      }
+
+      if (tlmSensors & BIT(payloadIndex)) {
+        *nextPayloadSize = getCrsfFrame(tlmBuffer, payloadTypes[payloadIndex]);
+        *payloadData = tlmBuffer;
+        ekfOnlyStateSentForCurrentOther = 0;
+        ekfOnlyOtherRoundIndex =
+            (ekfOnlyOtherRoundIndex + 1) % ekfOnlyOtherCount;
+        return true;
+      }
+    }
+
+    *nextPayloadSize = getCrsfFrame(tlmBuffer, CRSF_FRAMETYPE_KINEMATIC_STATE);
+    *payloadData = tlmBuffer;
+    ekfOnlyOtherRoundIndex = 0;
+    ekfOnlyStateSentForCurrentOther = 0;
     return true;
   } else
 #endif

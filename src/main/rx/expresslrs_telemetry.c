@@ -144,10 +144,17 @@ static uint8_t length = 0;
 static uint8_t currentOffset;
 static uint8_t bytesLastPayload;
 static uint8_t currentPackage;
+static elrsTelemetryPayloadType_e currentPayloadType = ELRS_PAYLOAD_NONE;
+static bool currentPayloadIsUidMsp;
 static bool waitUntilTelemetryConfirm;
 static uint16_t waitCount;
 static uint16_t maxWaitCount;
 static volatile stubbornSenderState_e senderState;
+#ifdef USE_MSP_OVER_TELEMETRY
+static bool pendingUidMspReply;
+static uint32_t uidRequestCount;
+static uint32_t uidReplyCount;
+#endif
 
 #if defined(EKF_ONLY) && defined(USE_EKF)
 static uint16_t getTelemetryFrameSize(const crsfFrameType_e frameType) {
@@ -211,6 +218,8 @@ static void telemetrySenderResetState(void) {
   bytesLastPayload = 0;
   currentOffset = 0;
   currentPackage = 1;
+  currentPayloadType = ELRS_PAYLOAD_NONE;
+  currentPayloadIsUidMsp = false;
   waitUntilTelemetryConfirm = true;
   waitCount = 0;
   // 80 corresponds to UpdateTelemetryRate(ANY, 2, 1), which is what the TX uses
@@ -224,17 +233,29 @@ static void telemetrySenderResetState(void) {
  * being transmitted
  ***/
 void setTelemetryDataToTransmit(const uint8_t lengthToTransmit,
-                                uint8_t *dataToTransmit) {
+                                uint8_t *dataToTransmit,
+                                elrsTelemetryPayloadType_e payloadType) {
   length = lengthToTransmit;
   data = dataToTransmit;
   currentOffset = 0;
   currentPackage = 1;
+  currentPayloadType = payloadType;
+#ifdef USE_MSP_OVER_TELEMETRY
+  currentPayloadIsUidMsp = (payloadType == ELRS_PAYLOAD_MSP) ? pendingUidMspReply : false;
+  pendingUidMspReply = false;
+#else
+  currentPayloadIsUidMsp = false;
+#endif
   waitCount = 0;
   senderState =
       (senderState == ELRS_SENDER_IDLE) ? ELRS_SENDING : ELRS_RESYNC_THEN_SEND;
 }
 
 bool isTelemetrySenderActive(void) { return senderState != ELRS_SENDER_IDLE; }
+
+bool isRegularTelemetrySenderActive(void) {
+  return isTelemetrySenderActive() && currentPayloadType == ELRS_PAYLOAD_REGULAR;
+}
 
 /***
  * Copy up to maxLen bytes from the current package to outData
@@ -325,6 +346,15 @@ void confirmCurrentTelemetryPayload(const bool telemetryConfirmValue) {
   }
 
   senderState = nextSenderState;
+  if (senderState == ELRS_SENDER_IDLE) {
+#ifdef USE_MSP_OVER_TELEMETRY
+    if (currentPayloadType == ELRS_PAYLOAD_MSP && currentPayloadIsUidMsp) {
+      uidReplyCount++;
+    }
+#endif
+    currentPayloadType = ELRS_PAYLOAD_NONE;
+    currentPayloadIsUidMsp = false;
+  }
 }
 
 #ifdef USE_MSP_OVER_TELEMETRY
@@ -338,11 +368,16 @@ static volatile bool mspConfirm;
 STATIC_UNIT_TESTED volatile bool mspReplyPending;
 STATIC_UNIT_TESTED volatile bool deviceInfoReplyPending;
 
+bool hasPriorityTelemetryPending(void) {
+  return mspReplyPending || deviceInfoReplyPending;
+}
+
 void mspReceiverResetState(void) {
   mspCurrentOffset = 0;
   mspCurrentPackage = 1;
   mspConfirm = false;
   mspReplyPending = false;
+  pendingUidMspReply = false;
   deviceInfoReplyPending = false;
 }
 
@@ -401,9 +436,12 @@ void mspReceiverUnlock(void) {
 }
 
 static uint8_t mspFrameSize = 0;
+static uint8_t mspRequestOriginId = CRSF_ADDRESS_RADIO_TRANSMITTER;
 
 static void bufferMspResponse(uint8_t *payload, const uint8_t payloadSize) {
-  mspFrameSize = getCrsfMspFrame(tlmBuffer, payload, payloadSize);
+  pendingUidMspReply = telemetryMspPayloadIsUidResponse(payload, payloadSize);
+  mspFrameSize =
+      getCrsfMspFrame(tlmBuffer, mspRequestOriginId, payload, payloadSize);
 }
 
 void processMspPacket(uint8_t *packet) {
@@ -413,6 +451,11 @@ void processMspPacket(uint8_t *packet) {
     break;
   case CRSF_FRAMETYPE_MSP_REQ:
   case CRSF_FRAMETYPE_MSP_WRITE:
+    mspRequestOriginId = packet[ELRS_MSP_ORIGIN_INDEX];
+    if (telemetryMspPayloadIsUidRequest(&packet[ELRS_MSP_PACKET_OFFSET],
+                                        CRSF_FRAME_RX_MSP_FRAME_SIZE)) {
+      uidRequestCount++;
+    }
     if (bufferCrsfMspFrame(&packet[ELRS_MSP_PACKET_OFFSET],
                            CRSF_FRAME_RX_MSP_FRAME_SIZE)) {
       handleCrsfMspFrameBuffer(&bufferMspResponse);
@@ -423,6 +466,10 @@ void processMspPacket(uint8_t *packet) {
     break;
   }
 }
+
+uint32_t expressLrsGetUidRequestCount(void) { return uidRequestCount; }
+
+uint32_t expressLrsGetUidReplyCount(void) { return uidReplyCount; }
 #endif
 
 /*
@@ -560,17 +607,20 @@ void initTelemetry(void) {
 #endif
 }
 
-bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData) {
+bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData,
+                             elrsTelemetryPayloadType_e *payloadType) {
 #ifdef USE_MSP_OVER_TELEMETRY
-  if (deviceInfoReplyPending) {
-    *nextPayloadSize = getCrsfFrame(tlmBuffer, CRSF_FRAMETYPE_DEVICE_INFO);
-    *payloadData = tlmBuffer;
-    deviceInfoReplyPending = false;
-    return true;
-  } else if (mspReplyPending) {
+  if (mspReplyPending) {
     *nextPayloadSize = mspFrameSize;
     *payloadData = tlmBuffer;
+    *payloadType = ELRS_PAYLOAD_MSP;
     mspReplyPending = false;
+    return true;
+  } else if (deviceInfoReplyPending) {
+    *nextPayloadSize = getCrsfFrame(tlmBuffer, CRSF_FRAMETYPE_DEVICE_INFO);
+    *payloadData = tlmBuffer;
+    *payloadType = ELRS_PAYLOAD_DEVICE_INFO;
+    deviceInfoReplyPending = false;
     return true;
   } else
 #endif
@@ -579,6 +629,7 @@ bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData) {
     if (ekfOnlyOtherCount == 0) {
       *nextPayloadSize = getCrsfFrame(tlmBuffer, CRSF_FRAMETYPE_KINEMATIC_STATE);
       *payloadData = tlmBuffer;
+      *payloadType = ELRS_PAYLOAD_REGULAR;
       return true;
     }
 
@@ -589,6 +640,7 @@ bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData) {
     if (ekfOnlyStateSentForCurrentOther < stateQuota) {
       *nextPayloadSize = getCrsfFrame(tlmBuffer, CRSF_FRAMETYPE_KINEMATIC_STATE);
       *payloadData = tlmBuffer;
+      *payloadType = ELRS_PAYLOAD_REGULAR;
       ekfOnlyStateSentForCurrentOther++;
       return true;
     }
@@ -605,6 +657,7 @@ bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData) {
       if (tlmSensors & BIT(payloadIndex)) {
         *nextPayloadSize = getCrsfFrame(tlmBuffer, payloadTypes[payloadIndex]);
         *payloadData = tlmBuffer;
+        *payloadType = ELRS_PAYLOAD_REGULAR;
         ekfOnlyStateSentForCurrentOther = 0;
         ekfOnlyOtherRoundIndex =
             (ekfOnlyOtherRoundIndex + 1) % ekfOnlyOtherCount;
@@ -614,6 +667,7 @@ bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData) {
 
     *nextPayloadSize = getCrsfFrame(tlmBuffer, CRSF_FRAMETYPE_KINEMATIC_STATE);
     *payloadData = tlmBuffer;
+    *payloadType = ELRS_PAYLOAD_REGULAR;
     ekfOnlyOtherRoundIndex = 0;
     ekfOnlyStateSentForCurrentOther = 0;
     return true;
@@ -623,6 +677,7 @@ bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData) {
     *nextPayloadSize =
         getCrsfFrame(tlmBuffer, payloadTypes[currentPayloadIndex]);
     *payloadData = tlmBuffer;
+    *payloadType = ELRS_PAYLOAD_REGULAR;
     currentPayloadIndex =
         (currentPayloadIndex + 1) % CRSF_FRAME_PAYLOAD_TYPES_COUNT;
     return true;
@@ -631,6 +686,7 @@ bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData) {
         (currentPayloadIndex + 1) % CRSF_FRAME_PAYLOAD_TYPES_COUNT;
     *nextPayloadSize = 0;
     *payloadData = 0;
+    *payloadType = ELRS_PAYLOAD_NONE;
     return false;
   }
 }

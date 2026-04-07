@@ -129,6 +129,89 @@ static uint8_t lastRequestVersion; // MSP version of last request. Temporary sol
 
 static mspDescriptor_t mspSharedDescriptor = -1;
 
+typedef struct telemetryMspFrameInfo_s {
+    uint16_t cmd;
+    uint16_t size;
+    uint8_t headerSize;
+    bool isStart;
+} telemetryMspFrameInfo_t;
+
+static bool decodeTelemetryMspFrameInfo(const uint8_t *payload, uint8_t payloadLength, telemetryMspFrameInfo_t *frameInfo)
+{
+    if (!payload || !frameInfo || payloadLength < MIN_LENGTH_CHUNK) {
+        return false;
+    }
+
+    memset(frameInfo, 0, sizeof(*frameInfo));
+
+    const uint8_t status = payload[MSP_INDEX_STATUS];
+    frameInfo->isStart = (status & MSP_STATUS_START_MASK) != 0;
+    const uint8_t version = (status & MSP_STATUS_VERSION_MASK) >> MSP_STATUS_VERSION_SHIFT;
+
+    if (!frameInfo->isStart || version > TELEMETRY_MSP_VERSION) {
+        return false;
+    }
+
+    if (version == 1) {
+        if (payloadLength < MIN_LENGTH_REQUEST_V1) {
+            return false;
+        }
+
+        frameInfo->size = payload[MSP_INDEX_SIZE_V1];
+        frameInfo->cmd = payload[MSP_INDEX_ID_V1];
+        frameInfo->headerSize = MIN_LENGTH_REQUEST_V1;
+
+        if (frameInfo->size == 0xff) {
+            if (payloadLength < MIN_LENGTH_REQUEST_JUMBO) {
+                return false;
+            }
+
+            frameInfo->size =
+                (uint16_t)payload[MSP_INDEX_SIZE_JUMBO_LO] |
+                ((uint16_t)payload[MSP_INDEX_SIZE_JUMBO_HI] << 8);
+            frameInfo->headerSize = MIN_LENGTH_REQUEST_JUMBO;
+        }
+    } else {
+        if (payloadLength < MIN_LENGTH_REQUEST_V2) {
+            return false;
+        }
+
+        frameInfo->cmd =
+            (uint16_t)payload[MSP_INDEX_ID_LO] |
+            ((uint16_t)payload[MSP_INDEX_ID_HI] << 8);
+        frameInfo->size =
+            (uint16_t)payload[MSP_INDEX_SIZE_V2_LO] |
+            ((uint16_t)payload[MSP_INDEX_SIZE_V2_HI] << 8);
+        frameInfo->headerSize = MIN_LENGTH_REQUEST_V2;
+    }
+
+    return true;
+}
+
+bool telemetryMspPayloadIsUidRequest(const uint8_t *payload, uint8_t payloadLength)
+{
+    telemetryMspFrameInfo_t frameInfo;
+
+    if (!decodeTelemetryMspFrameInfo(payload, payloadLength, &frameInfo)) {
+        return false;
+    }
+
+    return frameInfo.cmd == MSP_UID && frameInfo.size == 0;
+}
+
+bool telemetryMspPayloadIsUidResponse(const uint8_t *payload, uint8_t payloadLength)
+{
+    telemetryMspFrameInfo_t frameInfo;
+
+    if (!decodeTelemetryMspFrameInfo(payload, payloadLength, &frameInfo)) {
+        return false;
+    }
+
+    return frameInfo.cmd == MSP_UID &&
+        frameInfo.size == 12 &&
+        payloadLength >= (uint8_t)(frameInfo.headerSize + frameInfo.size);
+}
+
 void initSharedMsp(void)
 {
     responsePacket.buf.ptr = responseBuffer;

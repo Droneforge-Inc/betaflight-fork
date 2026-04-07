@@ -100,6 +100,8 @@ typedef struct mspBuffer_s {
 } mspBuffer_t;
 
 static mspBuffer_t mspRxBuffer;
+static uint32_t crsfUidRequestCount;
+static uint32_t crsfUidReplyCount;
 
 #if defined(USE_CRSF_V3)
 
@@ -996,6 +998,12 @@ static uint8_t mspRequestOriginID =
     0; // origin ID of last msp-over-crsf request. Needed to send response to
        // the origin.
 
+void crsfRecordUidRequestReceived(void) { crsfUidRequestCount++; }
+
+uint32_t crsfGetUidRequestCount(void) { return crsfUidRequestCount; }
+
+uint32_t crsfGetUidReplyCount(void) { return crsfUidReplyCount; }
+
 void crsfScheduleMspResponse(uint8_t requestOriginID) {
   mspReplyPending = true;
   mspRequestOriginID = requestOriginID;
@@ -1003,6 +1011,10 @@ void crsfScheduleMspResponse(uint8_t requestOriginID) {
 
 // sends MSP response chunk over CRSF. Must be of type mspResponseFnPtr
 static void crsfSendMspResponse(uint8_t *payload, const uint8_t payloadSize) {
+  if (telemetryMspPayloadIsUidResponse(payload, payloadSize)) {
+    crsfUidReplyCount++;
+  }
+
   sbuf_t crsfPayloadBuf;
   sbuf_t *dst = &crsfPayloadBuf;
 
@@ -1538,7 +1550,7 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType) {
 }
 
 #if defined(USE_MSP_OVER_TELEMETRY)
-int getCrsfMspFrame(uint8_t *frame, uint8_t *payload,
+int getCrsfMspFrame(uint8_t *frame, uint8_t destinationId, uint8_t *payload,
                     const uint8_t payloadSize) {
   sbuf_t crsfFrameBuf;
   sbuf_t *sbuf = &crsfFrameBuf;
@@ -1546,7 +1558,7 @@ int getCrsfMspFrame(uint8_t *frame, uint8_t *payload,
   crsfInitializeFrame(sbuf);
   sbufWriteU8(sbuf, payloadSize + CRSF_FRAME_LENGTH_EXT_TYPE_CRC);
   sbufWriteU8(sbuf, CRSF_FRAMETYPE_MSP_RESP);
-  sbufWriteU8(sbuf, CRSF_ADDRESS_RADIO_TRANSMITTER);
+  sbufWriteU8(sbuf, destinationId);
   sbufWriteU8(sbuf, CRSF_ADDRESS_FLIGHT_CONTROLLER);
   sbufWriteData(sbuf, payload, payloadSize);
   const int frameSize = crsfFinalizeBuf(sbuf, frame);

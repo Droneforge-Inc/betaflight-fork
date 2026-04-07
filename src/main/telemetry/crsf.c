@@ -83,7 +83,6 @@
 
 #include "crsf.h"
 
-#define CRSF_CYCLETIME_US 100000 // 100ms, 10 Hz
 #define CRSF_DEVICEINFO_VERSION 0x01
 #define CRSF_DEVICEINFO_PARAMETER_COUNT 0
 
@@ -103,8 +102,6 @@ typedef struct mspBuffer_s {
 static mspBuffer_t mspRxBuffer;
 
 #if defined(USE_CRSF_V3)
-
-#define CRSF_TELEMETRY_FRAME_INTERVAL_MAX_US 20000 // 20ms
 
 #if defined(USE_CRSF_CMS_TELEMETRY)
 #define CRSF_LINK_TYPE_CHECK_US 250000               // 250 ms
@@ -890,6 +887,100 @@ typedef enum {
 
 static uint8_t crsfScheduleCount;
 static uint16_t crsfSchedule[CRSF_SCHEDULE_COUNT_MAX];
+static timeDelta_t crsfScheduleIntervalUs[CRSF_SCHEDULE_COUNT_MAX];
+static uint8_t crsfScheduleIndex;
+static timeUs_t crsfNextScheduleTimeUs;
+
+#define CRSF_FLIGHT_MODE_PAYLOAD_ESTIMATE 6
+#define CRSF_ASSUMED_LINK_SLOT_INTERVAL_US 5000U
+#define CRSF_ELRS_DATA_CHUNK_BYTES 5U
+
+static uint16_t crsfGetScheduledFrameSize(const uint16_t schedule) {
+  if (schedule & BIT(CRSF_FRAME_ATTITUDE_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_ATTITUDE_PAYLOAD_SIZE;
+  }
+#ifdef USE_EKF
+  if (schedule & BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD +
+           CRSF_FRAME_KINEMATIC_STATE_PAYLOAD_SIZE;
+  }
+#endif
+#if defined(USE_BARO) && defined(USE_VARIO)
+  if (schedule & BIT(CRSF_FRAME_BARO_ALTITUDE_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD +
+           CRSF_FRAME_BARO_ALTITUDE_PAYLOAD_SIZE;
+  }
+#endif
+#if defined(SEND_IMU_TELEMETRY)
+  if (schedule & BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE;
+  }
+#endif
+  if (schedule & BIT(CRSF_FRAME_BATTERY_SENSOR_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD +
+           CRSF_FRAME_BATTERY_SENSOR_PAYLOAD_SIZE;
+  }
+  if (schedule & BIT(CRSF_FRAME_FLIGHT_MODE_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FLIGHT_MODE_PAYLOAD_ESTIMATE;
+  }
+#ifdef USE_GPS
+  if (schedule & BIT(CRSF_FRAME_GPS_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_GPS_PAYLOAD_SIZE;
+  }
+#endif
+#ifdef USE_VARIO
+  if (schedule & BIT(CRSF_FRAME_VARIO_SENSOR_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_VARIO_SENSOR_PAYLOAD_SIZE;
+  }
+#endif
+#if defined(USE_CRSF_V3)
+  if (schedule & BIT(CRSF_FRAME_HEARTBEAT_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_HEARTBEAT_PAYLOAD_SIZE;
+  }
+#endif
+#ifdef USE_RANGEFINDER_TF
+  if (schedule & BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD +
+           CRSF_FRAME_RANGEFINDER_TF_PAYLOAD_SIZE;
+  }
+#endif
+#ifdef USE_RANGEFINDER_OPTFLOW_MTF
+  if (schedule & BIT(CRSF_FRAME_OPTRANGE_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_OPTRANGE_PAYLOAD_SIZE;
+  }
+#endif
+#ifdef SEND_MOTOR_TELEMETRY
+  if (schedule & BIT(CRSF_FRAME_MOTOR_RPM_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE;
+  }
+#endif
+
+  return CRSF_FRAME_LENGTH_NON_PAYLOAD;
+}
+
+static void crsfResetScheduleTiming(const timeUs_t currentTimeUs) {
+  if (crsfScheduleCount == 0) {
+    crsfNextScheduleTimeUs = currentTimeUs;
+    return;
+  }
+
+  crsfNextScheduleTimeUs =
+      currentTimeUs + crsfScheduleIntervalUs[crsfScheduleIndex];
+}
+
+static void crsfUpdateScheduleIntervals(void) {
+  if (crsfScheduleCount == 0) {
+    return;
+  }
+
+  for (uint8_t i = 0; i < crsfScheduleCount; i++) {
+    const uint32_t frameBytes = crsfGetScheduledFrameSize(crsfSchedule[i]);
+    const uint32_t slotCount =
+        (frameBytes + (CRSF_ELRS_DATA_CHUNK_BYTES - 1U)) /
+        CRSF_ELRS_DATA_CHUNK_BYTES;
+    crsfScheduleIntervalUs[i] = slotCount * CRSF_ASSUMED_LINK_SLOT_INTERVAL_US;
+  }
+}
 
 #if defined(USE_MSP_OVER_TELEMETRY)
 
@@ -925,14 +1016,10 @@ static void crsfSendMspResponse(uint8_t *payload, const uint8_t payloadSize) {
 }
 #endif
 
-static void processCrsf(void) {
+static bool processCrsf(const uint16_t currentSchedule) {
   if (!crsfRxIsTelemetryBufEmpty()) {
-    return; // do nothing if telemetry ouptut buffer is not empty yet.
+    return false; // do nothing if telemetry output buffer is not empty yet.
   }
-
-  static uint8_t crsfScheduleIndex = 0;
-
-  const uint16_t currentSchedule = crsfSchedule[crsfScheduleIndex];
 
   sbuf_t crsfPayloadBuf;
   sbuf_t *dst = &crsfPayloadBuf;
@@ -1022,7 +1109,7 @@ static void processCrsf(void) {
   }
 #endif
 
-  crsfScheduleIndex = (crsfScheduleIndex + 1) % crsfScheduleCount;
+  return true;
 }
 
 void crsfScheduleDeviceInfoResponse(void) { deviceInfoReplyPending = true; }
@@ -1106,15 +1193,6 @@ void initCrsfTelemetry(void) {
   }
 #endif
 
-#if defined(USE_CRSF_V3)
-  while (index < (CRSF_CYCLETIME_US / CRSF_TELEMETRY_FRAME_INTERVAL_MAX_US) &&
-         index < CRSF_SCHEDULE_COUNT_MAX) {
-    // schedule heartbeat to ensure that telemetry/heartbeat frames are sent at
-    // minimum 50Hz
-    crsfSchedule[index++] = BIT(CRSF_FRAME_HEARTBEAT_INDEX);
-  }
-#endif
-
 #if defined(USE_RANGEFINDER_TF)
   if (sensors(SENSOR_SONAR) && telemetryIsSensorEnabled(SENSOR_LIDAR)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_RANGEFINDER_TF_INDEX);
@@ -1134,6 +1212,9 @@ void initCrsfTelemetry(void) {
 #endif
 
   crsfScheduleCount = (uint8_t)index;
+  crsfScheduleIndex = 0;
+  crsfNextScheduleTimeUs = 0;
+  crsfUpdateScheduleIntervals();
 
 #if defined(USE_CRSF_CMS_TELEMETRY)
   crsfDisplayportRegister();
@@ -1190,11 +1271,13 @@ void crsfProcessCommand(uint8_t *frameStart) {
  * Called periodically by the scheduler
  */
 void handleCrsfTelemetry(timeUs_t currentTimeUs) {
-  static uint32_t crsfLastCycleTime;
-
   if (!crsfTelemetryEnabled) {
     return;
   }
+
+#if !defined(USE_CRSF_CMS_TELEMETRY)
+  UNUSED(currentTimeUs);
+#endif
 
 #if defined(USE_CRSF_V3)
   if (crsfBaudNegotiationInProgress()) {
@@ -1211,8 +1294,7 @@ void handleCrsfTelemetry(timeUs_t currentTimeUs) {
 #if defined(USE_MSP_OVER_TELEMETRY)
   if (mspReplyPending) {
     mspReplyPending = handleCrsfMspFrameBuffer(&crsfSendMspResponse);
-    crsfLastCycleTime =
-        currentTimeUs; // reset telemetry timing due to ad-hoc request
+    crsfResetScheduleTiming(currentTimeUs);
     return;
   }
 #endif
@@ -1224,8 +1306,7 @@ void handleCrsfTelemetry(timeUs_t currentTimeUs) {
     crsfFrameDeviceInfo(dst);
     crsfFinalize(dst);
     deviceInfoReplyPending = false;
-    crsfLastCycleTime =
-        currentTimeUs; // reset telemetry timing due to ad-hoc request
+    crsfResetScheduleTiming(currentTimeUs);
     return;
   }
 
@@ -1237,7 +1318,7 @@ void handleCrsfTelemetry(timeUs_t currentTimeUs) {
     crsfInitializeFrame(dst);
     crsfFrameDisplayPortClear(dst);
     crsfFinalize(dst);
-    crsfLastCycleTime = currentTimeUs;
+    crsfResetScheduleTiming(currentTimeUs);
     return;
   }
 
@@ -1274,21 +1355,20 @@ void handleCrsfTelemetry(timeUs_t currentTimeUs) {
       crsfRxSendTelemetryData();
       batchIndex++;
       batchLastTimeUs = currentTimeUs;
-
-      crsfLastCycleTime = currentTimeUs;
-
+      crsfResetScheduleTiming(currentTimeUs);
       return;
     }
   }
 #endif
 
-  // Actual telemetry data only needs to be sent at a low frequency, ie 10Hz
-  // Spread out scheduled frames evenly so each frame is sent at the same
-  // frequency.
-  if (currentTimeUs >=
-      crsfLastCycleTime + (CRSF_CYCLETIME_US / crsfScheduleCount)) {
-    crsfLastCycleTime = currentTimeUs;
-    processCrsf();
+  // Schedule CRSF frames explicitly so each telemetry type keeps a predictable
+  // recurrence. Larger frames are charged more 5-byte transport slots, which
+  // mirrors how ELRS telemetry fragments CRSF payloads over the air.
+  if (crsfScheduleCount > 0 &&
+      cmpTimeUs(currentTimeUs, crsfNextScheduleTimeUs) >= 0 &&
+      processCrsf(crsfSchedule[crsfScheduleIndex])) {
+    crsfResetScheduleTiming(currentTimeUs);
+    crsfScheduleIndex = (crsfScheduleIndex + 1) % crsfScheduleCount;
   }
 }
 
@@ -1331,7 +1411,7 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType) {
     crsfFrameVarioSensor(sbuf);
     break;
 #endif
-#if defined(USE_BARO)
+#if defined(USE_BARO) && defined(USE_VARIO)
   case CRSF_FRAMETYPE_BARO_ALTITUDE:
     crsfFrameAltitude(sbuf);
     break;

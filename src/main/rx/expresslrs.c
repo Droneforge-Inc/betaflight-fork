@@ -60,11 +60,14 @@
 
 #include "fc/init.h"
 
+#include "msp/msp_protocol.h"
+
 #include "pg/pg.h"
 #include "pg/pg_ids.h"
 #include "pg/rx_spi.h"
 #include "pg/rx_spi_expresslrs.h"
 
+#include "rx/crsf_protocol.h"
 #include "rx/rx.h"
 #include "rx/rx_spi.h"
 #include "rx/rx_spi_common.h"
@@ -623,6 +626,24 @@ static void unpackBindPacket(volatile uint8_t *packet)
     receiver.configChanged = true; //after initialize as it sets it to false
 }
 
+static bool isElrsDiscoveryMspCommand(const uint8_t *packet)
+{
+    if (packet[2] != CRSF_FRAMETYPE_MSP_REQ) {
+        return false;
+    }
+
+    switch (packet[ELRS_MSP_COMMAND_INDEX]) {
+    case MSP_API_VERSION:
+    case MSP_FC_VARIANT:
+    case MSP_FC_VERSION:
+    case MSP_BOARD_INFO:
+    case MSP_UID:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /**
  * Process the assembled MSP packet in mspBuffer[]
  **/
@@ -636,25 +657,23 @@ static void processRFMspPacket(volatile elrsOtaPacket_t const * const otaPktPtr)
     }
 
 #ifdef USE_MSP_OVER_TELEMETRY
-    // Must be fully connected to process MSP, prevents processing MSP
-    // during sync, where packets can be received before connection
-    if (receiver.connectionState != ELRS_CONNECTED) {
-        return;
-    }
-
     bool currentMspConfirmValue = getCurrentMspConfirm();
     receiveMspData(otaPktPtr->msp_ul.packageIndex, otaPktPtr->msp_ul.payload);
     if (currentMspConfirmValue != getCurrentMspConfirm()) {
         nextTelemetryType = ELRS_TELEMETRY_TYPE_LINK;
     }
     if (hasFinishedMspData()) {
+        const bool canProcessMsp =
+            (receiver.connectionState == ELRS_CONNECTED && connectionHasModelMatch) ||
+            isElrsDiscoveryMspCommand(mspBuffer);
+
         if (mspBuffer[ELRS_MSP_COMMAND_INDEX] == ELRS_MSP_SET_RX_CONFIG && mspBuffer[ELRS_MSP_COMMAND_INDEX + 1] == ELRS_MSP_MODEL_ID) { //mspReceiverComplete
             if (rxExpressLrsSpiConfig()->modelId != mspBuffer[9]) { //UpdateModelMatch
                 rxExpressLrsSpiConfigMutable()->modelId = mspBuffer[9];
                 receiver.configChanged = true;
                 receiver.connectionState = ELRS_DISCONNECT_PENDING;
             }
-        } else if (connectionHasModelMatch) {
+        } else if (canProcessMsp) {
             processMspPacket(mspBuffer);
         }
 

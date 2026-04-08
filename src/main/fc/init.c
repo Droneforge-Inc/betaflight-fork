@@ -101,6 +101,7 @@
 #endif
 #include "flight/mixer.h"
 #include "flight/gps_rescue.h"
+#include "flight/droneforge_policy.h"
 #include "flight/pid.h"
 #include "flight/pid_init.h"
 #include "flight/position.h"
@@ -759,6 +760,7 @@ void init(void)
 #ifdef USE_EKF
     kinematicEstimatorInit();
 #endif
+    droneforgePolicyInit();
 
     failsafeInit();
 

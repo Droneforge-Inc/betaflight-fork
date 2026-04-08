@@ -61,6 +61,7 @@
 
 #include "flight/failsafe.h"
 #include "flight/gps_rescue.h"
+#include "flight/droneforge_policy.h"
 
 #if defined(USE_DYN_NOTCH_FILTER)
 #include "flight/dyn_notch_filter.h"
@@ -1311,8 +1312,15 @@ FAST_CODE void taskMainPidLoop(timeUs_t currentTimeUs)
     DEBUG_SET(DEBUG_PIDLOOP, 0, micros() - currentTimeUs);
 
     subTaskRcCommand(currentTimeUs);
-    subTaskPidController(currentTimeUs);
-    subTaskMotorUpdate(currentTimeUs);
+
+    if (droneforgePolicyRun(currentTimeUs)) {
+        pidStabilisationState(PID_STABILISATION_OFF);
+        writeMotors();
+    } else {
+        subTaskPidController(currentTimeUs);
+        subTaskMotorUpdate(currentTimeUs);
+    }
+
     subTaskPidSubprocesses(currentTimeUs);
 
     DEBUG_SET(DEBUG_CYCLETIME, 0, getTaskDeltaTimeUs(TASK_SELF));

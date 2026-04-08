@@ -93,6 +93,8 @@ COMMON_SRC = \
             ekf/kinematic.c \
             ekf/kinematic_filter.c \
             flight/kinematic_estimator.c \
+            flight/droneforge_policy.c \
+            flight/droneforge_policy_runtime.c \
             flight/imu.c \
             flight/mixer.c \
             flight/mixer_init.c \

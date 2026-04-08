@@ -1182,8 +1182,15 @@ void initCrsfTelemetry(void) {
   if (sensors(SENSOR_ACC) &&
       telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_ATTITUDE_INDEX);
-
+  }
+#endif
 #ifdef SEND_IMU_TELEMETRY
+  if (sensors(SENSOR_ACC) &&
+      telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
+#if defined(EKF_ONLY)
+    ekfOnlyOtherSchedule[ekfOnlyOtherCount++] =
+        BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX);
+#else
     crsfSchedule[index++] = BIT(CRSF_FRAME_RAW_IMU_DATA_INDEX);
 #endif
   }
@@ -1252,9 +1259,13 @@ void initCrsfTelemetry(void) {
   }
 #endif
 
-#if defined(SEND_MOTOR_TELEMETRY) && !defined(EKF_ONLY)
+#ifdef SEND_MOTOR_TELEMETRY
   // Always send motor telemetry if enabled
+#if defined(EKF_ONLY)
+  ekfOnlyOtherSchedule[ekfOnlyOtherCount++] = BIT(CRSF_FRAME_MOTOR_RPM_INDEX);
+#else
   crsfSchedule[index++] = BIT(CRSF_FRAME_MOTOR_RPM_INDEX);
+#endif
 #endif
 
 #if defined(EKF_ONLY)

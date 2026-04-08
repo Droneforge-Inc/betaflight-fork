@@ -67,7 +67,7 @@ typedef enum {
 #ifdef USE_EKF
   CRSF_FRAME_KINEMATIC_STATE_INDEX,
 #endif
-#if defined(SEND_IMU_TELEMETRY) && !defined(EKF_ONLY)
+#if defined(SEND_IMU_TELEMETRY)
   CRSF_FRAME_RAW_IMU_INDEX,
 #endif
 #ifndef IGNORE_FLIGHT_MODE
@@ -85,7 +85,7 @@ typedef enum {
 #if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
   CRSF_FRAME_OPTRANGE_INDEX,
 #endif
-#if defined(SEND_MOTOR_TELEMETRY) && !defined(EKF_ONLY)
+#if defined(SEND_MOTOR_TELEMETRY)
   CRSF_FRAME_MOTOR_RPM_INDEX,
 #endif
   CRSF_FRAME_PAYLOAD_TYPES_COUNT // should be last
@@ -102,7 +102,7 @@ static crsfFrameType_e payloadTypes[] = {
 #ifdef USE_EKF
     CRSF_FRAMETYPE_KINEMATIC_STATE,
 #endif
-#if defined(SEND_IMU_TELEMETRY) && !defined(EKF_ONLY)
+#if defined(SEND_IMU_TELEMETRY)
     CRSF_FRAMETYPE_RAW_IMU,
 #endif
 #ifndef IGNORE_FLIGHT_MODE
@@ -120,7 +120,7 @@ static crsfFrameType_e payloadTypes[] = {
 #if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
     CRSF_FRAMETYPE_OPTRANGE,
 #endif
-#if defined(SEND_MOTOR_TELEMETRY) && !defined(EKF_ONLY)
+#if defined(SEND_MOTOR_TELEMETRY)
     CRSF_FRAMETYPE_MOTOR_RPM,
 #endif
 };
@@ -507,9 +507,12 @@ void initTelemetry(void) {
   if (sensors(SENSOR_ACC) &&
       telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
     tlmSensors |= BIT(CRSF_FRAME_ATTITUDE_INDEX);
-#ifdef SEND_IMU_TELEMETRY
-    tlmSensors |= BIT(CRSF_FRAME_RAW_IMU_INDEX);
+  }
 #endif
+#ifdef SEND_IMU_TELEMETRY
+  if (sensors(SENSOR_ACC) &&
+      telemetryIsSensorEnabled(SENSOR_PITCH | SENSOR_ROLL | SENSOR_HEADING)) {
+    tlmSensors |= BIT(CRSF_FRAME_RAW_IMU_INDEX);
   }
 #endif
 
@@ -554,7 +557,7 @@ void initTelemetry(void) {
   }
 #endif
 
-#if defined(SEND_MOTOR_TELEMETRY) && !defined(EKF_ONLY)
+#if defined(SEND_MOTOR_TELEMETRY)
   // Always send motor telemetry if enabled
   tlmSensors |= BIT(CRSF_FRAME_MOTOR_RPM_INDEX);
 #endif

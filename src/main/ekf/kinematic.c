@@ -227,7 +227,6 @@ static void Q_fun(float *state, float *u, float dt, float *out) {
   const float cse_tmp_0 = 0.25F*(dt) * (dt) * (dt) * (dt);
   const float cse_tmp_1 = 0.5F*(dt) * (dt) * (dt);
   const float cse_tmp_2 = 1.0F*(dt) * (dt);
-  const float cse_tmp_3 = 2.5e-5F*dt;
   out[0] = cse_tmp_0;
   out[1] = 0;
   out[2] = 0;
@@ -305,7 +304,7 @@ static void Q_fun(float *state, float *u, float dt, float *out) {
   out[74] = 0;
   out[75] = 0;
   out[76] = 0;
-  out[77] = cse_tmp_3;
+  out[77] = 0;
   out[78] = 0;
   out[79] = 0;
   out[80] = 0;
@@ -316,7 +315,7 @@ static void Q_fun(float *state, float *u, float dt, float *out) {
   out[85] = 0;
   out[86] = 0;
   out[87] = 0;
-  out[88] = cse_tmp_3;
+  out[88] = 0;
   out[89] = 0;
   out[90] = 0;
   out[91] = 0;
@@ -327,7 +326,7 @@ static void Q_fun(float *state, float *u, float dt, float *out) {
   out[96] = 0;
   out[97] = 0;
   out[98] = 0;
-  out[99] = cse_tmp_3;
+  out[99] = 0;
 }
 
 static void h_2(float *state, float *unused, float *out) {
@@ -641,12 +640,78 @@ static inline int solve_linear_system_2x2(float *a, float *b, int nrhs) {
 }
 
 
+static inline int solve_linear_system_3x3(float *a, float *b, int nrhs) {
+  const float pivot_eps = 1.0e-9f;
+
+  for (int col = 0; col < 3; ++col) {
+    int pivot_row = col;
+    float pivot_abs = fabsf(a[col * 3 + col]);
+
+    for (int row = col + 1; row < 3; ++row) {
+      const float candidate = fabsf(a[row * 3 + col]);
+      if (candidate > pivot_abs) {
+        pivot_abs = candidate;
+        pivot_row = row;
+      }
+    }
+
+    if (pivot_abs < pivot_eps) {
+      return 0;
+    }
+
+    if (pivot_row != col) {
+      for (int j = 0; j < 3; ++j) {
+        const float tmp = a[col * 3 + j];
+        a[col * 3 + j] = a[pivot_row * 3 + j];
+        a[pivot_row * 3 + j] = tmp;
+      }
+      for (int j = 0; j < nrhs; ++j) {
+        const float tmp = b[col * nrhs + j];
+        b[col * nrhs + j] = b[pivot_row * nrhs + j];
+        b[pivot_row * nrhs + j] = tmp;
+      }
+    }
+
+    const float inv_pivot = 1.0f / a[col * 3 + col];
+    for (int j = col; j < 3; ++j) {
+      a[col * 3 + j] *= inv_pivot;
+    }
+    for (int j = 0; j < nrhs; ++j) {
+      b[col * nrhs + j] *= inv_pivot;
+    }
+
+    for (int row = 0; row < 3; ++row) {
+      if (row == col) {
+        continue;
+      }
+
+      const float factor = a[row * 3 + col];
+      if (factor == 0.0f) {
+        continue;
+      }
+
+      for (int j = col; j < 3; ++j) {
+        a[row * 3 + j] -= factor * a[col * 3 + j];
+      }
+      for (int j = 0; j < nrhs; ++j) {
+        b[row * nrhs + j] -= factor * b[col * nrhs + j];
+      }
+    }
+  }
+
+  return 1;
+}
+
+
 static int solve_linear_system(int dim, float *a, float *b, int nrhs) {
   if (dim == 1) {
     return solve_linear_system_1x1(a, b, nrhs);
   }
   if (dim == 2) {
     return solve_linear_system_2x2(a, b, nrhs);
+  }
+  if (dim == 3) {
+    return solve_linear_system_3x3(a, b, nrhs);
   }
 
   const float pivot_eps = 1.0e-9f;

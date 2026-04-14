@@ -53,6 +53,10 @@
 
 #include "fc/runtime_config.h"
 
+#ifdef USE_EKF_BARO
+#include "flight/kinematic_estimator.h"
+#endif
+
 #include "sensors/sensors.h"
 
 #include "scheduler/scheduler.h"
@@ -363,6 +367,10 @@ void baroStartCalibration(void)
     baroCalibrated = false;
     calibrationCycles = NUM_CALIBRATION_CYCLES;
     calibrationCycleCount = 0;
+
+#ifdef USE_EKF_BARO
+    kinematicEstimatorInvalidateBaro();
+#endif
 }
 
 void baroSetGroundLevel(void)
@@ -371,6 +379,10 @@ void baroSetGroundLevel(void)
     baroCalibrated = false;
     calibrationCycles = NUM_GROUND_LEVEL_CYCLES;
     calibrationCycleCount = 0;
+
+#ifdef USE_EKF_BARO
+    kinematicEstimatorInvalidateBaro();
+#endif
 }
 
 typedef enum {
@@ -453,7 +465,11 @@ uint32_t baroUpdate(timeUs_t currentTimeUs)
             }
             break;
 
-        case BARO_STATE_PRESSURE_SAMPLE:
+        case BARO_STATE_PRESSURE_SAMPLE: {
+#ifdef USE_EKF_BARO
+            bool hasFreshBaroAltitude = false;
+#endif
+
             if (!baro.dev.get_up(&baro.dev)) {
                 // No action was taken as the read has not completed
                 schedulerIgnoreTaskExecTime();
@@ -469,6 +485,9 @@ uint32_t baroUpdate(timeUs_t currentTimeUs)
                 if (baroIsCalibrated()) {
                     // zero baro altitude
                     baro.altitude = altitude - baroGroundAltitude;
+#ifdef USE_EKF_BARO
+                    hasFreshBaroAltitude = true;
+#endif
                 } else {
                     // establish stable baroGroundAltitude value to zero baro altitude with
                     performBaroCalibrationCycle(altitude);
@@ -487,12 +506,19 @@ uint32_t baroUpdate(timeUs_t currentTimeUs)
                 DEBUG_SET(DEBUG_BARO, 3, lrintf(baro.altitude));            // cm
             }
 
+#ifdef USE_EKF_BARO
+            if (hasFreshBaroAltitude) {
+                kinematicEstimatorUpdateFromBaro(baro.altitude, currentTimeUs);
+            }
+#endif
+
             if (baro.dev.combined_read) {
                 state = BARO_STATE_PRESSURE_START;
             } else {
                 state = BARO_STATE_TEMPERATURE_START;
             }
             break;
+        }
     }
 
     // Where we are using a state machine call schedulerIgnoreTaskExecRate() for all states bar one

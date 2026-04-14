@@ -29,6 +29,9 @@ extern "C" {
 #ifdef USE_EKF_GPS
 #include "io/gps.h"
 #endif
+#ifdef USE_EKF_BARO
+#include "drivers/time.h"
+#endif
 #include "sensors/opticalflow.h"
 #include "sensors/rangefinder.h"
 
@@ -37,6 +40,10 @@ void kinematicEstimatorReset(void);
 void kinematicEstimatorResetState(const kinematicState_t *state);
 void kinematicEstimatorOnArm(void);
 void kinematicEstimatorPredictFromImu(float accelBodyX, float accelBodyY, float accelBodyZ, const quaternion_t *attitudeQuat, float dt);
+#ifdef USE_EKF_BARO
+void kinematicEstimatorInvalidateBaro(void);
+void kinematicEstimatorUpdateFromBaro(float baroAltitudeCm, timeUs_t currentTimeUs);
+#endif
 void kinematicEstimatorUpdateFromOpticalflow(const opticalflowMeasurement_t *opticalflowMeasurement, const rangefinderMeasurement_t *rangefinderMeasurement, const quaternion_t *attitudeQuat);
 void kinematicEstimatorUpdateFromRangefinder(const rangefinderMeasurement_t *rangefinderMeasurement);
 #ifdef USE_EKF_GPS

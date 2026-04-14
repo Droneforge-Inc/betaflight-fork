@@ -146,7 +146,11 @@ static inline void kinematicFilterUpdatePositionZNominal(kinematicFilter_t *filt
 {
     kinematicFilterUpdatePositionZ(filter, posZ, 1.0f);
 }
-void kinematicFilterUpdateBaroAltitude(kinematicFilter_t *filter, float baroAltitude);
+void kinematicFilterUpdateBaroAltitude(kinematicFilter_t *filter, float baroAltitude, float varianceScale);
+static inline void kinematicFilterUpdateBaroAltitudeNominal(kinematicFilter_t *filter, float baroAltitude)
+{
+    kinematicFilterUpdateBaroAltitude(filter, baroAltitude, 1.0f);
+}
 void kinematicFilterUpdateFlowVelocity(kinematicFilter_t *filter, float velX, float velY, const quaternion_t *flowQuaternion, float varianceScale);
 static inline void kinematicFilterUpdateFlowVelocityNominal(kinematicFilter_t *filter, float velX, float velY, const quaternion_t *flowQuaternion)
 {

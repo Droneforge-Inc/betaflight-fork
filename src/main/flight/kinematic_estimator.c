@@ -43,9 +43,15 @@
 #define GPS_POSITION_VARIANCE_SCALE_MAX 20.0f
 #define GPS_ALTITUDE_VARIANCE_SCALE_MAX 20.0f
 #define GPS_VELOCITY_VARIANCE_SCALE_MAX 20.0f
+#define BARO_VARIANCE_SCALE_MAX 100.0f
 #define RANGEFINDER_STRENGTH_GAIN 4.0f
 #define DISTANCE_VARIANCE_GAIN 2.5f
 #define OPTICALFLOW_QUALITY_GAIN 4.0f
+#define BARO_INNOVATION_SCALE_METERS 1.0f
+#define BARO_INNOVATION_SCALE_GAIN 1.0f
+#define BARO_ROUGHNESS_REFERENCE_MPS2 3.0f
+#define BARO_ROUGHNESS_SCALE_GAIN 4.0f
+#define BARO_ROUGHNESS_LPF_TIME_CONSTANT_S 0.5f
 #define GPS_POSITION_SIGMA_DEFAULT_M 3.0f
 #define GPS_ALTITUDE_SIGMA_DEFAULT_M 6.0f
 #define GPS_VELOCITY_SIGMA_DEFAULT_MPS 1.0f
@@ -57,6 +63,19 @@
 
 // Flight-level runtime owner for the generated kinematic EKF model.
 static kinematicFilter_t kinematicEstimator;
+
+#ifdef USE_EKF_BARO
+typedef struct kinematicEstimatorBaroState_s {
+  bool hasHistory;
+  bool needsBiasReset;
+  float lastAltitudeMeters;
+  float lastRateMetersPerSecond;
+  float roughnessMetersPerSecondSquared;
+  timeUs_t lastUpdateUs;
+} kinematicEstimatorBaroState_t;
+
+static kinematicEstimatorBaroState_t kinematicEstimatorBaroState;
+#endif
 
 #ifdef USE_EKF_GPS
 typedef struct kinematicEstimatorGpsOrigin_s {
@@ -77,6 +96,22 @@ static float kinematicEstimatorAccelToMetersPerSecondSquared(float accelBody) {
 static float kinematicEstimatorCentimetersToMeters(float valueCm) {
   return valueCm * METERS_PER_CENTIMETER;
 }
+
+#ifdef USE_EKF_BARO
+static void kinematicEstimatorResetBaroHistory(void) {
+  kinematicEstimatorBaroState.hasHistory = false;
+  kinematicEstimatorBaroState.needsBiasReset = false;
+  kinematicEstimatorBaroState.lastAltitudeMeters = 0.0f;
+  kinematicEstimatorBaroState.lastRateMetersPerSecond = 0.0f;
+  kinematicEstimatorBaroState.roughnessMetersPerSecondSquared = 0.0f;
+  kinematicEstimatorBaroState.lastUpdateUs = 0;
+}
+
+void kinematicEstimatorInvalidateBaro(void) {
+  kinematicEstimatorResetBaroHistory();
+  kinematicEstimatorBaroState.needsBiasReset = true;
+}
+#endif
 
 #ifdef USE_EKF_GPS
 static float kinematicEstimatorMillimetersToMeters(float valueMm) {
@@ -317,6 +352,9 @@ static float kinematicEstimatorGetOpticalflowVarianceScale(
 
 void kinematicEstimatorInit(void) {
   kinematicFilterInit(&kinematicEstimator);
+#ifdef USE_EKF_BARO
+  kinematicEstimatorInvalidateBaro();
+#endif
 #ifdef USE_EKF_GPS
   kinematicEstimatorResetGpsOrigin();
 #endif
@@ -324,6 +362,9 @@ void kinematicEstimatorInit(void) {
 
 void kinematicEstimatorReset(void) {
   kinematicFilterReset(&kinematicEstimator);
+#ifdef USE_EKF_BARO
+  kinematicEstimatorInvalidateBaro();
+#endif
 #ifdef USE_EKF_GPS
   kinematicEstimatorResetGpsOrigin();
 #endif
@@ -336,6 +377,11 @@ void kinematicEstimatorResetState(const kinematicState_t *state) {
   }
 
   kinematicFilterResetState(&kinematicEstimator, state);
+
+#ifdef USE_EKF_BARO
+  kinematicEstimatorResetBaroHistory();
+  kinematicEstimatorBaroState.needsBiasReset = false;
+#endif
 }
 
 void kinematicEstimatorOnArm(void) {
@@ -348,6 +394,10 @@ void kinematicEstimatorOnArm(void) {
 #endif
 
   kinematicEstimatorResetPositionVelocityState();
+
+#ifdef USE_EKF_BARO
+  kinematicEstimatorInvalidateBaro();
+#endif
 }
 
 void kinematicEstimatorPredictFromImu(float accelBodyX, float accelBodyY,
@@ -365,6 +415,79 @@ void kinematicEstimatorPredictFromImu(float accelBodyX, float accelBodyY,
       kinematicEstimatorAccelToMetersPerSecondSquared(accelBodyZ),
       attitudeQuat->w, attitudeQuat->x, attitudeQuat->y, attitudeQuat->z, dt);
 }
+
+#ifdef USE_EKF_BARO
+void kinematicEstimatorUpdateFromBaro(float baroAltitudeCm,
+                                      timeUs_t currentTimeUs) {
+  const float baroAltitudeMeters =
+      kinematicEstimatorCentimetersToMeters(baroAltitudeCm);
+  float varianceScale = 1.0f;
+
+  if (!isfinite(baroAltitudeMeters)) {
+    return;
+  }
+
+  if (kinematicEstimatorBaroState.needsBiasReset) {
+    kinematicEstimator.state.baroBias =
+        baroAltitudeMeters - kinematicEstimator.state.posZ;
+    kinematicEstimatorBaroState.needsBiasReset = false;
+  }
+
+  if (kinematicEstimatorBaroState.hasHistory &&
+      currentTimeUs > kinematicEstimatorBaroState.lastUpdateUs) {
+    const float dt =
+        (float)(currentTimeUs - kinematicEstimatorBaroState.lastUpdateUs) *
+        1.0e-6f;
+
+    if (dt > 0.0f) {
+      const float baroRateMetersPerSecond =
+          (baroAltitudeMeters -
+           kinematicEstimatorBaroState.lastAltitudeMeters) /
+          dt;
+      const float roughnessMetersPerSecondSquared =
+          fabsf(baroRateMetersPerSecond -
+                kinematicEstimatorBaroState.lastRateMetersPerSecond) /
+          dt;
+      const float alpha =
+          dt / (BARO_ROUGHNESS_LPF_TIME_CONSTANT_S + dt);
+
+      kinematicEstimatorBaroState.roughnessMetersPerSecondSquared +=
+          alpha * (roughnessMetersPerSecondSquared -
+                   kinematicEstimatorBaroState.roughnessMetersPerSecondSquared);
+      kinematicEstimatorBaroState.lastRateMetersPerSecond =
+          baroRateMetersPerSecond;
+
+      const float roughnessNorm =
+          kinematicEstimatorBaroState.roughnessMetersPerSecondSquared /
+          BARO_ROUGHNESS_REFERENCE_MPS2;
+
+      varianceScale *=
+          1.0f + BARO_ROUGHNESS_SCALE_GAIN * sq(roughnessNorm);
+    }
+  } else {
+    kinematicEstimatorBaroState.lastRateMetersPerSecond =
+        kinematicEstimator.state.velZ;
+  }
+
+  const float innovationMeters =
+      baroAltitudeMeters -
+      (kinematicEstimator.state.posZ + kinematicEstimator.state.baroBias);
+  const float innovationNorm =
+      innovationMeters / BARO_INNOVATION_SCALE_METERS;
+
+  varianceScale *=
+      1.0f + BARO_INNOVATION_SCALE_GAIN * sq(innovationNorm);
+  varianceScale =
+      constrainf(varianceScale, 1.0f, BARO_VARIANCE_SCALE_MAX);
+
+  kinematicFilterUpdateBaroAltitude(&kinematicEstimator, baroAltitudeMeters,
+                                    varianceScale);
+
+  kinematicEstimatorBaroState.hasHistory = true;
+  kinematicEstimatorBaroState.lastAltitudeMeters = baroAltitudeMeters;
+  kinematicEstimatorBaroState.lastUpdateUs = currentTimeUs;
+}
+#endif
 
 void kinematicEstimatorUpdateFromOpticalflow(
     const opticalflowMeasurement_t *opticalflowMeasurement,

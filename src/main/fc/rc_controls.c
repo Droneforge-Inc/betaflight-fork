@@ -85,7 +85,7 @@ PG_RESET_TEMPLATE(rcControlsConfig_t, rcControlsConfig,
 PG_REGISTER_WITH_RESET_TEMPLATE(armingConfig_t, armingConfig, PG_ARMING_CONFIG, 2);
 
 PG_RESET_TEMPLATE(armingConfig_t, armingConfig,
-    .gyro_cal_on_first_arm = 0,
+    .gyro_cal_on_arm = 1,
     .auto_disarm_delay = 5,
     .reset_kinematic_state_on_arm = 1
 );
@@ -170,6 +170,7 @@ void processRcStickPositions(void)
             // Arming via ARM BOX
             tryArm();
         } else {
+            resetArmGyroCalibration();
             resetTryingToArm();
             // Disarming via ARM BOX
             resetArmingDisabled();
@@ -191,6 +192,7 @@ void processRcStickPositions(void)
         if (rcDelayMs >= ARM_DELAY_MS && !doNotRepeat) {
             doNotRepeat = true;
             // Disarm on throttle down + yaw
+            resetArmGyroCalibration();
             resetTryingToArm();
             if (ARMING_FLAG(ARMED))
                 disarm(DISARM_REASON_STICKS);
@@ -216,7 +218,7 @@ void processRcStickPositions(void)
                 // Arm via YAW
                 tryArm();
                 if (isTryingToArm() ||
-                    ((getArmingDisableFlags() == ARMING_DISABLED_CALIBRATING) && armingConfig()->gyro_cal_on_first_arm)) {
+                    ((getArmingDisableFlags() == ARMING_DISABLED_CALIBRATING) && armingConfig()->gyro_cal_on_arm)) {
                     doNotRepeat = false;
                 }
             } else {
@@ -225,6 +227,7 @@ void processRcStickPositions(void)
         }
         return;
     } else {
+        resetArmGyroCalibration();
         resetTryingToArm();
     }
 

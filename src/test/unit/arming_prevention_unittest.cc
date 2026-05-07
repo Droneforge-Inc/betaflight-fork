@@ -106,6 +106,8 @@ extern "C" {
 uint32_t simulationFeatureFlags = 0;
 uint32_t simulationTime = 0;
 bool gyroCalibDone = false;
+int gyroStartCalibrationCount = 0;
+bool gyroStartCalibrationMarksIncomplete = false;
 bool simulationHaveRx = false;
 
 #include "gtest/gtest.h"
@@ -386,6 +388,87 @@ TEST(ArmingPreventionTest, RadioTurnedOnAtAnyTimeArmed)
     EXPECT_FALSE(isUsingSticksForArming());
     EXPECT_FALSE(isArmingDisabled());
     EXPECT_EQ(0, getArmingDisableFlags());
+}
+
+TEST(ArmingPreventionTest, GyroCalibrationRunsOnceBeforeEachArm)
+{
+    // given
+    simulationFeatureFlags = 0;
+    simulationHaveRx = true;
+    simulationTime = 0;
+    gyroCalibDone = true;
+    gyroStartCalibrationCount = 0;
+    gyroStartCalibrationMarksIncomplete = true;
+    armingFlags = 0;
+    flightModeFlags = 0;
+    stateFlags = 0;
+    unsetArmingDisabled((armingDisableFlags_e)~0u);
+    sensorsClear(~0u);
+    sensorsSet(SENSOR_GYRO);
+
+    // and
+    modeActivationConditionsMutable(0)->auxChannelIndex = 0;
+    modeActivationConditionsMutable(0)->modeId = BOXARM;
+    modeActivationConditionsMutable(0)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(0)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    rcControlsInit();
+
+    // and
+    armingConfigMutable()->gyro_cal_on_arm = 1;
+    rxConfigMutable()->mincheck = 1050;
+    rcData[THROTTLE] = 1000;
+    rcData[AUX1] = 1000;
+    mockIsUpright = true;
+
+    // and
+    updateActivatedModes();
+    updateArmingStatus();
+    unsetArmingDisabled((armingDisableFlags_e)~0u);
+
+    // when
+    rcData[AUX1] = 1800;
+    updateActivatedModes();
+    tryArm();
+
+    // expect
+    EXPECT_EQ(1, gyroStartCalibrationCount);
+    EXPECT_FALSE(ARMING_FLAG(ARMED));
+    EXPECT_EQ(ARMING_DISABLED_CALIBRATING, getArmingDisableFlags());
+
+    // when
+    tryArm();
+
+    // expect
+    EXPECT_EQ(1, gyroStartCalibrationCount);
+    EXPECT_FALSE(ARMING_FLAG(ARMED));
+
+    // given
+    gyroCalibDone = true;
+    gyroStartCalibrationMarksIncomplete = false;
+
+    // when
+    tryArm();
+
+    // expect
+    EXPECT_EQ(1, gyroStartCalibrationCount);
+    EXPECT_TRUE(ARMING_FLAG(ARMED));
+
+    // given
+    disarm(DISARM_REASON_SYSTEM);
+    gyroCalibDone = true;
+    gyroStartCalibrationMarksIncomplete = true;
+
+    // when
+    tryArm();
+
+    // expect
+    EXPECT_EQ(2, gyroStartCalibrationCount);
+    EXPECT_FALSE(ARMING_FLAG(ARMED));
+
+    gyroCalibDone = true;
+    gyroStartCalibrationMarksIncomplete = false;
+    resetArmGyroCalibration();
+    unsetArmingDisabled((armingDisableFlags_e)~0u);
 }
 
 TEST(ArmingPreventionTest, In3DModeAllowArmingWhenEnteringThrottleDeadband)
@@ -1067,7 +1150,14 @@ extern "C" {
     bool accIsCalibrationComplete(void) { return true; }
     bool baroIsCalibrated(void) { return true; }
     bool gyroIsCalibrationComplete(void) { return gyroCalibDone; }
-    void gyroStartCalibration(bool) {}
+    void gyroStartCalibration(bool isFirstArmingCalibration)
+    {
+        UNUSED(isFirstArmingCalibration);
+        gyroStartCalibrationCount++;
+        if (gyroStartCalibrationMarksIncomplete) {
+            gyroCalibDone = false;
+        }
+    }
     bool isFirstArmingGyroCalibrationRunning(void) { return false; }
     void pidController(const pidProfile_t *, timeUs_t) {}
     void pidStabilisationState(pidStabilisationState_e) {}
@@ -1110,6 +1200,7 @@ extern "C" {
     void dashboardEnablePageCycling(void) {}
     void dashboardDisablePageCycling(void) {}
     bool imuQuaternionHeadfreeOffsetSet(void) { return true; }
+    void imuResetYaw(void) {}
     void rescheduleTask(taskId_e, timeDelta_t) {}
     bool usbCableIsInserted(void) { return false; }
     bool usbVcpIsConnected(void) { return false; }

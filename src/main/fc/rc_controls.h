@@ -130,7 +130,7 @@ typedef struct flight3DConfig_s {
 PG_DECLARE(flight3DConfig_t, flight3DConfig);
 
 typedef struct armingConfig_s {
-    uint8_t gyro_cal_on_first_arm;          // calibrate the gyro right before the first arm
+    uint8_t gyro_cal_on_arm;                // calibrate the gyro right before arming
     uint8_t auto_disarm_delay;              // allow automatically disarming multicopters after auto_disarm_delay seconds of zero throttle. Disabled when 0
     uint8_t reset_kinematic_state_on_arm;   // reset EKF position and velocity states on each arm
 } armingConfig_t;

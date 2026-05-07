@@ -94,6 +94,20 @@ void quaternion_from_axis_angle(quaternion* q, float angle, float x, float y, fl
     q->z = a.z * sin(angle / 2);
 }
 
+void quaternion_from_rpy(quaternion* q, int16_t roll, int16_t pitch, int16_t yaw) {
+    const float cosRoll = cos_approx(DECIDEGREES_TO_RADIANS(roll) * 0.5f);
+    const float sinRoll = sin_approx(DECIDEGREES_TO_RADIANS(roll) * 0.5f);
+    const float cosPitch = cos_approx(DECIDEGREES_TO_RADIANS(pitch) * 0.5f);
+    const float sinPitch = sin_approx(DECIDEGREES_TO_RADIANS(pitch) * 0.5f);
+    const float cosYaw = cos_approx(DECIDEGREES_TO_RADIANS(-yaw) * 0.5f);
+    const float sinYaw = sin_approx(DECIDEGREES_TO_RADIANS(-yaw) * 0.5f);
+
+    q->w = cosRoll * cosPitch * cosYaw + sinRoll * sinPitch * sinYaw;
+    q->x = sinRoll * cosPitch * cosYaw - cosRoll * sinPitch * sinYaw;
+    q->y = cosRoll * sinPitch * cosYaw + sinRoll * cosPitch * sinYaw;
+    q->z = cosRoll * cosPitch * sinYaw - sinRoll * sinPitch * cosYaw;
+}
+
 TEST(FlightImuTest, TestCalculateRotationMatrix)
 {
     #define TOL 1e-6
@@ -176,6 +190,23 @@ TEST(FlightImuTest, TestUpdateEulerAngles)
     EXPECT_EQ(0, attitude.values.roll);
     EXPECT_EQ(0, attitude.values.pitch);
     EXPECT_EQ(450, attitude.values.yaw);
+}
+
+TEST(FlightImuTest, TestResetYaw)
+{
+    quaternion_from_rpy(&q, 123, -67, 1410);
+    imuComputeRotationMatrix();
+    imuUpdateEulerAngles();
+
+    const int16_t roll = attitude.values.roll;
+    const int16_t pitch = attitude.values.pitch;
+    EXPECT_NE(0, attitude.values.yaw);
+
+    imuResetYaw();
+
+    EXPECT_NEAR(roll, attitude.values.roll, 1);
+    EXPECT_NEAR(pitch, attitude.values.pitch, 1);
+    EXPECT_EQ(0, attitude.values.yaw);
 }
 
 TEST(FlightImuTest, TestSmallAngle)

@@ -208,6 +208,39 @@ void imuInit(void)
 }
 
 #if defined(USE_ACC)
+static void imuSetQuaternionFromRPY(int16_t initialRoll, int16_t initialPitch, int16_t initialYaw)
+{
+    if (initialRoll > 1800) {
+        initialRoll -= 3600;
+    }
+
+    if (initialPitch > 1800) {
+        initialPitch -= 3600;
+    }
+
+    if (initialYaw > 1800) {
+        initialYaw -= 3600;
+    }
+
+    const float cosRoll = cos_approx(DECIDEGREES_TO_RADIANS(initialRoll) * 0.5f);
+    const float sinRoll = sin_approx(DECIDEGREES_TO_RADIANS(initialRoll) * 0.5f);
+
+    const float cosPitch = cos_approx(DECIDEGREES_TO_RADIANS(initialPitch) * 0.5f);
+    const float sinPitch = sin_approx(DECIDEGREES_TO_RADIANS(initialPitch) * 0.5f);
+
+    const float cosYaw = cos_approx(DECIDEGREES_TO_RADIANS(-initialYaw) * 0.5f);
+    const float sinYaw = sin_approx(DECIDEGREES_TO_RADIANS(-initialYaw) * 0.5f);
+
+    q.w = cosRoll * cosPitch * cosYaw + sinRoll * sinPitch * sinYaw;
+    q.x = sinRoll * cosPitch * cosYaw - cosRoll * sinPitch * sinYaw;
+    q.y = cosRoll * sinPitch * cosYaw + sinRoll * cosPitch * sinYaw;
+    q.z = cosRoll * cosPitch * sinYaw - sinRoll * sinPitch * cosYaw;
+
+    imuComputeRotationMatrix();
+
+    attitudeIsEstablished = true;
+}
+
 static float invSqrt(float x)
 {
     return 1.0f / sqrtf(x);
@@ -692,6 +725,21 @@ static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs, float dt)
 }
 
 #endif
+
+void imuResetYaw(void)
+{
+#if defined(USE_ACC)
+    IMU_LOCK;
+
+    const int16_t roll = lrintf(atan2_approx(rMat[2][1], rMat[2][2]) * (1800.0f / M_PIf));
+    const int16_t pitch = lrintf(((0.5f * M_PIf) - acos_approx(-rMat[2][0])) * (1800.0f / M_PIf));
+
+    imuSetQuaternionFromRPY(roll, pitch, 0);
+    imuUpdateEulerAngles();
+
+    IMU_UNLOCK;
+#endif
+}
 
 static timeDelta_t imuGetDeltaT(timeUs_t currentTimeUs)
 {

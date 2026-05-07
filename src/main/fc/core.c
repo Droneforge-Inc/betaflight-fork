@@ -157,6 +157,7 @@ static timeUs_t disarmAt;     // Time of automatic disarm when "Don't spin the m
 static int lastArmingDisabledReason = 0;
 static timeUs_t lastDisarmTimeUs;
 static int tryingToArm = ARMING_DELAYED_DISARMED;
+static bool armGyroCalibrationStarted = false;
 
 #ifdef USE_RUNAWAY_TAKEOFF
 static timeUs_t runawayTakeoffDeactivateUs = 0;
@@ -196,6 +197,26 @@ static bool isCalibrating(void)
         || (sensors(SENSOR_MAG) && !compassIsCalibrationComplete())
 #endif
         ;
+}
+
+static bool isArmGyroCalibrationRunning(void)
+{
+    return armGyroCalibrationStarted && sensors(SENSOR_GYRO) && !gyroIsCalibrationComplete();
+}
+
+void resetArmGyroCalibration(void)
+{
+    armGyroCalibrationStarted = false;
+}
+
+static void gyroStartArmCalibration(void)
+{
+    if (armGyroCalibrationStarted || !armingConfig()->gyro_cal_on_arm || !sensors(SENSOR_GYRO)) {
+        return;
+    }
+
+    gyroStartCalibration(false);
+    armGyroCalibrationStarted = true;
 }
 
 #ifdef USE_LAUNCH_CONTROL
@@ -405,8 +426,8 @@ void updateArmingStatus(void)
                 unsetArmingDisabled(ARMING_DISABLED_CRASH_DETECTED);
             }
 
-            /* Ignore ARMING_DISABLED_CALIBRATING if we are going to calibrate gyro on first arm */
-            bool ignoreGyro = armingConfig()->gyro_cal_on_first_arm
+            /* Ignore ARMING_DISABLED_CALIBRATING if it was started by this arm attempt. */
+            bool ignoreGyro = isArmGyroCalibrationRunning()
                 && !(getArmingDisableFlags() & ~(ARMING_DISABLED_ARM_SWITCH | ARMING_DISABLED_CALIBRATING));
 
             /* Ignore ARMING_DISABLED_THROTTLE (once arm switch is on) if we are in 3D mode */
@@ -443,6 +464,7 @@ void disarm(flightLogDisarmReason_e reason)
             ENABLE_ARMING_FLAG(WAS_EVER_ARMED);
         }
         DISABLE_ARMING_FLAG(ARMED);
+        resetArmGyroCalibration();
         lastDisarmTimeUs = micros();
 
 #ifdef USE_OSD
@@ -485,11 +507,12 @@ void disarm(flightLogDisarmReason_e reason)
 
 void tryArm(void)
 {
-    if (armingConfig()->gyro_cal_on_first_arm) {
-        gyroStartCalibration(true);
-    }
-
     updateArmingStatus();
+
+    if (!ARMING_FLAG(ARMED) && !isArmingDisabled()) {
+        gyroStartArmCalibration();
+        updateArmingStatus();
+    }
 
     if (!isArmingDisabled()) {
         if (ARMING_FLAG(ARMED)) {
@@ -579,6 +602,7 @@ void tryArm(void)
 #ifdef USE_EKF
         kinematicEstimatorOnArm();
 #endif
+        imuResetYaw();
 
 #ifdef USE_RC_STATS
         NotifyRcStatsArming();
@@ -630,8 +654,8 @@ void tryArm(void)
         runawayTakeoffTriggerUs = 0;
 #endif
     } else {
-       resetTryingToArm();
-        if (!isFirstArmingGyroCalibrationRunning()) {
+        resetTryingToArm();
+        if (!isArmGyroCalibrationRunning() && !isFirstArmingGyroCalibrationRunning()) {
             int armingDisabledReason = ffs(getArmingDisableFlags());
             if (lastArmingDisabledReason != armingDisabledReason) {
                 lastArmingDisabledReason = armingDisabledReason;

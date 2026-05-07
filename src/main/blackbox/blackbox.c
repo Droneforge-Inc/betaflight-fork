@@ -1552,7 +1552,7 @@ static bool blackboxWriteSysinfo(void)
 #ifdef USE_MAG
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_MAG_HARDWARE, "%d",           compassConfig()->mag_hardware);
 #endif
-        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GYRO_CAL_ON_FIRST_ARM, "%d",  armingConfig()->gyro_cal_on_first_arm);
+        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GYRO_CAL_ON_ARM, "%d",  armingConfig()->gyro_cal_on_arm);
 #ifdef USE_EKF
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RESET_KINEMATIC_STATE_ON_ARM, "%d", armingConfig()->reset_kinematic_state_on_arm);
 #endif

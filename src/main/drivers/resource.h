@@ -20,11 +20,16 @@
 
 #pragma once
 
+#include "platform.h"
+
 typedef enum {
     OWNER_FREE = 0,
     OWNER_PWMINPUT,
     OWNER_PPMINPUT,
     OWNER_MOTOR,
+#ifdef USE_BRUSHED_FLIPOVERAFTERCRASH
+    OWNER_BRUSHED_REVERSE,
+#endif
     OWNER_SERVO,
     OWNER_LED,
     OWNER_ADC,

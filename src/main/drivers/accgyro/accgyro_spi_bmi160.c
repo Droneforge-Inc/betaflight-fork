@@ -108,9 +108,11 @@ static int32_t BMI160_do_foc(const extDevice_t *dev);
 
 uint8_t bmi160Detect(const extDevice_t *dev)
 {
+#ifndef USE_MULTI_GYRO
     if (BMI160Detected) {
         return BMI_160_SPI;
     }
+#endif
 
     // Toggle CS to activate SPI (see https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi160-ds000.pdf section 3.2.1)
     spiWrite(dev, 0xFF);
@@ -133,9 +135,11 @@ uint8_t bmi160Detect(const extDevice_t *dev)
  */
 static void BMI160_Init(const extDevice_t *dev)
 {
+#ifndef USE_MULTI_GYRO
     if (BMI160InitDone || !BMI160Detected) {
         return;
     }
+#endif
 
     /* Configure the BMI160 Sensor */
     if (BMI160_Config(dev) != 0) {

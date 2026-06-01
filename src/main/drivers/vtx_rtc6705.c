@@ -56,7 +56,12 @@
 static IO_t vtxPowerPin     = IO_NONE;
 #endif
 
-static extDevice_t *dev = NULL;
+#ifdef RTC6705_DYNAMIC_POWER_CTRL
+static IO_t exPowerPin[VTX_DYNAMIC_CTRL_PIN_COUNT]   = {IO_NONE, IO_NONE};
+#endif
+
+static extDevice_t rtc6705Device;
+static extDevice_t *dev = &rtc6705Device;
 
 #define DISABLE_RTC6705()   IOHi(dev->busType_u.spi.csnPin)
 #define ENABLE_RTC6705()    IOLo(dev->busType_u.spi.csnPin)
@@ -94,8 +99,6 @@ static uint32_t reverse32(uint32_t in)
  */
 bool rtc6705IOInit(const vtxIOConfig_t *vtxIOConfig)
 {
-    static extDevice_t devInstance;
-
     IO_t csnPin = IOGetByTag(vtxIOConfig->csTag);
     if (!csnPin) {
         return false;
@@ -105,21 +108,36 @@ bool rtc6705IOInit(const vtxIOConfig_t *vtxIOConfig)
     if (vtxPowerPin) {
         IOInit(vtxPowerPin, OWNER_VTX_POWER, 0);
 
+#ifdef VTX_POWER_PIN_INVERTED
+        IOLo(vtxPowerPin);
+#else
         IOHi(vtxPowerPin);
+#endif
 
         IOConfigGPIO(vtxPowerPin, IOCFG_OUT_PP);
     }
 
+#ifdef RTC6705_DYNAMIC_POWER_CTRL
+    for (uint8_t i = 0; i < VTX_DYNAMIC_CTRL_PIN_COUNT; i++) {
+        exPowerPin[i] = IOGetByTag(vtxIOConfig->exPowerTag[i]);
+        if (exPowerPin[i]) {
+            IOInit(exPowerPin[i], OWNER_VTX_POWER, i + 1);
+            IOLo(exPowerPin[i]);
+            IOConfigGPIO(exPowerPin[i], IOCFG_OUT_PP);
+        }
+    }
+#endif
+
     // RTC6705 when using SOFT SPI driver doesn't use an SPI device, so don't attempt to initialise an spiInstance.
     SPI_TypeDef *spiInstance = spiInstanceByDevice(SPI_CFG_TO_DEV(vtxIOConfig->spiDevice));
     if (spiInstance && spiSetBusInstance(dev, vtxIOConfig->spiDevice)) {
-        devInstance.busType_u.spi.csnPin = csnPin;
-        IOInit(devInstance.busType_u.spi.csnPin, OWNER_VTX_CS, 0);
+        rtc6705Device.busType_u.spi.csnPin = csnPin;
+        IOInit(rtc6705Device.busType_u.spi.csnPin, OWNER_VTX_CS, 0);
 
         DISABLE_RTC6705();
         // GPIO bit is enabled so here so the output is not pulled low when the GPIO is set in output mode.
         // Note: It's critical to ensure that incorrect signals are not sent to the VTX.
-        IOConfigGPIO(devInstance.busType_u.spi.csnPin, IOCFG_OUT_PP);
+        IOConfigGPIO(rtc6705Device.busType_u.spi.csnPin, IOCFG_OUT_PP);
 
         return true;
 #if defined(USE_VTX_RTC6705_SOFTSPI)
@@ -140,6 +158,8 @@ static void rtc6705Transfer(uint32_t command)
 {
     // Perform bitwise reverse of the command.
     command = reverse32(command);
+
+    command = ((command >> 24) & 0xFF) | (((command >> 16) & 0xFF) << 8) | (((command >> 8) & 0xFF) << 16) | (((command >> 0) & 0xFF) << 24);
 
     spiReadWriteBuf(dev, (uint8_t *)&command, NULL, sizeof(command));
 
@@ -176,9 +196,40 @@ void rtc6705SetFrequency(uint16_t frequency)
     rtc6705Transfer(val_hex);
 }
 
+#ifdef RTC6705_DYNAMIC_POWER_CTRL
+void rtc6705DynamicPowerControl(uint8_t power)
+{
+    power &= 0x03; // mask lsb 2 bits, vtx power value should be 0~3
+
+    for (uint8_t i = 0; i < VTX_DYNAMIC_CTRL_PIN_COUNT; i++) {
+        if (power & (0x01 << i)) {
+            IOHi(exPowerPin[i]);
+        } else {
+            IOLo(exPowerPin[i]);
+        }
+    }
+}
+#endif
+
 void rtc6705SetRFPower(uint8_t rf_power)
 {
+#if defined(RTC6705_EXPAND_POWER_CTRL) || defined(RTC6705_DYNAMIC_POWER_CTRL)
+    rf_power = constrain(rf_power, 0, VTX_RTC6705_POWER_COUNT);
+#else
     rf_power = constrain(rf_power, 1, 2);
+#endif
+
+#if defined(RTC6705_EXPAND_POWER_CTRL)
+    if (rf_power > 0) {
+        rtc6705Enable();
+        rf_power = (rf_power > 1) ? (1) : (2);
+    } else {
+        rtc6705Disable();
+    }
+#elif defined(RTC6705_DYNAMIC_POWER_CTRL)
+    rtc6705DynamicPowerControl(rf_power);
+#endif
+
 #if defined(USE_VTX_RTC6705_SOFTSPI)
     if (!dev) {
         rtc6705SoftSpiSetRFPower(rf_power);
@@ -200,14 +251,22 @@ void rtc6705SetRFPower(uint8_t rf_power)
 void rtc6705Disable(void)
 {
     if (vtxPowerPin) {
+#ifdef VTX_POWER_PIN_INVERTED
+        IOLo(vtxPowerPin);
+#else
         IOHi(vtxPowerPin);
+#endif
     }
 }
 
 void rtc6705Enable(void)
 {
     if (vtxPowerPin) {
+#ifdef VTX_POWER_PIN_INVERTED
+        IOHi(vtxPowerPin);
+#else
         IOLo(vtxPowerPin);
+#endif
     }
 }
 #endif

@@ -3376,7 +3376,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
                     unsigned vtxCurrentStatus;
                     vtxCommonGetStatus(vtxDevice, &vtxCurrentStatus);
                     if ((bool)(vtxCurrentStatus & VTX_STATUS_PIT_MODE) != (bool)newPitmode) {
-                        vtxCommonSetPitMode(vtxDevice, newPitmode);
+                        vtxCommonSetPitMode(vtxDevice, (newPitmode == 1) ? (2) : (newPitmode));
                     }
                 }
             }

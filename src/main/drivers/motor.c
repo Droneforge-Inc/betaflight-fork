@@ -364,6 +364,13 @@ void motorEnable(void)
     }
 }
 
+#ifdef USE_BRUSHED_FLIPOVERAFTERCRASH
+void motorReverse(bool status)
+{
+    motorDevice->vTable.reverse(status);
+}
+#endif
+
 float motorEstimateMaxRpm(void)
 {
     // Empirical testing found this relationship between estimated max RPM without props attached

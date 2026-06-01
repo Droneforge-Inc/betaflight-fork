@@ -5024,6 +5024,9 @@ const cliResourceValue_t resourceTable[] = {
 #if defined(USE_RX_PWM)
     DEFA( OWNER_PWMINPUT,      PG_PWM_CONFIG, pwmConfig_t, ioTags[0], PWM_INPUT_PORT_COUNT ),
 #endif
+#if defined(USE_BRUSHED_FLIPOVERAFTERCRASH)
+    DEFS( OWNER_BRUSHED_REVERSE, PG_MOTOR_CONFIG, motorConfig_t, dev.reverseTag ),
+#endif
 #if defined(USE_RANGEFINDER_HCSR04)
     DEFS( OWNER_SONAR_TRIGGER, PG_SONAR_CONFIG, sonarConfig_t, triggerTag ),
     DEFS( OWNER_SONAR_ECHO,    PG_SONAR_CONFIG, sonarConfig_t, echoTag ),
@@ -5139,6 +5142,9 @@ const cliResourceValue_t resourceTable[] = {
     DEFS( OWNER_VTX_CS,        PG_VTX_IO_CONFIG, vtxIOConfig_t, csTag ),
     DEFS( OWNER_VTX_DATA,      PG_VTX_IO_CONFIG, vtxIOConfig_t, dataTag ),
     DEFS( OWNER_VTX_CLK,       PG_VTX_IO_CONFIG, vtxIOConfig_t, clockTag ),
+#ifdef RTC6705_DYNAMIC_POWER_CTRL
+    DEFA( OWNER_VTX_POWER,     PG_VTX_IO_CONFIG, vtxIOConfig_t, exPowerTag, VTX_DYNAMIC_CTRL_PIN_COUNT),
+#endif
 #endif
 #ifdef USE_PIN_PULL_UP_DOWN
     DEFA( OWNER_PULLUP,        PG_PULLUP_CONFIG,   pinPullUpDownConfig_t, ioTag, PIN_PULL_UP_DOWN_COUNT ),

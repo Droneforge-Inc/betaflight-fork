@@ -122,6 +122,10 @@ void pgResetFn_motorConfig(motorConfig_t *motorConfig)
     motorConfig->dev.useDshotBitbang = DEFAULT_DSHOT_BITBANG;
     motorConfig->dev.useDshotBitbangedTimer = DSHOT_BITBANGED_TIMER_DEFAULT;
 #endif
+
+#ifdef USE_BRUSHED_FLIPOVERAFTERCRASH
+    motorConfig->dev.reverseTag = IO_TAG(BRUSHED_REVERSE_PIN);
+#endif
 }
 
 #endif // USE_MOTOR

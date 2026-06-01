@@ -207,7 +207,9 @@ rx_spi_received_e redpineSpiDataReceived(uint8_t *packet)
             if (rxSpiCheckBindRequested(true) || rxCc2500SpiConfig()->autoBind) {
                 redpineFast = true;
                 initialise();
+#ifndef CC2500_BLINK_BIND
                 rxSpiLedOn();
+#endif
                 initBindTuneRx();
 
                 protocolState = STATE_BIND_TUNING1;
@@ -265,6 +267,20 @@ rx_spi_received_e redpineSpiDataReceived(uint8_t *packet)
 
             break;
     }
+#ifdef CC2500_BLINK_BIND
+    switch (protocolState) {
+        case STATE_BIND:
+        case STATE_BIND_TUNING1:
+        case STATE_BIND_TUNING2:
+        case STATE_BIND_TUNING3:
+            rxSpiLedBlinkBind();
+
+            break;
+
+        default:
+            break;
+    }
+#endif
     DEBUG_SET(DEBUG_RX_FRSKY_SPI, 3, protocolState);
 
     return ret;

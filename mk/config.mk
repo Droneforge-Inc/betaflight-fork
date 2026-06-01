@@ -1,6 +1,9 @@
 
-CONFIGS_REPO_URL ?= https://github.com/newbeedrone/config
+CONFIGS_REPO_URL ?= https://github.com/betaflight/config
+# handle only this directory as config submodule
+CONFIGS_SUBMODULE_DIR = src/config
 BASE_CONFIGS      = $(sort $(notdir $(patsubst %/,%,$(dir $(wildcard $(CONFIG_DIR)/configs/*/config.h)))))
+CONFIG_TARGETS    = $(filter-out $(BASE_TARGETS),$(BASE_CONFIGS))
 
 ifneq ($(filter-out %_install test% %_clean clean% %-print %.hex %.h hex checks help configs $(BASE_TARGETS) $(BASE_CONFIGS),$(MAKECMDGOALS)),)
 ifeq ($(wildcard $(CONFIG_DIR)/configs/),)
@@ -49,18 +52,22 @@ endif #config
 
 .PHONY: configs
 configs:
+ifeq ($(shell realpath $(CONFIG_DIR)),$(shell realpath $(CONFIGS_SUBMODULE_DIR)))
+	git submodule update --init -- $(CONFIGS_SUBMODULE_DIR)
+else
 ifeq ($(wildcard $(CONFIG_DIR)),)
 	@echo "Hydrating clone for configs: $(CONFIG_DIR)"
 	$(V0) git clone $(CONFIGS_REPO_URL) $(CONFIG_DIR)
 else
 	$(V0) git -C $(CONFIG_DIR) pull origin
 endif
+endif
 
-$(BASE_CONFIGS):
+$(CONFIG_TARGETS):
 	@echo "Building target config $@"
 	$(V0) $(MAKE) -j hex CONFIG=$@
 	@echo "Building target config $@ succeeded."
 
 ## <CONFIG>_rev    : build configured target and add revision to filename
-$(addsuffix _rev,$(BASE_CONFIGS)):
+$(addsuffix _rev,$(CONFIG_TARGETS)):
 	$(V0) $(MAKE) -j hex CONFIG=$(subst _rev,,$@) REV=yes

@@ -130,7 +130,7 @@ HSE_VALUE       ?= 8000000
 CI_TARGETS       := $(filter-out AT32F435G AT32F435M \
 								 STM32F7X2 STM32F405 STM32F411 STM32F446 STM32F745 \
 								 STM32G47X \
-								 STM32H723 STM32H725 STM32H730 STM32H743 STM32H750, $(BASE_TARGETS)) $(BASE_CONFIGS)
+								 STM32H723 STM32H725 STM32H730 STM32H743 STM32H750, $(BASE_TARGETS)) $(CONFIG_TARGETS)
 include $(ROOT)/src/main/target/$(TARGET)/target.mk
 
 REVISION := norevision
@@ -477,7 +477,7 @@ $(BASE_TARGETS):
 
 TARGETS_CLEAN = $(addsuffix _clean,$(BASE_TARGETS))
 
-CONFIGS_CLEAN = $(addsuffix _clean,$(BASE_CONFIGS))
+CONFIGS_CLEAN = $(addsuffix _clean,$(CONFIG_TARGETS))
 
 ## clean             : clean up temporary / machine-generated files
 clean:

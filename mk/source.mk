@@ -138,6 +138,8 @@ COMMON_SRC = \
             blackbox/blackbox.c \
             blackbox/blackbox_encoding.c \
             blackbox/blackbox_io.c \
+            cli/cli.c \
+            cli/settings.c \
             cms/cms.c \
             cms/cms_menu_blackbox.c \
             cms/cms_menu_failsafe.c \
@@ -276,6 +278,220 @@ COMMON_DEVICE_SRC = \
             $(DEVICE_STDPERIPH_SRC)
 
 COMMON_SRC := $(COMMON_SRC) $(COMMON_DEVICE_SRC) $(RX_SRC)
+
+FLIGHT_CORE_EXCLUDED_SRC := \
+            blackbox/blackbox.c \
+            blackbox/blackbox_encoding.c \
+            blackbox/blackbox_io.c \
+            cli/cli.c \
+            cli/settings.c \
+            cms/cms.c \
+            cms/cms_menu_blackbox.c \
+            cms/cms_menu_failsafe.c \
+            cms/cms_menu_firmware.c \
+            cms/cms_menu_gps_lap_timer.c \
+            cms/cms_menu_gps_rescue.c \
+            cms/cms_menu_imu.c \
+            cms/cms_menu_ledstrip.c \
+            cms/cms_menu_main.c \
+            cms/cms_menu_misc.c \
+            cms/cms_menu_osd.c \
+            cms/cms_menu_persistent_stats.c \
+            cms/cms_menu_power.c \
+            cms/cms_menu_quick.c \
+            cms/cms_menu_rpm_limit.c \
+            cms/cms_menu_saveexit.c \
+            cms/cms_menu_vtx_common.c \
+            cms/cms_menu_vtx_msp.c \
+            cms/cms_menu_vtx_rtc6705.c \
+            cms/cms_menu_vtx_smartaudio.c \
+            cms/cms_menu_vtx_tramp.c \
+            common/colorconversion.c \
+            common/gps_conversion.c \
+            common/huffman.c \
+            common/huffman_table.c \
+            config/simplified_tuning.c \
+            drivers/accgyro/accgyro_mpu3050.c \
+            drivers/accgyro/accgyro_mpu6050.c \
+            drivers/accgyro/accgyro_mpu6500.c \
+            drivers/accgyro/accgyro_spi_bmi160.c \
+            drivers/accgyro/accgyro_spi_icm20649.c \
+            drivers/accgyro/accgyro_spi_icm20689.c \
+            drivers/accgyro/accgyro_spi_l3gd20.c \
+            drivers/accgyro/accgyro_spi_lsm6dso.c \
+            drivers/accgyro/accgyro_spi_lsm6dso_init.c \
+            drivers/accgyro/accgyro_spi_lsm6dsv16x.c \
+            drivers/accgyro/accgyro_spi_mpu6000.c \
+            drivers/accgyro/accgyro_spi_mpu6500.c \
+            drivers/accgyro/accgyro_spi_mpu9250.c \
+            drivers/accgyro/accgyro_virtual.c \
+            drivers/barometer/barometer_2smpb_02b.c \
+            drivers/barometer/barometer_bmp085.c \
+            drivers/barometer/barometer_bmp388.c \
+            drivers/barometer/barometer_lps.c \
+            drivers/barometer/barometer_lps22df.c \
+            drivers/barometer/barometer_ms5611.c \
+            drivers/barometer/barometer_qmp6988.c \
+            drivers/barometer/barometer_virtual.c \
+            drivers/bus_i2c_soft.c \
+            drivers/bus_octospi.c \
+            drivers/bus_quadspi.c \
+            drivers/buttons.c \
+            drivers/compass/compass_ak8963.c \
+            drivers/compass/compass_ak8975.c \
+            drivers/compass/compass_hmc5883l.c \
+            drivers/compass/compass_ist8310.c \
+            drivers/compass/compass_lis2mdl.c \
+            drivers/compass/compass_lis3mdl.c \
+            drivers/compass/compass_mpu925x_ak8963.c \
+            drivers/compass/compass_qmc5883l.c \
+            drivers/compass/compass_virtual.c \
+            drivers/display.c \
+            drivers/display_canvas.c \
+            drivers/display_ug2864hsweg01.c \
+            drivers/flash.c \
+            drivers/flash_m25p16.c \
+            drivers/flash_w25m.c \
+            drivers/flash_w25n.c \
+            drivers/flash_w25q128fv.c \
+            drivers/light_ws2811strip.c \
+            drivers/max7456.c \
+            drivers/mco.c \
+            drivers/pinio.c \
+            drivers/pin_pull_up_down.c \
+            drivers/rangefinder/rangefinder_hcsr04.c \
+            drivers/rangefinder/rangefinder_lidartf.c \
+            drivers/rx/expresslrs_driver.c \
+            drivers/rx/rx_a7105.c \
+            drivers/rx/rx_cc2500.c \
+            drivers/rx/rx_cyrf6936.c \
+            drivers/rx/rx_pwm.c \
+            drivers/rx/rx_spi.c \
+            drivers/rx/rx_sx127x.c \
+            drivers/rx/rx_sx1280.c \
+            drivers/rx/rx_xn297.c \
+            drivers/serial_escserial.c \
+            drivers/serial_softserial.c \
+            drivers/stm32/camera_control.c \
+            drivers/stm32/light_ws2811strip_hal.c \
+            drivers/stm32/transponder_ir_io_hal.c \
+            drivers/transponder_ir_arcitimer.c \
+            drivers/transponder_ir_erlt.c \
+            drivers/transponder_ir_ilap.c \
+            drivers/vtx_common.c \
+            drivers/vtx_rtc6705.c \
+            drivers/vtx_rtc6705_soft_spi.c \
+            drivers/vtx_table.c \
+            fc/gps_lap_timer.c \
+            flight/gps_rescue.c \
+            flight/mixer_tricopter.c \
+            flight/servos.c \
+            flight/servos_tricopter.c \
+            io/dashboard.c \
+            io/displayport_crsf.c \
+            io/displayport_frsky_osd.c \
+            io/displayport_hott.c \
+            io/displayport_max7456.c \
+            io/displayport_msp.c \
+            io/displayport_oled.c \
+            io/displayport_srxl.c \
+            io/flashfs.c \
+            io/frsky_osd.c \
+            io/gps.c \
+            io/ledstrip.c \
+            io/pidaudio.c \
+            io/piniobox.c \
+            io/rcdevice.c \
+            io/rcdevice_cam.c \
+            io/serial_4way.c \
+            io/serial_4way_avrootloader.c \
+            io/serial_4way_stk500v2.c \
+            io/smartaudio_protocol.c \
+            io/spektrum_rssi.c \
+            io/spektrum_vtx_control.c \
+            io/transponder_ir.c \
+            io/tramp_protocol.c \
+            io/usb_cdc_hid.c \
+            io/usb_msc.c \
+            io/vtx.c \
+            io/vtx_control.c \
+            io/vtx_msp.c \
+            io/vtx_rtc6705.c \
+            io/vtx_smartaudio.c \
+            io/vtx_tramp.c \
+            osd/osd.c \
+            osd/osd_elements.c \
+            osd/osd_warnings.c \
+            pg/dashboard.c \
+            pg/displayport_profiles.c \
+            pg/flash.c \
+            pg/gps.c \
+            pg/gps_lap_timer.c \
+            pg/gps_rescue.c \
+            pg/max7456.c \
+            pg/mco.c \
+            pg/pin_pull_up_down.c \
+            pg/pinio.c \
+            pg/piniobox.c \
+            pg/rcdevice.c \
+            pg/rx_pwm.c \
+            pg/rx_spi.c \
+            pg/rx_spi_cc2500.c \
+            pg/rx_spi_expresslrs.c \
+            pg/sdcard.c \
+            pg/sdio.c \
+            pg/vcd.c \
+            pg/vtx_io.c \
+            pg/vtx_table.c \
+            rx/a7105_flysky.c \
+            rx/cc2500_common.c \
+            rx/cc2500_frsky_d.c \
+            rx/cc2500_frsky_shared.c \
+            rx/cc2500_frsky_x.c \
+            rx/cc2500_redpine.c \
+            rx/cc2500_sfhss.c \
+            rx/cyrf6936_spektrum.c \
+            rx/expresslrs.c \
+            rx/expresslrs_common.c \
+            rx/expresslrs_telemetry.c \
+            rx/fport.c \
+            rx/frsky_crc.c \
+            rx/ghst.c \
+            rx/ibus.c \
+            rx/jetiexbus.c \
+            rx/msp.c \
+            rx/msp_override.c \
+            rx/pwm.c \
+            rx/rc_stats.c \
+            rx/rx_bind.c \
+            rx/rx_spi.c \
+            rx/rx_spi_common.c \
+            rx/sbus.c \
+            rx/sbus_channels.c \
+            rx/spektrum.c \
+            rx/srxl2.c \
+            rx/sumd.c \
+            rx/sumh.c \
+            rx/xbus.c \
+            sensors/compass.c \
+            sensors/esc_sensor.c \
+            telemetry/frsky_hub.c \
+            telemetry/ghst.c \
+            telemetry/hott.c \
+            telemetry/ibus.c \
+            telemetry/ibus_shared.c \
+            telemetry/jetiexbus.c \
+            telemetry/ltm.c \
+            telemetry/mavlink.c \
+            telemetry/msp_shared.c \
+            telemetry/smartport.c \
+            telemetry/srxl.c
+
+COMMON_SRC := $(filter-out $(FLIGHT_CORE_EXCLUDED_SRC),$(COMMON_SRC))
+FLASH_SRC :=
+MSC_SRC :=
+RX_SRC :=
+SDCARD_SRC :=
 
 ifeq ($(EXST),yes)
 TARGET_FLAGS := -DUSE_EXST $(TARGET_FLAGS)
@@ -466,7 +682,7 @@ SIZE_OPTIMISED_SRC := $(SIZE_OPTIMISED_SRC) \
 SRC := $(STARTUP_SRC) $(MCU_COMMON_SRC) $(TARGET_SRC) $(VARIANT_SRC)
 
 # Files that should not be optimized, useful for debugging IMPRECISE cpu faults.
-# Specify FULL PATH, e.g. "./lib/main/STM32F7/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_ll_sdmmc.c"
+# Specify FULL PATH, e.g. "./lib/main/STM32G4/Drivers/STM32G4xx_HAL_Driver/src/stm32g4xx_ll_usb.c"
 NOT_OPTIMISED_SRC := $(NOT_OPTIMISED_SRC) \
 
 ifneq ($(DSP_LIB),)
@@ -483,10 +699,12 @@ SRC   := $(filter-out $(MCU_EXCLUDES), $(SRC))
 
 SRC += $(VCP_SRC)
 
+SRC := $(filter-out $(FLIGHT_CORE_EXCLUDED_SRC),$(SRC))
+
 # end target specific make file checks
 
 # Search path and source files for the Open Location Code library
-OLC_DIR = $(ROOT)/lib/main/google/olc
+OLC_DIR =
 
 ifneq ($(OLC_DIR),)
 INCLUDE_DIRS += $(OLC_DIR)

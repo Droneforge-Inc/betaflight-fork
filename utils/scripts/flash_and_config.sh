@@ -8,15 +8,11 @@ show_help() {
 Usage: $0 <command> [arguments]
 
 Commands:
-    flash [--fc <type>] [--port <device>]
-                               Flash firmware only (default FC: betafpv, options: betafpv, axis, lionbee, halo)
+    flash [--port <device>]    Flash BetaFPV firmware + config
     vtx [--port <device>] <band> <ch> [power] Flash VTX binary, configure VTX, then flash firmware + config (betafpv only)
 
 Examples:
     $0 flash                  # Just flash firmware (betafpv)
-    $0 flash --fc axis        # Flash firmware for axis
-    $0 flash --fc lionbee     # Flash firmware for lionbee
-    $0 flash --fc halo        # Flash firmware for HDZero Halo
     $0 flash --port /dev/tty.usbmodem1234
                                # Flash using a specific serial port
     $0 vtx --port /dev/tty.usbmodem1234 5 1
@@ -33,20 +29,11 @@ EOF
 }
 
 cmd_flash() {
-    local fc_type="betafpv"
     local cli_port=""
     local cli_args=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --fc)
-                if [[ -z "$2" ]]; then
-                    echo "Error: --fc requires an argument"
-                    exit 1
-                fi
-                fc_type="$2"
-                shift 2
-                ;;
             --port)
                 if [[ -z "$2" ]]; then
                     echo "Error: --port requires an argument"
@@ -68,49 +55,16 @@ cmd_flash() {
     fi
     
     echo "=========================================="
-    echo "Flashing firmware for $fc_type..."
+    echo "Flashing BetaFPV firmware..."
     if [[ -n "$cli_port" ]]; then
         echo "Using serial port $cli_port"
     fi
     echo "=========================================="
     
-    local hex_file
-    case "$fc_type" in
-        betafpv)
-            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32G47X_BETAFPVG473.hex"
-            ;;
-        axis)
-            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32F7X2_AXISFLYINGF7AIO.hex"
-            ;;
-        lionbee)
-            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_LIONBEE_V2_REVB.hex"
-            ;;
-        halo)
-            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32H743_HDZERO_HALO.hex"
-            ;;
-        *)
-            echo "Error: Unknown FC type '$fc_type'. Must be 'betafpv', 'axis', 'lionbee', or 'halo'."
-            exit 1
-            ;;
-    esac
+    local hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32G47X_BETAFPVG473.hex"
+    local config_file="$SCRIPT_DIR/../config/whoop-of.txt"
     
-    local config_file
-    case "$fc_type" in
-        betafpv)
-            config_file="$SCRIPT_DIR/../config/whoop-of.txt"
-            ;;
-        axis)
-            config_file="$SCRIPT_DIR/../config/axis-of.txt"
-            ;;
-        lionbee)
-            config_file="$SCRIPT_DIR/../config/lionbee.txt"
-            ;;
-        halo)
-            config_file="$SCRIPT_DIR/../config/halo.txt"
-            ;;
-    esac
-    
-    arm-none-eabi-objcopy -I ihex -O binary "$hex_file" $SCRIPT_DIR/../bin/firmware.bin
+    arm-none-eabi-objcopy -I ihex -O binary "$hex_file" "$SCRIPT_DIR/../bin/firmware.bin"
     python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -x bl
     sleep 1
     dfu-util -a 0 -s 0x08000000:leave -D "$SCRIPT_DIR/../bin/firmware.bin"
@@ -195,7 +149,7 @@ cmd_vtx() {
         python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -b "$VTX_BAND" -c "$VTX_CHANNEL"
     fi
     sleep 2
-    arm-none-eabi-objcopy -I ihex -O binary $SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32G47X_BETAFPVG473.hex $SCRIPT_DIR/../bin/firmware.bin
+    arm-none-eabi-objcopy -I ihex -O binary "$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32G47X_BETAFPVG473.hex" "$SCRIPT_DIR/../bin/firmware.bin"
     python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -x bl
     sleep 1
     dfu-util -a 0 -s 0x08000000:leave -D "$SCRIPT_DIR/../bin/firmware.bin"

@@ -22,11 +22,18 @@
 
 #include <stdbool.h>
 
+struct serialPort_s;
+
+#ifdef USE_CLI
 extern bool cliMode;
 
 void cliProcess(void);
-struct serialPort_s;
 void cliEnter(struct serialPort_s *serialPort);
+#else
+#define cliMode false
+static inline void cliProcess(void) {}
+static inline void cliEnter(struct serialPort_s *serialPort) { (void)serialPort; }
+#endif
 
 #ifdef USE_CLI_DEBUG_PRINT
 void cliPrint(const char *str);

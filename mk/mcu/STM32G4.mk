@@ -18,11 +18,13 @@ EXCLUDES        = \
                 stm32g4xx_hal_crc_ex.c \
                 stm32g4xx_hal_cryp.c \
                 stm32g4xx_hal_cryp_ex.c \
+                stm32g4xx_hal_cordic.c \
                 stm32g4xx_hal_dac.c \
                 stm32g4xx_hal_dac_ex.c \
                 stm32g4xx_hal_dma_ex.c \
+                stm32g4xx_hal_fdcan.c \
                 stm32g4xx_hal_flash_ramfunc.c \
-                stm33g4xx_hal_fmac.c \
+                stm32g4xx_hal_fmac.c \
                 stm32g4xx_hal_hrtim.c \
                 stm32g4xx_hal_i2s.c \
                 stm32g4xx_hal_irda.c \
@@ -95,9 +97,7 @@ VPATH := $(VPATH):$(USBCDC_DIR)/Src:$(USBCORE_DIR)/Src:$(USBHID_DIR)/Src:$(USBMS
 
 DEVICE_STDPERIPH_SRC := $(STDPERIPH_SRC) \
                         $(USBCORE_SRC) \
-                        $(USBCDC_SRC) \
-                        $(USBHID_SRC) \
-                        $(USBMSC_SRC)
+                        $(USBCDC_SRC)
 
 #CMSIS
 VPATH           := $(VPATH):$(CMSIS_DIR)/Include:$(CMSIS_DIR)/Device/ST/STM32G4xx
@@ -137,7 +137,6 @@ DEVICE_FLAGS    += -DHSE_VALUE=$(HSE_VALUE) -DSTM32
 VCP_SRC = \
             drivers/stm32/vcp_hal/usbd_desc.c \
             drivers/stm32/vcp_hal/usbd_conf_stm32g4xx.c \
-            drivers/stm32/vcp_hal/usbd_cdc_hid.c \
             drivers/stm32/vcp_hal/usbd_cdc_interface.c \
             drivers/stm32/serial_usb_vcp.c \
             drivers/usb_io.c

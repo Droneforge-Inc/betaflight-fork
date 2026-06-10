@@ -15,10 +15,16 @@
 # Things that the user might override on the commandline
 #
 
-# The target to build, see BASE_TARGETS below
-DEFAULT_TARGET ?= ACROBEE65_BLV5
+# The BetaFPV config is the default build path for this stripped branch.
+DEFAULT_TARGET ?= STM32G47X
+DEFAULT_CONFIG ?= BETAFPVG473
 TARGET    ?=
 CONFIG    ?=
+ifeq ($(strip $(TARGET)$(CONFIG)),)
+ifeq ($(filter clean% %_clean help checks configs %-print,$(MAKECMDGOALS)),)
+CONFIG := $(DEFAULT_CONFIG)
+endif
+endif
 
 # Compile-time options
 OPTIONS   ?=
@@ -91,7 +97,7 @@ TOOLS_DIR  ?= $(ROOT)/tools
 DL_DIR     := $(ROOT)/downloads
 CONFIG_DIR ?= $(BETAFLIGHT_CONFIG)
 ifeq ($(CONFIG_DIR),)
-CONFIG_DIR := $(ROOT)/src/config
+CONFIG_DIR := $(ROOT)/target-config
 endif
 DIRECTORIES := $(DL_DIR) $(TOOLS_DIR)
 
@@ -127,10 +133,7 @@ endif
 # default xtal value
 HSE_VALUE       ?= 8000000
 
-CI_TARGETS       := $(filter-out AT32F435G AT32F435M \
-								 STM32F7X2 STM32F405 STM32F411 STM32F446 STM32F745 \
-								 STM32G47X \
-								 STM32H723 STM32H725 STM32H730 STM32H743 STM32H750, $(BASE_TARGETS)) $(BASE_CONFIGS)
+CI_TARGETS       := BETAFPVG473
 include $(ROOT)/src/main/target/$(TARGET)/target.mk
 
 REVISION := norevision
@@ -203,9 +206,6 @@ TARGET_DIR     = $(ROOT)/src/main/target/$(TARGET)
 TARGET_DIR_SRC = $(notdir $(wildcard $(TARGET_DIR)/*.c))
 
 .DEFAULT_GOAL := hex
-
-INCLUDE_DIRS    := $(INCLUDE_DIRS) \
-                   $(ROOT)/lib/main/MAVLink
 
 INCLUDE_DIRS    := $(INCLUDE_DIRS) \
                    $(TARGET_DIR)

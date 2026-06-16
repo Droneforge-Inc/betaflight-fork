@@ -9,11 +9,13 @@ Usage: $0 <command> [arguments]
 
 Commands:
     flash [--fc <type>] [--port <device>]
-                               Flash firmware only (default FC: betafpv, options: betafpv, axis, lionbee, halo)
-    vtx [--port <device>] <band> <ch> [power] Flash VTX binary, configure VTX, then flash firmware + config (betafpv only)
+                               Flash firmware only (default FC: betafpv-v2, options: betafpv-v2, betafpv, axis, lionbee, halo)
+    vtx [--port <device>] <band> <ch> [power] Flash VTX binary, configure VTX, then flash firmware + config (betafpv-v2 only)
 
 Examples:
-    $0 flash                  # Just flash firmware (betafpv)
+    $0 flash                  # Just flash firmware (betafpv-v2)
+    $0 flash --fc betafpv     # Flash firmware for original betafpv
+    $0 flash --fc betafpv-v2  # Flash firmware for betafpv v2
     $0 flash --fc axis        # Flash firmware for axis
     $0 flash --fc lionbee     # Flash firmware for lionbee
     $0 flash --fc halo        # Flash firmware for HDZero Halo
@@ -33,7 +35,7 @@ EOF
 }
 
 cmd_flash() {
-    local fc_type="betafpv"
+    local fc_type="betafpv-v2"
     local cli_port=""
     local cli_args=()
 
@@ -76,6 +78,9 @@ cmd_flash() {
     
     local hex_file
     case "$fc_type" in
+        betafpv-v2|betafpv_v2|betafpvv2)
+            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.4_STM32G47X_BETAFPVG473_V2.hex"
+            ;;
         betafpv)
             hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32G47X_BETAFPVG473.hex"
             ;;
@@ -89,13 +94,16 @@ cmd_flash() {
             hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32H743_HDZERO_HALO.hex"
             ;;
         *)
-            echo "Error: Unknown FC type '$fc_type'. Must be 'betafpv', 'axis', 'lionbee', or 'halo'."
+            echo "Error: Unknown FC type '$fc_type'. Must be 'betafpv-v2', 'betafpv', 'axis', 'lionbee', or 'halo'."
             exit 1
             ;;
     esac
     
     local config_file
     case "$fc_type" in
+        betafpv-v2|betafpv_v2|betafpvv2)
+            config_file="$SCRIPT_DIR/../config/beta_v2.txt"
+            ;;
         betafpv)
             config_file="$SCRIPT_DIR/../config/whoop-of.txt"
             ;;
@@ -195,12 +203,12 @@ cmd_vtx() {
         python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -b "$VTX_BAND" -c "$VTX_CHANNEL"
     fi
     sleep 2
-    arm-none-eabi-objcopy -I ihex -O binary $SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32G47X_BETAFPVG473.hex $SCRIPT_DIR/../bin/firmware.bin
+    arm-none-eabi-objcopy -I ihex -O binary "$SCRIPT_DIR/../../obj/betaflight_4.5.4_STM32G47X_BETAFPVG473_V2.hex" "$SCRIPT_DIR/../bin/firmware.bin"
     python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -x bl
     sleep 1
     dfu-util -a 0 -s 0x08000000:leave -D "$SCRIPT_DIR/../bin/firmware.bin"
     sleep 3
-    python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -f "$SCRIPT_DIR/../config/whoop-of.txt"
+    python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -f "$SCRIPT_DIR/../config/beta_v2.txt"
     
     echo "=========================================="
     echo "Done!"

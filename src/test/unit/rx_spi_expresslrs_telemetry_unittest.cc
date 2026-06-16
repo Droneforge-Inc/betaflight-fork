@@ -29,6 +29,7 @@ extern "C" {
     #include "platform.h"
 
     #include "build/version.h"
+    #include "common/df_custom.h"
     #include "common/printf.h"
 
     #include "drivers/io.h"
@@ -63,6 +64,7 @@ extern "C" {
     extern volatile bool deviceInfoReplyPending;
 
     bool airMode;
+    bool testFeatureEnabled = true;
 
     uint16_t testBatteryVoltage = 0;
     int32_t testAmperage = 0;
@@ -74,6 +76,21 @@ extern "C" {
 
 #include "unittest_macros.h"
 #include "gtest/gtest.h"
+
+static uint32_t readU32BigEndian(const uint8_t *data)
+{
+    return (uint32_t)data[0] << 24 |
+        (uint32_t)data[1] << 16 |
+        (uint32_t)data[2] << 8 |
+        data[3];
+}
+
+static elrsTelemetryPayloadType_e testPayloadType;
+
+static bool testGetNextTelemetryPayload(uint8_t *payloadSize, uint8_t **payload)
+{
+    return getNextTelemetryPayload(payloadSize, payload, &testPayloadType);
+}
 
 //make clean test_rx_spi_expresslrs_telemetry_unittest
 TEST(RxSpiExpressLrsTelemetryUnitTest, TestInit)
@@ -89,7 +106,7 @@ static void testSetDataToTransmit(uint8_t payloadSize, uint8_t *payload)
     uint8_t nextPackageIndex;
     bool confirmValue = true;
 
-    setTelemetryDataToTransmit(payloadSize, payload);
+    setTelemetryDataToTransmit(payloadSize, payload, testPayloadType);
 
     for (int j = 0; j <= maxPackageIndex; j++) {
         nextPackageIndex = getCurrentTelemetryPayload(data);
@@ -125,7 +142,7 @@ TEST(RxSpiExpressLrsTelemetryUnitTest, TestGps)
     uint8_t *payload = 0;
     uint8_t payloadSize = 0;
 
-    getNextTelemetryPayload(&payloadSize, &payload);
+    testGetNextTelemetryPayload(&payloadSize, &payload);
     EXPECT_EQ(currentPayloadIndex, 1);
 
     int32_t lattitude = payload[3] << 24 | payload[4] << 16 | payload[5] << 8 | payload[6];
@@ -156,7 +173,7 @@ TEST(RxSpiExpressLrsTelemetryUnitTest, TestBattery)
     uint8_t *payload = 0;
     uint8_t payloadSize = 0;
 
-    getNextTelemetryPayload(&payloadSize, &payload);
+    testGetNextTelemetryPayload(&payloadSize, &payload);
     EXPECT_EQ(currentPayloadIndex, 2);
 
     uint16_t voltage = payload[3] << 8 | payload[4]; // mV * 100
@@ -183,7 +200,7 @@ TEST(RxSpiExpressLrsTelemetryUnitTest, TestAttitude)
     uint8_t *payload = 0;
     uint8_t payloadSize = 0;
 
-    getNextTelemetryPayload(&payloadSize, &payload);
+    testGetNextTelemetryPayload(&payloadSize, &payload);
     EXPECT_EQ(currentPayloadIndex, 3);
 
     int16_t pitch = payload[3] << 8 | payload[4]; // rad / 10000
@@ -206,7 +223,7 @@ TEST(RxSpiExpressLrsTelemetryUnitTest, TestFlightMode)
     uint8_t *payload = 0;
     uint8_t payloadSize = 0;
 
-    getNextTelemetryPayload(&payloadSize, &payload);
+    testGetNextTelemetryPayload(&payloadSize, &payload);
     EXPECT_EQ(currentPayloadIndex, 0);
 
     EXPECT_EQ('W', payload[3]);
@@ -250,7 +267,7 @@ TEST(RxSpiExpressLrsTelemetryUnitTest, TestMspVersionRequest)
     processMspPacket(mspBuffer);
     EXPECT_TRUE(mspReplyPending);
 
-    getNextTelemetryPayload(&payloadSize, &payload);
+    testGetNextTelemetryPayload(&payloadSize, &payload);
 
     EXPECT_EQ(payload[1] + 2, payloadSize);
     EXPECT_EQ(CRSF_FRAMETYPE_MSP_RESP, payload[2]);
@@ -295,7 +312,7 @@ TEST(RxSpiExpressLrsTelemetryUnitTest, TestMspPidRequest)
     processMspPacket(mspBuffer);
     EXPECT_TRUE(mspReplyPending);
 
-    getNextTelemetryPayload(&payloadSize, &payload);
+    testGetNextTelemetryPayload(&payloadSize, &payload);
     EXPECT_FALSE(mspReplyPending);
 
     EXPECT_EQ(payloadSize, payload[1] + 2);
@@ -338,7 +355,7 @@ TEST(RxSpiExpressLrsTelemetryUnitTest, TestMspVtxRequest)
     processMspPacket(mspBuffer);
     EXPECT_TRUE(mspReplyPending);
 
-    getNextTelemetryPayload(&payloadSize, &payload);
+    testGetNextTelemetryPayload(&payloadSize, &payload);
 
     EXPECT_EQ(payloadSize, payload[1] + 2);
     EXPECT_EQ(CRSF_FRAMETYPE_MSP_RESP, payload[2]);
@@ -374,7 +391,7 @@ TEST(RxSpiExpressLrsTelemetryUnitTest, TestDeviceInfoResp)
     processMspPacket(mspBuffer);
     EXPECT_TRUE(deviceInfoReplyPending);
 
-    getNextTelemetryPayload(&payloadSize, &payload);
+    testGetNextTelemetryPayload(&payloadSize, &payload);
     EXPECT_FALSE(deviceInfoReplyPending);
 
     EXPECT_EQ(CRSF_FRAMETYPE_DEVICE_INFO, payload[2]);
@@ -383,7 +400,53 @@ TEST(RxSpiExpressLrsTelemetryUnitTest, TestDeviceInfoResp)
     EXPECT_EQ(0x01, payload[payloadSize - 2]);
     EXPECT_EQ(0, payload[payloadSize - 3]);
 
+    const uint8_t *versionData = payload + 5;
+    while (versionData < payload + payloadSize && *versionData++ != '\0') {
+    }
+
+    ASSERT_LE(versionData + 12, payload + payloadSize);
+    EXPECT_EQ(0U, readU32BigEndian(versionData));
+    EXPECT_EQ((uint32_t)HARDWARE_VERSION_DF, readU32BigEndian(versionData + 4));
+    EXPECT_EQ((uint32_t)FIRMWARE_VERSION_DF, readU32BigEndian(versionData + 8));
+
     testSetDataToTransmit(payloadSize, payload);
+}
+
+TEST(RxSpiExpressLrsTelemetryUnitTest, TestDeviceInfoRespWhenTelemetryFeatureDisabled)
+{
+    uint8_t mspBuffer[15] = {0};
+
+    uint8_t *payload = 0;
+    uint8_t payloadSize = 0;
+
+    uint8_t pingData[4] = {1, CRSF_ADDRESS_CRSF_TRANSMITTER, 1, CRSF_FRAMETYPE_DEVICE_PING};
+
+    testFeatureEnabled = false;
+    initTelemetry();
+    initSharedMsp();
+
+    setMspDataToReceive(sizeof(mspBuffer), mspBuffer);
+    receiveMspData(pingData[0], pingData + 1);
+    receiveMspData(0, pingData + 1);
+    EXPECT_TRUE(hasFinishedMspData());
+
+    processMspPacket(mspBuffer);
+    EXPECT_TRUE(deviceInfoReplyPending);
+
+    testGetNextTelemetryPayload(&payloadSize, &payload);
+    EXPECT_FALSE(deviceInfoReplyPending);
+    EXPECT_EQ(ELRS_PAYLOAD_DEVICE_INFO, testPayloadType);
+    EXPECT_EQ(CRSF_FRAMETYPE_DEVICE_INFO, payload[2]);
+
+    const uint8_t *versionData = payload + 5;
+    while (versionData < payload + payloadSize && *versionData++ != '\0') {
+    }
+
+    ASSERT_LE(versionData + 12, payload + payloadSize);
+    EXPECT_EQ((uint32_t)FIRMWARE_VERSION_DF, readU32BigEndian(versionData + 8));
+
+    testSetDataToTransmit(payloadSize, payload);
+    testFeatureEnabled = true;
 }
 
 // STUBS
@@ -413,7 +476,7 @@ extern "C" {
 
     batteryState_e getBatteryState(void) {return BATTERY_OK; }
 
-    bool featureIsEnabled(uint32_t) {return true; }
+    bool featureIsEnabled(uint32_t) {return testFeatureEnabled; }
     bool telemetryIsSensorEnabled(sensor_e) {return true; }
     bool sensors(uint32_t ) { return true; }
 

@@ -75,7 +75,7 @@
 #if !defined(USE_GYRO_L3G4200D) && !defined(USE_GYRO_MPU3050) && !defined(USE_GYRO_MPU6050) && \
     !defined(USE_GYRO_MPU6500) && !defined(USE_GYRO_SPI_ICM20689) && !defined(USE_GYRO_SPI_MPU6000) && \
     !defined(USE_GYRO_SPI_MPU6500) && !defined(USE_GYRO_SPI_MPU9250) && !defined(USE_GYRO_L3GD20) && \
-    !defined(USE_GYRO_SPI_ICM42605) && !defined(USE_GYRO_SPI_ICM42688P) && \
+    !defined(USE_GYRO_SPI_ICM42605) && !defined(USE_GYRO_SPI_ICM42688P) && !defined(USE_ACCGYRO_ICM42622P) && \
     !defined(USE_ACCGYRO_BMI160) && !defined(USE_ACCGYRO_BMI270) && \
     !defined(USE_ACCGYRO_LSM6DSV16X) && !defined(USE_ACCGYRO_LSM6DSO) && !defined(USE_VIRTUAL_GYRO)
 #error At least one USE_GYRO device definition required
@@ -462,9 +462,10 @@ STATIC_UNIT_TESTED gyroHardware_e gyroDetect(gyroDev_t *dev)
         FALLTHROUGH;
 #endif
 
-#if defined(USE_GYRO_SPI_ICM42605) || defined(USE_GYRO_SPI_ICM42688P)
+#if defined(USE_GYRO_SPI_ICM42605) || defined(USE_GYRO_SPI_ICM42688P) || defined(USE_ACCGYRO_ICM42622P)
     case GYRO_ICM42605:
     case GYRO_ICM42688P:
+    case GYRO_ICM42622P:
         if (icm426xxSpiGyroDetect(dev)) {
             switch (dev->mpuDetectionResult.sensor) {
             case ICM_42605_SPI:
@@ -472,6 +473,9 @@ STATIC_UNIT_TESTED gyroHardware_e gyroDetect(gyroDev_t *dev)
                 break;
             case ICM_42688P_SPI:
                 gyroHardware = GYRO_ICM42688P;
+                break;
+            case ICM_42622P_SPI:
+                gyroHardware = GYRO_ICM42622P;
                 break;
             default:
                 gyroHardware = GYRO_NONE;

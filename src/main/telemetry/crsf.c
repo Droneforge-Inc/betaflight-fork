@@ -40,7 +40,6 @@
 
 #include "common/crc.h"
 #include "common/maths.h"
-#include "common/printf.h"
 #include "common/streambuf.h"
 #include "common/time.h"
 #include "common/utils.h"
@@ -85,6 +84,8 @@
 
 #define CRSF_DEVICEINFO_VERSION 0x01
 #define CRSF_DEVICEINFO_PARAMETER_COUNT 0
+// Includes the zero terminator and keeps the full frame within 64 bytes.
+#define CRSF_DEVICEINFO_NAME_MAX_LENGTH 45
 
 #define CRSF_MSP_BUFFER_SIZE 96
 #define CRSF_MSP_LENGTH_OFFSET 1
@@ -581,17 +582,33 @@ uint32_t    Firmware Version
 uint8_t     255 (Max MSP Parameter)
 uint8_t     0x01 (Parameter version 1)
 */
-void crsfFrameDeviceInfo(sbuf_t *dst) {
-  char buff[30];
-  tfp_sprintf(buff, "%s %s: %s", FC_FIRMWARE_NAME, FC_VERSION_STRING,
-              systemConfig()->boardIdentifier);
+static void crsfFrameDeviceInfoWriteNamePart(sbuf_t *dst, const char *text,
+                                             uint8_t *bytesRemaining) {
+  while (*text && *bytesRemaining > 0) {
+    sbufWriteU8(dst, *text++);
+    (*bytesRemaining)--;
+  }
+}
 
+static void crsfFrameDeviceInfoWriteName(sbuf_t *dst) {
+  uint8_t bytesRemaining = CRSF_DEVICEINFO_NAME_MAX_LENGTH - 1;
+
+  crsfFrameDeviceInfoWriteNamePart(dst, FC_FIRMWARE_NAME, &bytesRemaining);
+  crsfFrameDeviceInfoWriteNamePart(dst, " ", &bytesRemaining);
+  crsfFrameDeviceInfoWriteNamePart(dst, FC_VERSION_STRING, &bytesRemaining);
+  crsfFrameDeviceInfoWriteNamePart(dst, ": ", &bytesRemaining);
+  crsfFrameDeviceInfoWriteNamePart(dst, systemConfig()->boardIdentifier,
+                                   &bytesRemaining);
+  sbufWriteU8(dst, '\0');
+}
+
+void crsfFrameDeviceInfo(sbuf_t *dst) {
   uint8_t *lengthPtr = sbufPtr(dst);
   sbufWriteU8(dst, 0);
   sbufWriteU8(dst, CRSF_FRAMETYPE_DEVICE_INFO);
   sbufWriteU8(dst, CRSF_ADDRESS_RADIO_TRANSMITTER);
   sbufWriteU8(dst, CRSF_ADDRESS_FLIGHT_CONTROLLER);
-  sbufWriteStringWithZeroTerminator(dst, buff);
+  crsfFrameDeviceInfoWriteName(dst);
   sbufWriteU32BigEndian(dst, 0x00);
 
 #if defined(HARDWARE_VERSION_DF)

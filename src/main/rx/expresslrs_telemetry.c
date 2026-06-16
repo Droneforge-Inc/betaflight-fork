@@ -489,10 +489,6 @@ void updateTelemetryRate(const uint16_t airRate, const uint8_t tlmRatio,
 }
 
 void initTelemetry(void) {
-  if (!featureIsEnabled(FEATURE_TELEMETRY)) {
-    return;
-  }
-
   tlmSensors = 0;
   currentPayloadIndex = 0;
 #if defined(EKF_ONLY) && defined(USE_EKF)
@@ -502,6 +498,15 @@ void initTelemetry(void) {
   ekfOnlyOtherRoundIndex = 0;
   ekfOnlyStateSentForCurrentOther = 0;
 #endif
+
+  telemetrySenderResetState();
+#ifdef USE_MSP_OVER_TELEMETRY
+  mspReceiverResetState();
+#endif
+
+  if (!featureIsEnabled(FEATURE_TELEMETRY)) {
+    return;
+  }
 
 #if !defined(EKF_ONLY)
   if (sensors(SENSOR_ACC) &&
@@ -602,11 +607,6 @@ void initTelemetry(void) {
       ekfOnlyStatePerOtherExtra = stateCount % ekfOnlyOtherCount;
     }
   }
-#endif
-
-  telemetrySenderResetState();
-#ifdef USE_MSP_OVER_TELEMETRY
-  mspReceiverResetState();
 #endif
 }
 

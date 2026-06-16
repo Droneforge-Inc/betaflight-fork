@@ -90,7 +90,7 @@
 #if !defined(USE_ACC_MPU6000) && !defined(USE_ACC_SPI_MPU6000) && !defined(USE_ACC_MPU6050) && !defined(USE_ACC_MPU6500) && \
     !defined(USE_ACC_SPI_MPU6500) && !defined(USE_ACC_SPI_MPU9250) && !defined(USE_ACC_SPI_ICM20602) && \
     !defined(USE_ACC_SPI_ICM20689) && !defined(USE_ACCGYRO_LSM6DSO) && !defined(USE_ACCGYRO_BMI160) && \
-    !defined(USE_ACCGYRO_BMI270) && !defined(USE_ACC_SPI_ICM42605) && !defined(USE_ACC_SPI_ICM42688P) && \
+    !defined(USE_ACCGYRO_BMI270) && !defined(USE_ACC_SPI_ICM42605) && !defined(USE_ACC_SPI_ICM42688P) && !defined(USE_ACCGYRO_ICM42622P) && \
     !defined(USE_ACC_ADXL345) && !defined(USE_ACC_BMA280) && !defined(USE_ACC_LSM303DLHC) && \
     !defined(USE_ACC_MMA8452) && !defined(USE_ACC_LSM303DLHC) && !defined(USE_ACCGYRO_LSM6DSV16X) && \
 	!defined(USE_VIRTUAL_ACC)
@@ -283,9 +283,10 @@ retry:
         FALLTHROUGH;
 #endif
 
-#if defined(USE_ACC_SPI_ICM42605) || defined(USE_ACC_SPI_ICM42688P)
+#if defined(USE_ACC_SPI_ICM42605) || defined(USE_ACC_SPI_ICM42688P) || defined(USE_ACCGYRO_ICM42622P)
     case ACC_ICM42605:
     case ACC_ICM42688P:
+    case ACC_ICM42622P:
         if (icm426xxSpiAccDetect(dev)) {
             switch (dev->mpuDetectionResult.sensor) {
             case ICM_42605_SPI:
@@ -293,6 +294,9 @@ retry:
                 break;
             case ICM_42688P_SPI:
                 accHardware = ACC_ICM42688P;
+                break;
+            case ICM_42622P_SPI:
+                accHardware = ACC_ICM42622P;
                 break;
             default:
                 accHardware = ACC_NONE;

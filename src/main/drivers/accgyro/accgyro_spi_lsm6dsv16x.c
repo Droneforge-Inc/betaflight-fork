@@ -851,7 +851,11 @@ uint8_t lsm6dsv16xSpiDetect(const extDevice_t *dev)
 {
     const uint8_t whoAmI = spiReadRegMsk(dev, LSM6DSV_WHO_AM_I);
 
-    if (whoAmI != LSM6DSV16X_WHO_AM_I_CONST) {
+    if (whoAmI != LSM6DSV16X_WHO_AM_I_CONST
+#ifdef USE_ACCGYRO_LSM6DSK320X
+        && whoAmI != LSM6DSK320X_WHO_AM_I_CONST
+#endif
+    ) {
         return MPU_NONE;
     }
 

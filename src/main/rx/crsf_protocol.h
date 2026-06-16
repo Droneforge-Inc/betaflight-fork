@@ -65,6 +65,7 @@ typedef enum {
     CRSF_FRAMETYPE_MOTOR_RPM = 0xD2, // motor output and RPM data
     CRSF_FRAMETYPE_OPTRANGE = 0xD3, // opticalflow rangefinder data
     CRSF_FRAMETYPE_KINEMATIC_STATE = 0xD4, // EKF position/velocity + attitude data
+    CRSF_FRAMETYPE_MIGHTYCAM = 0xD5, // MightyCam pose data
 } crsfFrameType_e;
 
 enum {
@@ -109,6 +110,7 @@ enum {
     CRSF_FRAME_OPTRANGE_PAYLOAD_SIZE = 10,
     CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE = 12,
     CRSF_FRAME_KINEMATIC_STATE_PAYLOAD_SIZE = 18, // pos xyz, vel xyz, attitude rpy
+    CRSF_FRAME_MIGHTYCAM_PAYLOAD_SIZE = 24, // MightyCam pose payload
 #ifdef USE_DSHOT_TELEMETRY
     CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE = 13, // with telemetry: 1 pole + 4*(1 pwm + 2 erpm)
 #else

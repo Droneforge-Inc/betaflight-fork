@@ -103,7 +103,7 @@ cmd_flash() {
             config_file="$SCRIPT_DIR/../config/axis-of.txt"
             ;;
         lionbee)
-            config_file="$SCRIPT_DIR/../config/lionbee.txt"
+            config_file="$SCRIPT_DIR/../config/lionbee-mightycam.txt"
             ;;
         halo)
             config_file="$SCRIPT_DIR/../config/halo.txt"

@@ -46,6 +46,7 @@
 #include "common/utils.h"
 
 #include "drivers/dshot.h"
+#include "drivers/mightycam/mightycam.h"
 #include "drivers/nvic.h"
 #include "drivers/persistent.h"
 
@@ -831,6 +832,26 @@ static void crsfFrameOpticalflowRangefinder(sbuf_t *dst) {
 }
 #endif
 
+#ifdef USE_MIGHTYCAM
+static uint32_t crsfMightycamLastPosePacketCount;
+
+static bool crsfFrameMightycam(sbuf_t *dst) {
+  mightycamRawPayload_t payload;
+
+  if (!mightycamGetLatestRawPayload(MIGHTYCAM_PACKET_TYPE_POSE, &payload) ||
+      payload.payloadLength != MIGHTYCAM_POSE_PAYLOAD_LENGTH ||
+      payload.packetCount == crsfMightycamLastPosePacketCount) {
+    return false;
+  }
+
+  crsfMightycamLastPosePacketCount = payload.packetCount;
+  sbufWriteU8(dst, MIGHTYCAM_POSE_PAYLOAD_LENGTH + CRSF_FRAME_LENGTH_TYPE_CRC);
+  sbufWriteU8(dst, CRSF_FRAMETYPE_MIGHTYCAM);
+  sbufWriteData(dst, payload.payload, MIGHTYCAM_POSE_PAYLOAD_LENGTH);
+  return true;
+}
+#endif
+
 #ifdef SEND_MOTOR_TELEMETRY
 // pack motor output and eRPM telemetry data
 static void crsfFrameMotorRpm(sbuf_t *dst) {
@@ -883,6 +904,9 @@ typedef enum {
   CRSF_FRAME_HEARTBEAT_INDEX,
   CRSF_FRAME_RANGEFINDER_TF_INDEX,
   CRSF_FRAME_OPTRANGE_INDEX,
+#ifdef USE_MIGHTYCAM
+  CRSF_FRAME_MIGHTYCAM_INDEX,
+#endif
   CRSF_FRAME_MOTOR_RPM_INDEX,
   CRSF_SCHEDULE_COUNT_MAX
 } crsfFrameTypeIndex_e;
@@ -952,6 +976,11 @@ static uint16_t crsfGetScheduledFrameSize(const uint16_t schedule) {
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
   if (schedule & BIT(CRSF_FRAME_OPTRANGE_INDEX)) {
     return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_OPTRANGE_PAYLOAD_SIZE;
+  }
+#endif
+#ifdef USE_MIGHTYCAM
+  if (schedule & BIT(CRSF_FRAME_MIGHTYCAM_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_MIGHTYCAM_PAYLOAD_SIZE;
   }
 #endif
 #ifdef SEND_MOTOR_TELEMETRY
@@ -1120,6 +1149,15 @@ static bool processCrsf(const uint16_t currentSchedule) {
   }
 #endif
 
+#ifdef USE_MIGHTYCAM
+  if (currentSchedule & BIT(CRSF_FRAME_MIGHTYCAM_INDEX)) {
+    crsfInitializeFrame(dst);
+    if (crsfFrameMightycam(dst)) {
+      crsfFinalize(dst);
+    }
+  }
+#endif
+
 #ifdef SEND_MOTOR_TELEMETRY
   if (currentSchedule & BIT(CRSF_FRAME_MOTOR_RPM_INDEX)) {
     crsfInitializeFrame(dst);
@@ -1256,6 +1294,12 @@ void initCrsfTelemetry(void) {
   if (sensors(SENSOR_OPTICALFLOW) &&
       telemetryIsSensorEnabled(SENSOR_OPTRANGE)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_OPTRANGE_INDEX);
+  }
+#endif
+
+#if defined(USE_MIGHTYCAM) && !defined(EKF_ONLY)
+  if (mightycamIsDetected()) {
+    crsfSchedule[index++] = BIT(CRSF_FRAME_MIGHTYCAM_INDEX);
   }
 #endif
 
@@ -1548,6 +1592,13 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType) {
 #if defined(USE_RANGEFINDER_OPTFLOW_MTF)
   case CRSF_FRAMETYPE_OPTRANGE:
     crsfFrameOpticalflowRangefinder(sbuf);
+    break;
+#endif
+#if defined(USE_MIGHTYCAM)
+  case CRSF_FRAMETYPE_MIGHTYCAM:
+    if (!crsfFrameMightycam(sbuf)) {
+      return 0;
+    }
     break;
 #endif
 #ifdef SEND_MOTOR_TELEMETRY

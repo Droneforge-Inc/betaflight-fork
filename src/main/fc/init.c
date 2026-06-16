@@ -61,6 +61,7 @@
 #include "drivers/io.h"
 #include "drivers/light_led.h"
 #include "drivers/mco.h"
+#include "drivers/mightycam/mightycam.h"
 #include "drivers/nvic.h"
 #include "drivers/persistent.h"
 #include "drivers/pin_pull_up_down.h"
@@ -530,6 +531,10 @@ void init(void)
             featureIsEnabled(FEATURE_RX_PPM) || featureIsEnabled(FEATURE_RX_PARALLEL_PWM) ? SERIAL_PORT_USART3 : SERIAL_PORT_NONE);
 #else
     serialInit(featureIsEnabled(FEATURE_SOFTSERIAL), SERIAL_PORT_NONE);
+#endif
+
+#ifdef USE_MIGHTYCAM
+    mightycamInit();
 #endif
 
     mixerInit(mixerConfig()->mixerMode);

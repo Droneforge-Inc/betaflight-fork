@@ -33,6 +33,9 @@
 
 #include "common/maths.h"
 #include "config/feature.h"
+#ifdef USE_MIGHTYCAM
+#include "drivers/mightycam/mightycam.h"
+#endif
 #include "fc/runtime_config.h"
 
 #include "msp/msp_protocol.h"
@@ -85,6 +88,9 @@ typedef enum {
 #if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
   CRSF_FRAME_OPTRANGE_INDEX,
 #endif
+#if defined(USE_MIGHTYCAM) && !defined(EKF_ONLY)
+  CRSF_FRAME_MIGHTYCAM_INDEX,
+#endif
 #if defined(SEND_MOTOR_TELEMETRY)
   CRSF_FRAME_MOTOR_RPM_INDEX,
 #endif
@@ -120,12 +126,15 @@ static crsfFrameType_e payloadTypes[] = {
 #if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
     CRSF_FRAMETYPE_OPTRANGE,
 #endif
+#if defined(USE_MIGHTYCAM) && !defined(EKF_ONLY)
+    CRSF_FRAMETYPE_MIGHTYCAM,
+#endif
 #if defined(SEND_MOTOR_TELEMETRY)
     CRSF_FRAMETYPE_MOTOR_RPM,
 #endif
 };
 
-#ifdef USE_EKF
+#if defined(USE_EKF) || defined(USE_MIGHTYCAM)
 STATIC_UNIT_TESTED uint32_t tlmSensors = 0;
 #else
 STATIC_UNIT_TESTED uint8_t tlmSensors = 0;
@@ -557,6 +566,12 @@ void initTelemetry(void) {
   }
 #endif
 
+#if defined(USE_MIGHTYCAM) && !defined(EKF_ONLY)
+  if (mightycamIsDetected()) {
+    tlmSensors |= BIT(CRSF_FRAME_MIGHTYCAM_INDEX);
+  }
+#endif
+
 #if defined(SEND_MOTOR_TELEMETRY)
   // Always send motor telemetry if enabled
   tlmSensors |= BIT(CRSF_FRAME_MOTOR_RPM_INDEX);
@@ -677,21 +692,24 @@ bool getNextTelemetryPayload(uint8_t *nextPayloadSize, uint8_t **payloadData,
   } else
 #endif
       if (tlmSensors & BIT(currentPayloadIndex)) {
-    *nextPayloadSize =
-        getCrsfFrame(tlmBuffer, payloadTypes[currentPayloadIndex]);
-    *payloadData = tlmBuffer;
-    *payloadType = ELRS_PAYLOAD_REGULAR;
+    const uint8_t payloadIndex = currentPayloadIndex;
     currentPayloadIndex =
         (currentPayloadIndex + 1) % CRSF_FRAME_PAYLOAD_TYPES_COUNT;
-    return true;
+    *nextPayloadSize = getCrsfFrame(tlmBuffer, payloadTypes[payloadIndex]);
+    if (*nextPayloadSize > 0) {
+      *payloadData = tlmBuffer;
+      *payloadType = ELRS_PAYLOAD_REGULAR;
+      return true;
+    }
   } else {
     currentPayloadIndex =
         (currentPayloadIndex + 1) % CRSF_FRAME_PAYLOAD_TYPES_COUNT;
-    *nextPayloadSize = 0;
-    *payloadData = 0;
-    *payloadType = ELRS_PAYLOAD_NONE;
-    return false;
   }
+
+  *nextPayloadSize = 0;
+  *payloadData = 0;
+  *payloadType = ELRS_PAYLOAD_NONE;
+  return false;
 }
 
 #endif

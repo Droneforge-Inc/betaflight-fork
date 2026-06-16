@@ -38,6 +38,7 @@
 #include "drivers/accgyro/accgyro.h"
 #include "drivers/camera_control_impl.h"
 #include "drivers/compass/compass.h"
+#include "drivers/mightycam/mightycam.h"
 #include "drivers/sensor.h"
 #include "drivers/serial.h"
 #include "drivers/serial_usb_vcp.h"
@@ -356,6 +357,15 @@ static void taskUpdateOpticalflow(timeUs_t currentTimeUs) {
 }
 #endif
 
+#ifdef USE_MIGHTYCAM
+static void taskUpdateMightycam(timeUs_t currentTimeUs)
+{
+    UNUSED(currentTimeUs);
+
+    mightycamUpdate();
+}
+#endif
+
 #ifdef USE_TELEMETRY
 static void taskTelemetry(timeUs_t currentTimeUs) {
   if (!cliMode && featureIsEnabled(FEATURE_TELEMETRY)) {
@@ -562,6 +572,12 @@ task_attribute_t task_attributes[TASK_COUNT] = {
                     TASK_PERIOD_HZ(10), TASK_PRIORITY_LOWEST),
 #endif
 
+#ifdef USE_MIGHTYCAM
+    [TASK_MIGHTYCAM] =
+        DEFINE_TASK("MIGHTYCAM", NULL, NULL, taskUpdateMightycam,
+                    TASK_PERIOD_MS(MIGHTYCAM_TASK_PERIOD_MS), TASK_PRIORITY_LOWEST),
+#endif
+
 #ifdef USE_OPTICALFLOW
     [TASK_OPTICALFLOW] =
         DEFINE_TASK("OPTICALFLOW", NULL, NULL, taskUpdateOpticalflow,
@@ -648,6 +664,10 @@ void tasksInit(void) {
   if (sensors(SENSOR_RANGEFINDER)) {
     setTaskEnabled(TASK_RANGEFINDER, featureIsEnabled(FEATURE_RANGEFINDER));
   }
+#endif
+
+#ifdef USE_MIGHTYCAM
+  setTaskEnabled(TASK_MIGHTYCAM, mightycamIsDetected());
 #endif
 
 #ifdef USE_OPTICALFLOW

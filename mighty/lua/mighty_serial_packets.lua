@@ -41,13 +41,15 @@ local CONFIDENCE_SCALE = 255
 local POSITION_SCALE = 1000
 local QUATERNION_SCALE = 32767
 
+local AUTO_START_VIO = true
+
 local INT16_MIN = -32768
 local INT16_MAX = 32767
 
 -- Change these to control output frequency.
 -- frequency_hz = 1000 / period_ms
 local POSE_PERIOD_MS = 20    -- 50 Hz
-local STATE_PERIOD_MS = 200  -- 5 Hz
+local STATE_PERIOD_MS = 500  -- 2 Hz
 
 local pose_elapsed = 0
 local state_elapsed = 0
@@ -72,6 +74,7 @@ local mode = "starting"
 local step = 1
 local led_elapsed = 0
 local recording_started_by_button = false
+local auto_start_vio_pending = true
 
 local function value_or_zero(value)
   if value == nil then
@@ -273,6 +276,13 @@ local function handle_button()
   end
 end
 
+local function auto_start_vio()
+  if AUTO_START_VIO and auto_start_vio_pending and Mighty.preview_mode() and not Mighty.recording() then
+    auto_start_vio_pending = false
+    Mighty.start_vio()
+  end
+end
+
 local function update_led(delta_ms)
   local next_mode = current_mode()
   if next_mode ~= mode then
@@ -292,16 +302,17 @@ end
 
 local function update_serial(delta_ms)
   pose_elapsed = pose_elapsed + delta_ms
-  state_elapsed = state_elapsed + delta_ms
+  -- state_elapsed = state_elapsed + delta_ms
+
+  -- if state_elapsed >= STATE_PERIOD_MS then
+  --   state_elapsed = 0
+  --   send_state_packet()
+  --   return
+  -- end
 
   if pose_elapsed >= POSE_PERIOD_MS then
     pose_elapsed = 0
     send_pose_packet()
-  end
-
-  if state_elapsed >= STATE_PERIOD_MS then
-    state_elapsed = 0
-    send_state_packet()
   end
 end
 
@@ -316,6 +327,7 @@ end
 function loop(dt_ms)
   local delta_ms = dt_ms or 1
 
+  auto_start_vio()
   handle_button()
   update_serial(delta_ms)
   update_led(delta_ms)

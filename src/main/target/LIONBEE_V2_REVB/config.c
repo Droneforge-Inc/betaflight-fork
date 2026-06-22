@@ -236,8 +236,10 @@ void targetConfiguration(void) {
   mixerConfigMutable()->yaw_motors_reversed = true;
 
   /* Mag */
-  compassConfigMutable()->mag_hardware = MAG_QMC5883;
-  compassConfigMutable()->mag_alignment = CW180_DEG;
+  compassConfigMutable()->mag_hardware = MAG_NONE;
+
+  /* BARO */
+  barometerConfigMutable()->baro_hardware = BARO_NONE;
 
   /* OSD */
   osdWarnSetState(OSD_WARNING_BATTERY_NOT_FULL, false);

@@ -845,9 +845,10 @@ static bool crsfFrameMightycam(sbuf_t *dst) {
   }
 
   crsfMightycamLastPosePacketCount = payload.packetCount;
-  sbufWriteU8(dst, MIGHTYCAM_POSE_PAYLOAD_LENGTH + CRSF_FRAME_LENGTH_TYPE_CRC);
+  sbufWriteU8(dst, MIGHTYCAM_CRSF_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
   sbufWriteU8(dst, CRSF_FRAMETYPE_MIGHTYCAM);
-  sbufWriteData(dst, payload.payload, MIGHTYCAM_POSE_PAYLOAD_LENGTH);
+  sbufWriteData(dst, &payload.payload[MIGHTYCAM_POSE_TIMESTAMP_LENGTH],
+                MIGHTYCAM_CRSF_PAYLOAD_SIZE);
   return true;
 }
 #endif

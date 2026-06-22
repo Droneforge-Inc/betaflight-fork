@@ -110,7 +110,7 @@ enum {
     CRSF_FRAME_OPTRANGE_PAYLOAD_SIZE = 10,
     CRSF_FRAME_RAW_IMU_PAYLOAD_SIZE = 12,
     CRSF_FRAME_KINEMATIC_STATE_PAYLOAD_SIZE = 18, // pos xyz, vel xyz, attitude rpy
-    CRSF_FRAME_MIGHTYCAM_PAYLOAD_SIZE = 24, // MightyCam pose payload
+    CRSF_FRAME_MIGHTYCAM_PAYLOAD_SIZE = 16, // MightyCam pose payload without timestamp
 #ifdef USE_DSHOT_TELEMETRY
     CRSF_FRAME_MOTOR_RPM_PAYLOAD_SIZE = 13, // with telemetry: 1 pole + 4*(1 pwm + 2 erpm)
 #else

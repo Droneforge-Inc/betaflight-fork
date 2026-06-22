@@ -36,18 +36,20 @@
 /* ======== UART ======== */
 #define USE_VCP
 
+#define USE_UART3
+#define UART3_RX_PIN PB11
+#define UART3_TX_PIN PB10
+
 #define USE_UART6
 #define UART6_RX_PIN PA5
 #define UART6_TX_PIN PA4
 
-#define SERIAL_PORT_COUNT 2
+#define SERIAL_PORT_COUNT 3
 
 /* ======== I2C ======== */
 #define USE_I2C
 
 #define USE_I2C_DEVICE_2
-#define I2C2_SCL_PIN PB10
-#define I2C2_SDA_PIN PB11
 
 /* ======== SPI ======== */
 #define USE_SPI

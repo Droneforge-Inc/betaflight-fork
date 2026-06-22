@@ -36,18 +36,20 @@
 /* ======== UART ======== */
 #define USE_VCP
 
+#define USE_UART3
+#define UART3_RX_PIN PB11
+#define UART3_TX_PIN PB10
+
 #define USE_UART5
 #define UART5_RX_PIN PB5
 #define UART5_TX_PIN PB6
 
-#define SERIAL_PORT_COUNT 2
+#define SERIAL_PORT_COUNT 3
 
 /* ======== I2C ======== */
 #define USE_I2C
 
 #define USE_I2C_DEVICE_2
-#define I2C2_SCL_PIN PB10
-#define I2C2_SDA_PIN PB11
 
 /* ======== GPS ======== */
 #define USE_GPS

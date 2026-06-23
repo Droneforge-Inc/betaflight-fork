@@ -72,6 +72,9 @@
 #include "sensors/acceleration.h"
 #include "sensors/barometer.h"
 #include "sensors/battery.h"
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+#include "sensors/compass.h"
+#endif
 #include "sensors/gyro.h"
 #include "sensors/opticalflow.h"
 #include "sensors/rangefinder.h"
@@ -848,6 +851,19 @@ static void crsfFrameOpticalflowRangefinder(sbuf_t *dst) {
 }
 #endif
 
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+static void crsfFrameMagnetometer(sbuf_t *dst) {
+  sbufWriteU8(dst, CRSF_FRAME_MAGNETOMETER_PAYLOAD_SIZE +
+                       CRSF_FRAME_LENGTH_TYPE_CRC);
+  sbufWriteU8(dst, CRSF_FRAMETYPE_MAGNETOMETER);
+
+  for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
+    const int32_t field = lrintf(mag.magADC[axis] * 3.0f);
+    sbufWriteU16BigEndian(dst, (uint16_t)constrain(field, INT16_MIN, INT16_MAX));
+  }
+}
+#endif
+
 #ifdef SEND_MOTOR_TELEMETRY
 // pack motor output and eRPM telemetry data
 static void crsfFrameMotorRpm(sbuf_t *dst) {
@@ -900,6 +916,9 @@ typedef enum {
   CRSF_FRAME_HEARTBEAT_INDEX,
   CRSF_FRAME_RANGEFINDER_TF_INDEX,
   CRSF_FRAME_OPTRANGE_INDEX,
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+  CRSF_FRAME_MAGNETOMETER_INDEX,
+#endif
   CRSF_FRAME_MOTOR_RPM_INDEX,
   CRSF_SCHEDULE_COUNT_MAX
 } crsfFrameTypeIndex_e;
@@ -969,6 +988,11 @@ static uint16_t crsfGetScheduledFrameSize(const uint16_t schedule) {
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
   if (schedule & BIT(CRSF_FRAME_OPTRANGE_INDEX)) {
     return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_OPTRANGE_PAYLOAD_SIZE;
+  }
+#endif
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+  if (schedule & BIT(CRSF_FRAME_MAGNETOMETER_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_MAGNETOMETER_PAYLOAD_SIZE;
   }
 #endif
 #ifdef SEND_MOTOR_TELEMETRY
@@ -1137,6 +1161,14 @@ static bool processCrsf(const uint16_t currentSchedule) {
   }
 #endif
 
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+  if (currentSchedule & BIT(CRSF_FRAME_MAGNETOMETER_INDEX)) {
+    crsfInitializeFrame(dst);
+    crsfFrameMagnetometer(dst);
+    crsfFinalize(dst);
+  }
+#endif
+
 #ifdef SEND_MOTOR_TELEMETRY
   if (currentSchedule & BIT(CRSF_FRAME_MOTOR_RPM_INDEX)) {
     crsfInitializeFrame(dst);
@@ -1260,6 +1292,17 @@ void initCrsfTelemetry(void) {
   if ((sensors(SENSOR_BARO) || featureIsEnabled(FEATURE_GPS)) &&
       telemetryIsSensorEnabled(SENSOR_VARIO)) {
     crsfSchedule[index++] = BIT(CRSF_FRAME_VARIO_SENSOR_INDEX);
+  }
+#endif
+
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+  if (sensors(SENSOR_MAG) && telemetryIsSensorEnabled(SENSOR_HEADING)) {
+#if defined(EKF_ONLY)
+    ekfOnlyOtherSchedule[ekfOnlyOtherCount++] =
+        BIT(CRSF_FRAME_MAGNETOMETER_INDEX);
+#else
+    crsfSchedule[index++] = BIT(CRSF_FRAME_MAGNETOMETER_INDEX);
+#endif
   }
 #endif
 
@@ -1565,6 +1608,11 @@ int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType) {
 #if defined(USE_RANGEFINDER_OPTFLOW_MTF)
   case CRSF_FRAMETYPE_OPTRANGE:
     crsfFrameOpticalflowRangefinder(sbuf);
+    break;
+#endif
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+  case CRSF_FRAMETYPE_MAGNETOMETER:
+    crsfFrameMagnetometer(sbuf);
     break;
 #endif
 #ifdef SEND_MOTOR_TELEMETRY

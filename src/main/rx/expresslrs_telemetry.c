@@ -85,6 +85,9 @@ typedef enum {
 #if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
   CRSF_FRAME_OPTRANGE_INDEX,
 #endif
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+  CRSF_FRAME_MAGNETOMETER_INDEX,
+#endif
 #if defined(SEND_MOTOR_TELEMETRY)
   CRSF_FRAME_MOTOR_RPM_INDEX,
 #endif
@@ -119,6 +122,9 @@ static crsfFrameType_e payloadTypes[] = {
 #endif
 #if defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(EKF_ONLY)
     CRSF_FRAMETYPE_OPTRANGE,
+#endif
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+    CRSF_FRAMETYPE_MAGNETOMETER,
 #endif
 #if defined(SEND_MOTOR_TELEMETRY)
     CRSF_FRAMETYPE_MOTOR_RPM,
@@ -197,6 +203,10 @@ static uint16_t getTelemetryFrameSize(const crsfFrameType_e frameType) {
 #if defined(USE_RANGEFINDER_OPTFLOW_MTF)
   case CRSF_FRAMETYPE_OPTRANGE:
     return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_OPTRANGE_PAYLOAD_SIZE;
+#endif
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+  case CRSF_FRAMETYPE_MAGNETOMETER:
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_MAGNETOMETER_PAYLOAD_SIZE;
 #endif
 #ifdef SEND_MOTOR_TELEMETRY
   case CRSF_FRAMETYPE_MOTOR_RPM:
@@ -559,6 +569,11 @@ void initTelemetry(void) {
   if (sensors(SENSOR_OPTICALFLOW) &&
       telemetryIsSensorEnabled(SENSOR_OPTRANGE)) {
     tlmSensors |= BIT(CRSF_FRAME_OPTRANGE_INDEX);
+  }
+#endif
+#if defined(USE_MAG) && defined(SEND_MAG_TELEMETRY)
+  if (sensors(SENSOR_MAG) && telemetryIsSensorEnabled(SENSOR_HEADING)) {
+    tlmSensors |= BIT(CRSF_FRAME_MAGNETOMETER_INDEX);
   }
 #endif
 

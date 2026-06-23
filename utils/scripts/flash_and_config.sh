@@ -88,7 +88,7 @@ cmd_flash() {
             hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32F7X2_AXISFLYINGF7AIO.hex"
             ;;
         lionbee)
-            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_LIONBEE_V2_REVB.hex"
+            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.4_LIONBEE_V2_REVB.hex"
             ;;
         halo)
             hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32H743_HDZERO_HALO.hex"
@@ -118,6 +118,12 @@ cmd_flash() {
             ;;
     esac
     
+    if [[ ! -f "$hex_file" ]]; then
+        echo "Error: firmware not found: $hex_file"
+        exit 1
+    fi
+
+    echo "Using firmware $hex_file"
     arm-none-eabi-objcopy -I ihex -O binary "$hex_file" $SCRIPT_DIR/../bin/firmware.bin
     python3 "$SCRIPT_DIR/betaflight_cli.py" "${cli_args[@]}" -x bl
     sleep 1

@@ -9,7 +9,7 @@ Usage: $0 <command> [arguments]
 
 Commands:
     flash [--fc <type>] [--port <device>]
-                               Flash firmware only (default FC: betafpv-v2, options: betafpv-v2, betafpv, axis, lionbee, halo)
+                               Flash firmware only (default FC: betafpv-v2, options: betafpv-v2, betafpv, axis, lionbee, halo, chimera)
     vtx [--port <device>] <band> <ch> [power] Flash VTX binary, configure VTX, then flash firmware + config (betafpv-v2 only)
 
 Examples:
@@ -19,6 +19,7 @@ Examples:
     $0 flash --fc axis        # Flash firmware for axis
     $0 flash --fc lionbee     # Flash firmware for lionbee
     $0 flash --fc halo        # Flash firmware for HDZero Halo
+    $0 flash --fc chimera     # Flash firmware for iFlight Chimera7 / Blitz F722
     $0 flash --port /dev/tty.usbmodem1234
                                # Flash using a specific serial port
     $0 vtx --port /dev/tty.usbmodem1234 5 1
@@ -93,8 +94,11 @@ cmd_flash() {
         halo)
             hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32H743_HDZERO_HALO.hex"
             ;;
+        chimera)
+            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.4_STM32F7X2_IFLIGHT_BLITZ_F722.hex"
+            ;;
         *)
-            echo "Error: Unknown FC type '$fc_type'. Must be 'betafpv-v2', 'betafpv', 'axis', 'lionbee', or 'halo'."
+            echo "Error: Unknown FC type '$fc_type'. Must be 'betafpv-v2', 'betafpv', 'axis', 'lionbee', 'halo', or 'chimera'."
             exit 1
             ;;
     esac
@@ -115,6 +119,9 @@ cmd_flash() {
             ;;
         halo)
             config_file="$SCRIPT_DIR/../config/halo.txt"
+            ;;
+        chimera)
+            config_file="$SCRIPT_DIR/../config/chimera.txt"
             ;;
     esac
     

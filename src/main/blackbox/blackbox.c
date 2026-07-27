@@ -86,6 +86,7 @@
 #include "sensors/battery.h"
 #include "sensors/compass.h"
 #include "sensors/gyro.h"
+#include "sensors/gyro_init.h"
 #include "sensors/rangefinder.h"
 
 #if !defined(DEFAULT_BLACKBOX_DEVICE)
@@ -1551,6 +1552,14 @@ static bool blackboxWriteSysinfo(void)
 
 #ifdef USE_MAG
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_MAG_HARDWARE, "%d",           compassConfig()->mag_hardware);
+#endif
+        BLACKBOX_PRINT_HEADER_LINE("gyro_spi_mode", "%d",                  gyroActiveDev()->gyroModeSPI);
+        BLACKBOX_PRINT_HEADER_LINE("gyro_detected_exti", "%u",             gyroActiveDev()->detectedEXTI);
+#ifdef BENCH_RESONANCE_TEST
+        BLACKBOX_PRINT_HEADER_LINE("bench_resonance_test", "%d",            2);
+        BLACKBOX_PRINT_HEADER_LINE("bench_resonance_hz", "%d",              70);
+        BLACKBOX_PRINT_HEADER_LINE("bench_resonance_amplitude_dps", "%d",   50);
+        BLACKBOX_PRINT_HEADER_LINE("bench_resonance_duration_ms", "%d",     750);
 #endif
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GYRO_CAL_ON_ARM, "%d",  armingConfig()->gyro_cal_on_arm);
 #ifdef USE_EKF

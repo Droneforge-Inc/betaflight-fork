@@ -83,7 +83,7 @@ cmd_flash() {
             hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.4_STM32G47X_BETAFPVG473_V2.hex"
             ;;
         betafpv)
-            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32G47X_BETAFPVG473.hex"
+            hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.4_STM32G47X_BETAFPVG473.hex"
             ;;
         axis)
             hex_file="$SCRIPT_DIR/../../obj/betaflight_4.5.2_STM32F7X2_AXISFLYINGF7AIO.hex"

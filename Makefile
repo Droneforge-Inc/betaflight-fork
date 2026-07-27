@@ -23,6 +23,25 @@ CONFIG    ?=
 # Compile-time options
 OPTIONS   ?=
 
+# Optional BMI270 gyro sampling mode override: AUTO, POLLING, or EXTI.
+BMI270_GYRO_SAMPLE_MODE ?=
+BMI270_GYRO_SAMPLE_FLAGS :=
+ifneq ($(BMI270_GYRO_SAMPLE_MODE),)
+ifeq ($(filter $(BMI270_GYRO_SAMPLE_MODE),AUTO POLLING EXTI),)
+$(error BMI270_GYRO_SAMPLE_MODE must be AUTO, POLLING, or EXTI)
+endif
+BMI270_GYRO_SAMPLE_FLAGS := -DBMI270_GYRO_SAMPLE_MODE=BMI270_GYRO_SAMPLE_MODE_$(BMI270_GYRO_SAMPLE_MODE)
+endif
+
+# Optional 70 Hz pitch resonance injection test.
+BENCH_RESONANCE_TEST ?= no
+BENCH_RESONANCE_FLAGS :=
+ifeq ($(BENCH_RESONANCE_TEST),yes)
+BENCH_RESONANCE_FLAGS := -DBENCH_RESONANCE_TEST
+else ifneq ($(BENCH_RESONANCE_TEST),no)
+$(error BENCH_RESONANCE_TEST must be yes or no)
+endif
+
 # compile for External Storage Bootloader support
 EXST      ?= no
 
@@ -273,6 +292,8 @@ CFLAGS     += $(ARCH_FLAGS) \
               $(CONFIG_REVISION_DEFINE) \
               -pipe \
               -MMD -MP \
+              $(BMI270_GYRO_SAMPLE_FLAGS) \
+              $(BENCH_RESONANCE_FLAGS) \
               $(EXTRA_FLAGS)
 
 ASFLAGS     = $(ARCH_FLAGS) \
@@ -338,7 +359,7 @@ TARGET_MAP      = $(OBJECT_DIR)/$(FORKNAME)_$(TARGET_NAME).map
 
 TARGET_EXST_HASH_SECTION_FILE = $(TARGET_OBJ_DIR)/exst_hash_section.bin
 
-TARGET_EF_HASH      := $(shell echo -n "$(EXTRA_FLAGS)" | openssl dgst -md5 -r | awk '{print $$1;}')
+TARGET_EF_HASH      := $(shell echo -n "$(BMI270_GYRO_SAMPLE_FLAGS) $(BENCH_RESONANCE_FLAGS) $(EXTRA_FLAGS)" | openssl dgst -md5 -r | awk '{print $$1;}')
 TARGET_EF_HASH_FILE := $(TARGET_OBJ_DIR)/.efhash_$(TARGET_EF_HASH)
 
 CLEAN_ARTIFACTS := $(TARGET_BIN)
@@ -598,6 +619,9 @@ help: Makefile mk/tools.mk
 	@echo "        make <target> [V=<verbosity>] [OPTIONS=\"<options>\"] [EXTRA_FLAGS=\"<extra_flags>\"]"
 	@echo "Or:"
 	@echo "        make <config-target> [V=<verbosity>] [OPTIONS=\"<options>\"] [EXTRA_FLAGS=\"<extra_flags>\"]"
+	@echo ""
+	@echo "BMI270 sampling override: BMI270_GYRO_SAMPLE_MODE=AUTO|POLLING|EXTI"
+	@echo "70 Hz resonance injection test: BENCH_RESONANCE_TEST=yes|no"
 	@echo ""
 	@echo "To pupulate configuration targets:"
 	@echo "        make configs"

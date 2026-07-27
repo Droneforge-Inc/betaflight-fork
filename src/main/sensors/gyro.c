@@ -44,6 +44,9 @@
 
 #include "config/config.h"
 #include "fc/runtime_config.h"
+#ifdef BENCH_RESONANCE_TEST
+#include "fc/rc_controls.h"
+#endif
 
 #ifdef USE_DYN_NOTCH_FILTER
 #include "flight/dyn_notch_filter.h"
@@ -84,6 +87,45 @@ static FAST_DATA_ZERO_INIT int16_t gyroSensorTemperature;
 FAST_DATA uint8_t activePidLoopDenom = 1;
 
 static bool firstArmingCalibrationWasStarted = false;
+
+#ifdef BENCH_RESONANCE_TEST
+#define BENCH_RESONANCE_FREQUENCY_HZ 70.0f
+#define BENCH_RESONANCE_AMPLITUDE_DPS 50.0f
+#define BENCH_RESONANCE_DURATION_SECONDS 0.75f
+#define BENCH_RESONANCE_START_THROTTLE 1200.0f
+
+static float benchResonancePhase;
+static float benchResonanceElapsed;
+static bool benchResonanceComplete;
+
+static FAST_CODE void applyBenchResonanceTest(void)
+{
+    if (!ARMING_FLAG(ARMED) || rcCommand[THROTTLE] < BENCH_RESONANCE_START_THROTTLE) {
+        benchResonancePhase = 0.0f;
+        benchResonanceElapsed = 0.0f;
+        benchResonanceComplete = false;
+        return;
+    }
+
+    if (benchResonanceComplete) {
+        return;
+    }
+
+    const float sampleTime = gyro.sampleLooptime * 1e-6f;
+
+    gyro.gyroADC[Y] += BENCH_RESONANCE_AMPLITUDE_DPS * sin_approx(benchResonancePhase);
+
+    benchResonancePhase += 2.0f * M_PIf * BENCH_RESONANCE_FREQUENCY_HZ * sampleTime;
+    if (benchResonancePhase > 2.0f * M_PIf) {
+        benchResonancePhase -= 2.0f * M_PIf;
+    }
+
+    benchResonanceElapsed += sampleTime;
+    if (benchResonanceElapsed >= BENCH_RESONANCE_DURATION_SECONDS) {
+        benchResonanceComplete = true;
+    }
+}
+#endif
 
 #ifdef UNIT_TEST
 STATIC_UNIT_TESTED gyroSensor_t * const gyroSensorPtr = &gyro.gyroSensor1;
@@ -440,6 +482,10 @@ FAST_CODE void gyroUpdate(void)
         break;
 #endif
     }
+
+#ifdef BENCH_RESONANCE_TEST
+    applyBenchResonanceTest();
+#endif
 
     if (gyro.downsampleFilterEnabled) {
         // using gyro lowpass 2 filter for downsampling

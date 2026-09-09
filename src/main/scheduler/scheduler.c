@@ -514,11 +514,16 @@ FAST_CODE void scheduler(void)
         }
 
         // Once close to the timing boundary, poll for it's arrival
+#ifdef SITL
+        // External virtual time cannot advance in a CPU busy-wait.
+        if (schedLoopRemainingCycles <= 0) {
+#else
         if (schedLoopRemainingCycles < schedLoopStartCycles) {
+#endif
             if (schedLoopStartCycles > schedLoopStartMinCycles) {
                 schedLoopStartCycles -= schedLoopStartDeltaDownCycles;
             }
-#if !defined(UNIT_TEST)
+#if !defined(UNIT_TEST) && !defined(SITL)
             while (schedLoopRemainingCycles > 0) {
                 nowCycles = getCycleCounter();
                 schedLoopRemainingCycles = cmpTimeCycles(nextTargetCycles, nowCycles);

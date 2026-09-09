@@ -38,6 +38,9 @@ int main(int argc, char * argv[])
     UNUSED(argv);
 #endif
     init();
+#ifdef SITL
+    targetReady();
+#endif
 
     run();
 
@@ -47,9 +50,13 @@ int main(int argc, char * argv[])
 void FAST_CODE run(void)
 {
     while (true) {
+#ifdef SITL
+        targetPoll();
+#else
         scheduler();
 #ifdef SIMULATOR_BUILD
         delayMicroseconds_real(50); // max rate 20kHz
+#endif
 #endif
     }
 }

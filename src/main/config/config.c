@@ -697,7 +697,13 @@ void validateAndFixGyroConfig(void)
 #endif // USE_DSHOT && USE_PID_DENOM_CHECK
         switch (motorConfig()->dev.motorPwmProtocol) {
         case PWM_TYPE_STANDARD:
+#ifdef SITL
+                // Virtual PWM is an in-memory command, not a physical pulse.
+                // Do not force the aircraft PID loop down to analog ESC rates.
+                motorUpdateRestriction = 0.0f;
+#else
                 motorUpdateRestriction = 1.0f / BRUSHLESS_MOTORS_PWM_RATE;
+#endif
                 break;
         case PWM_TYPE_ONESHOT125:
                 motorUpdateRestriction = 0.0005f;

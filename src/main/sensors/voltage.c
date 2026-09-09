@@ -171,7 +171,7 @@ void voltageMeterADCRefresh(void)
 {
     for (uint8_t i = 0; i < MAX_VOLTAGE_SENSOR_ADC && i < ARRAYLEN(voltageMeterAdcChannelMap); i++) {
         voltageMeterADCState_t *state = &voltageMeterADCStates[i];
-#ifdef USE_ADC
+#if defined(USE_ADC) || defined(SIMULATOR_BUILD)
         // store the battery voltage with some other recent battery voltage readings
 
         const voltageSensorADCConfig_t *config = voltageSensorADCConfig(i);

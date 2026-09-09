@@ -222,6 +222,9 @@ TARGET_DIR     = $(ROOT)/src/main/target/$(TARGET)
 TARGET_DIR_SRC = $(notdir $(wildcard $(TARGET_DIR)/*.c))
 
 .DEFAULT_GOAL := hex
+ifeq ($(TARGET),SITL)
+.DEFAULT_GOAL := obj/main/betaflight_SITL.elf
+endif
 
 INCLUDE_DIRS    := $(INCLUDE_DIRS) \
                    $(ROOT)/lib/main/MAVLink

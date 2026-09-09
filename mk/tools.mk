@@ -258,7 +258,10 @@ zip_clean:
 #
 ##############################
 
-ifeq ($(shell [ -d "$(ARM_SDK_DIR)" ] && echo "exists"), exists)
+ifeq ($(TARGET),SITL)
+  # The host simulator uses native GCC; no ARM SDK is needed.
+  ARM_SDK_PREFIX :=
+else ifeq ($(shell [ -d "$(ARM_SDK_DIR)" ] && echo "exists"), exists)
   ARM_SDK_PREFIX := $(ARM_SDK_DIR)/bin/arm-none-eabi-
 else ifeq (,$(filter %_install test% clean% %-print checks help configs, $(MAKECMDGOALS)))
   GCC_VERSION = $(shell arm-none-eabi-gcc -dumpversion)

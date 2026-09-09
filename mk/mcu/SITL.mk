@@ -13,6 +13,11 @@ STARTUP_SRC     =
 MCU_FLASH_SIZE  := 2048
 
 ARM_SDK_PREFIX  =
+CFLAGS += -Wno-error=stringop-truncation
+
+# GCC 16 diagnoses an existing fixed-width VTX table string. Keep other
+# warnings fatal and leave embedded builds unchanged.
+CFLAGS += $(shell printf 'int x;' | gcc -x c -c -o /dev/null -Werror -Wno-error=unterminated-string-initialization - 2>/dev/null && printf '%s' '-Wno-error=unterminated-string-initialization')
 
 MCU_EXCLUDES = \
             drivers/adc.c \
@@ -60,9 +65,13 @@ LD_FLAGS     += \
 endif
 
 ifneq ($(DEBUG),GDB)
-OPTIMISE_DEFAULT    := -Ofast
-OPTIMISE_SPEED      := -Ofast
-OPTIMISE_SIZE       := -Os
+OPTIMISE_DEFAULT    := -O2
+OPTIMISE_SPEED      := -O2
+OPTIMISE_SIZE       := -O2
 
 LTO_FLAGS           := $(OPTIMISATION_BASE) $(OPTIMISE_SPEED)
 endif
+
+# Host packet validation must retain IEEE NaN/Inf behavior.
+OPTIMISATION_BASE :=
+LTO_FLAGS := $(OPTIMISE_DEFAULT)

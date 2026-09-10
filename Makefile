@@ -223,7 +223,7 @@ TARGET_DIR_SRC = $(notdir $(wildcard $(TARGET_DIR)/*.c))
 
 .DEFAULT_GOAL := hex
 ifeq ($(TARGET),SITL)
-.DEFAULT_GOAL := obj/main/betaflight_SITL.elf
+.DEFAULT_GOAL := $(OBJECT_DIR)/betaflight_SITL.elf
 endif
 
 INCLUDE_DIRS    := $(INCLUDE_DIRS) \

@@ -93,6 +93,30 @@ their existing configured source; modeled current/SOC are not injected here.
 See `matlab/BATTERY.md` in DF_Sim for the battery equations, provisional parameters
 and opt-in model. `tools/test_battery_sitl.py` verifies v2 behavior.
 
+### Optional v3 timed CRSF input
+
+The `OPTIONS=SITL_CRSF_TAP` build accepts DFI3 (`0x33494644`). It keeps the
+v2 sensor/battery header, but direct channel fields and flags must all be zero.
+It appends `<II>` (event count, zero reserved) and 128 fixed 8-byte events
+`<IB3x>` (offset microseconds, byte value, zero padding), totaling 1152 bytes.
+Used offsets must be strictly increasing and in `[0,stepUs)`; unused events
+must be zero. DFO3 (`0x334f4644`) uses the 120-byte v2 response layout.
+
+The first valid v3 request initializes the actual CRSF serial receiver on
+unused UART2 in memory. Each UART event invokes the production parser callback
+at its exact virtual timestamp, subdividing scheduler ticks as needed. The
+atomic bridge never installs direct RC in this mode. Receiver channel mapping,
+CRC rejection and failsafe remain in production firmware. Version switching,
+invalid/padded data, changed retries and additional peers are rejected before
+applying events. An exact retry returns the cached response without replaying
+UART bytes. Builds without the optional CRSF support reject v3 with status 4.
+
+The optional build writes complete CRSF TX frames to the host trace with
+simulation timestamps. It defaults only a missing telemetry configuration PG
+in memory so an older normal SITL seed is not reset wholesale. See
+`matlab/ELRS_TELEMETRY.md` in DF_Sim for radio scheduling and sampled telemetry
+coupling, and `tools/test_elrs_control.py` for native integration tests.
+
 ## Legacy firmware boundary (preserved for existing tools)
 
 - UDP 9003 input: 144-byte `fdm_packet`, 18 little-endian doubles on x86-64.

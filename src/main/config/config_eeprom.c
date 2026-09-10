@@ -32,6 +32,9 @@
 #include "config/config_eeprom.h"
 #include "config/config_streamer.h"
 #include "pg/pg.h"
+#ifdef DFSIM_CRSF_TAP
+#include "pg/pg_ids.h"
+#endif
 #include "config/config.h"
 
 #ifdef CONFIG_IN_SDCARD
@@ -434,7 +437,14 @@ bool loadEEPROM(void)
             }
         } else {
             pgReset(reg);
-
+#ifdef DFSIM_CRSF_TAP
+            // The normal SITL seed predates the optional telemetry observer.
+            // Default only its newly enabled PG in memory. Reporting this one
+            // missing PG as a load failure would reset ALL flight settings in
+            // init(), including arming modes. Other missing/versioned records
+            // retain the normal validation behavior; no EEPROM migration/write.
+            if (pgN(reg) != PG_TELEMETRY_CONFIG)
+#endif
             success = false;
         }
         *reg->fnv_hash = fnv_update(FNV_OFFSET_BASIS, reg->address, pgSize(reg));

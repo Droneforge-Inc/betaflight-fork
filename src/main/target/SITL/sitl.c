@@ -64,6 +64,12 @@
 
 #include "rx/rx.h"
 
+#ifdef DFSIM_CRSF_TAP
+#include "io/serial.h"
+#include "rx/crsf.h"
+#include "telemetry/crsf.h"
+#endif
+
 #include "dyad.h"
 #include "target/SITL/udplink.h"
 #include "target/SITL/dfsim_protocol.h"
@@ -92,9 +98,61 @@ static unsigned transportMode; /* 0 unclaimed, 1 legacy, 2 DFSim atomic */
 static dfsim_input_t lastInput;
 static dfsim_output_v2_t lastOutput;
 static bool atomicBatteryEnabled;
+static bool atomicSerialEnabled;
+static dfsim_input_v3_t lastSerialInput;
 static double lastBatteryVoltage;
 static double simulatedBatteryVoltage;
 static struct sockaddr_in atomicPeer;
+
+#ifdef DFSIM_CRSF_TAP
+/* Observation-only UART serializer tap. The existing atomic RC source and
+ * sensor timing stay in charge; this is not yet CRSF-controlled flight. */
+static bool crsfTapInitialized;
+static rxRuntimeState_t crsfTapReceiver;
+
+timeUs_t microsISR(void) { return micros(); }
+
+void dfsimTraceCrsf(const uint8_t *frame, unsigned length)
+{
+    char hex[129];
+    if (length > 64) { fprintf(stderr, "Oversized CRSF frame\n"); exit(2); }
+    for (unsigned i = 0; i < length; ++i) { snprintf(hex + 2*i, 3, "%02x", frame[i]); }
+    hex[2*length] = 0;
+    fprintf(stderr, "DFSIM_CRSF %llu %s\n", (unsigned long long)elapsedUs, hex);
+    fflush(stderr);
+}
+
+static void initializeCrsfTap(bool serialControl)
+{
+    if (crsfTapInitialized) { return; }
+    serialPortConfig_t *port = serialFindPortConfigurationMutable(SERIAL_PORT_USART2);
+    if (!port || port->functionMask != 0 || findSerialPortConfig(FUNCTION_RX_SERIAL)) {
+        fprintf(stderr, "CRSF telemetry tap requires unused UART2 and no serial receiver\n");
+        exit(2);
+    }
+    port->functionMask = FUNCTION_RX_SERIAL;
+#ifdef USE_CRSF_V3
+    rxConfigMutable()->crsf_use_negotiated_baud = false;
+#endif
+    if (serialControl) {
+        featureDisableImmediate(FEATURE_RX_MSP | FEATURE_RX_PPM | FEATURE_RX_SPI | FEATURE_RX_PARALLEL_PWM);
+        featureEnableImmediate(FEATURE_RX_SERIAL);
+        rxConfigMutable()->serialrx_provider = SERIALRX_CRSF;
+        rxInit(); // Installs the real CRSF parser, channel mapping and failsafe path.
+        if (rxRuntimeState.rxProvider != RX_PROVIDER_SERIAL || !crsfRxIsActive()) {
+            fprintf(stderr, "Cannot initialize serial RC receiver\n"); exit(2);
+        }
+    } else if (!crsfRxInit(rxConfig(), &crsfTapReceiver)) {
+        fprintf(stderr, "Cannot initialize CRSF telemetry tap\n");
+        exit(2);
+    }
+    featureEnableImmediate(FEATURE_TELEMETRY);
+    initCrsfTelemetry();
+    setTaskEnabled(TASK_TELEMETRY, true);
+    rescheduleTask(TASK_TELEMETRY, TASK_PERIOD_HZ(500));
+    crsfTapInitialized = true;
+}
+#endif
 
 static struct timespec start_time;
 static uint64_t virtualTimeUs;
@@ -240,11 +298,12 @@ static void replyAtomic(const dfsim_output_v2_t *output, bool withBattery)
         (struct sockaddr *)&stateLink.recv, sizeof(stateLink.recv));
 }
 
-static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batteryVoltage)
+static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batteryVoltage, const dfsim_input_v3_t *serial)
 {
     dfsim_output_v2_t out = { .base = { .magic = withBattery ? DFSIM_OUTPUT_V2_MAGIC : DFSIM_OUTPUT_MAGIC,
         .sequence = input->sequence, .sampleUs = input->sampleUs,
         .endUs = elapsedUs, .firmwareUs = virtualTimeUs } };
+    if (serial) { out.base.magic = DFSIM_OUTPUT_V3_MAGIC; }
     /* Error replies never advance time or replace inputs. A new process resets. */
     if (transportMode == 1) { out.base.status = 5; replyAtomic(&out, withBattery); return; }
     if (transportMode == 2 && (atomicPeer.sin_addr.s_addr != stateLink.recv.sin_addr.s_addr ||
@@ -253,25 +312,40 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
     }
     if (transportMode == 2 && input->sequence == lastInput.sequence) {
         if (memcmp(input, &lastInput, sizeof(*input)) == 0 &&
-                (!withBattery || memcmp(&batteryVoltage, &lastBatteryVoltage, sizeof(double)) == 0)) { replyAtomic(&lastOutput, withBattery); return; }
+                (!withBattery || memcmp(&batteryVoltage, &lastBatteryVoltage, sizeof(double)) == 0) &&
+                (!!serial == atomicSerialEnabled) && (!serial || memcmp(serial, &lastSerialInput, sizeof(*serial)) == 0)) { replyAtomic(&lastOutput, withBattery); return; }
         out.base.status = 2; replyAtomic(&out, withBattery); return;
     }
-    if (transportMode == 2 && withBattery != atomicBatteryEnabled) {
+    if (transportMode == 2 && (withBattery != atomicBatteryEnabled || !!serial != atomicSerialEnabled)) {
         out.base.status = 4; replyAtomic(&out, withBattery); return;
     }
     if (input->sequence != (transportMode == 2 ? lastInput.sequence + 1 : 1)) { out.base.status = 2; }
     else if (input->sampleUs != elapsedUs || input->stepUs == 0 || input->stepUs > 10000 ||
             input->sampleUs + input->stepUs > 86400000000ULL) { out.base.status = 1; }
-    else if ((input->flags & ~DFSIM_RC_FRESH) != 0 ||
-            (transportMode == 0 && !(input->flags & DFSIM_RC_FRESH))) { out.base.status = 4; }
+    else if ((serial && input->flags != 0) || (!serial && ((input->flags & ~DFSIM_RC_FRESH) != 0 ||
+            (transportMode == 0 && !(input->flags & DFSIM_RC_FRESH))))) { out.base.status = 4; }
     else {
         for (unsigned i = 0; i < 3; i++) {
             if (!isfinite(input->gyroFRD[i]) || !isfinite(input->specificForceFRD[i])) { out.base.status = 3; }
         }
         if (!isfinite(input->pressurePa) || input->pressurePa <= 0 || input->pressurePa > 200000) { out.base.status = 3; }
         for (unsigned i = 0; i < 16; i++) {
-            if (input->channels[i] < 750 || input->channels[i] > 2250) { out.base.status = 3; }
+            if (serial ? input->channels[i] != 0 : (input->channels[i] < 750 || input->channels[i] > 2250)) { out.base.status = 3; }
         }
+    }
+    if (serial) {
+#ifndef DFSIM_CRSF_TAP
+        out.base.status = 4;
+#else
+        if (serial->count > DFSIM_MAX_UART_EVENTS || serial->reserved) { out.base.status = 3; }
+        for (unsigned i = 0; i < DFSIM_MAX_UART_EVENTS; ++i) {
+            const dfsim_uart_event_t *event = &serial->uart[i];
+            if (event->reserved[0] || event->reserved[1] || event->reserved[2]) { out.base.status = 3; }
+            if (i < serial->count) {
+                if (event->offsetUs >= input->stepUs || (i && event->offsetUs <= serial->uart[i-1].offsetUs)) { out.base.status = 3; }
+            } else if (event->offsetUs || event->value) { out.base.status = 3; }
+        }
+#endif
     }
     if (withBattery && (!isfinite(batteryVoltage) || batteryVoltage < 0 || batteryVoltage > 4.4)) {
         out.base.status = 3;
@@ -296,14 +370,30 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
     }
     transportMode = 2;
     atomicPeer = stateLink.recv;
+#ifdef DFSIM_CRSF_TAP
+    initializeCrsfTap(serial != NULL);
+#endif
     virtualBaroSet((int32_t)lrint(input->pressurePa), 2500);
-    if (input->flags & DFSIM_RC_FRESH) { installRC(input->channels); }
+    atomicSerialEnabled = serial != NULL;
+    if (!serial && (input->flags & DFSIM_RC_FRESH)) { installRC(input->channels); }
+    unsigned uartIndex = 0;
     const uint64_t endUs = elapsedUs + input->stepUs;
     while (elapsedUs < endUs) {
         /* Held sensor values remain available to native gyro/acc tasks.
          * 25 us exactly subdivides the current 125/250 us gyro/PID periods.
          * This is virtual scheduling, not MCU execution-cost emulation. */
-        const uint64_t tick = endUs - elapsedUs < 25 ? endUs - elapsedUs : 25;
+#ifdef DFSIM_CRSF_TAP
+        while (serial && uartIndex < serial->count &&
+                input->sampleUs + serial->uart[uartIndex].offsetUs == elapsedUs) {
+            dfsimCrsfReceiveByte(serial->uart[uartIndex++].value);
+        }
+#endif
+        uint64_t tick = serial ? 25 - elapsedUs % 25 : 25;
+        if (tick > endUs - elapsedUs) { tick = endUs - elapsedUs; }
+        if (serial && uartIndex < serial->count) {
+            const uint64_t untilByte = input->sampleUs + serial->uart[uartIndex].offsetUs - elapsedUs;
+            if (tick > untilByte) { tick = untilByte; }
+        }
         installAtomicIMU(input);
         virtualTimeUs += tick;
         elapsedUs += tick;
@@ -336,23 +426,33 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
         out.batterySource = batteryConfig()->voltageMeterSource;
     }
     lastInput = *input; lastOutput = out; lastBatteryVoltage = batteryVoltage;
+    if (serial) { lastSerialInput = *serial; }
     replyAtomic(&out, withBattery);
 }
 
 void targetPoll(void)
 {
-    union { fdm_packet legacy; dfsim_input_t atomic; dfsim_input_v2_t battery; } input;
+    // One extra byte makes oversized datagrams distinguishable from a valid
+    // maximum-length request even when recvfrom truncates the payload.
+    union { fdm_packet legacy; dfsim_input_t atomic; dfsim_input_v2_t battery;
+        dfsim_input_v3_t serial; uint8_t oversized[sizeof(dfsim_input_v3_t) + 1]; } input;
     const int length = udpRecv(&stateLink, &input, sizeof(input), 100);
+    if (length >= 4 && input.atomic.magic == DFSIM_INPUT_V3_MAGIC) {
+        if (length == sizeof(dfsim_input_v3_t) && ntohl(stateLink.recv.sin_addr.s_addr) == INADDR_LOOPBACK) {
+            pollAtomic(&input.serial.battery.base, true, input.serial.battery.batteryVoltageV, &input.serial);
+        }
+        return;
+    }
     if (length >= 4 && input.atomic.magic == DFSIM_INPUT_V2_MAGIC) {
         if (length == sizeof(dfsim_input_v2_t) && ntohl(stateLink.recv.sin_addr.s_addr) == INADDR_LOOPBACK) {
-            pollAtomic(&input.battery.base, true, input.battery.batteryVoltageV);
+            pollAtomic(&input.battery.base, true, input.battery.batteryVoltageV, NULL);
         }
         return;
     }
     if (length >= 4 && input.atomic.magic == DFSIM_INPUT_MAGIC) {
         /* Atomic protocol is simulator-local only. */
         if (length == sizeof(dfsim_input_t) && ntohl(stateLink.recv.sin_addr.s_addr) == INADDR_LOOPBACK) {
-            pollAtomic(&input.atomic, false, 0);
+            pollAtomic(&input.atomic, false, 0, NULL);
         }
         return;
     }

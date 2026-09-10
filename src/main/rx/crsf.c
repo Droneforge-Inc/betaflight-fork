@@ -613,7 +613,13 @@ void crsfRxSendTelemetryData(void)
     // if there is telemetry data to write
     if (telemetryBufLen > 0) {
         if (serialPort != NULL) {
+#ifdef DFSIM_CRSF_TAP
+            // The observer transport replaces the physical UART write. Keeping
+            // a second unconsumed TCP TX ring would stall the scheduler.
+            dfsimTraceCrsf(telemetryBuf, telemetryBufLen);
+#else
             serialWriteBuf(serialPort, telemetryBuf, telemetryBufLen);
+#endif
         }
         telemetryBufLen = 0; // reset telemetry buffer
     }
@@ -702,4 +708,11 @@ void crsfRxBind(void)
         serialWriteBuf(serialPort, bindFrame, 9);
     }
 }
+#ifdef DFSIM_CRSF_TAP
+// Called only by the validated atomic UART event scheduler at virtual time.
+void dfsimCrsfReceiveByte(uint8_t value)
+{
+    crsfDataReceive(value, &rxRuntimeState);
+}
+#endif
 #endif

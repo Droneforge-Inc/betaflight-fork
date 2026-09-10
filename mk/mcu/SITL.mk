@@ -43,6 +43,12 @@ MCU_EXCLUDES = \
             telemetry/srxl.c \
             io/displayport_oled.c
 
+# Optional telemetry observer build. Keep the normal DFSim binary unchanged.
+ifneq ($(filter SITL_CRSF_TAP,$(OPTIONS)),)
+TARGET_FLAGS += -DDFSIM_CRSF_TAP -DSEND_IMU_TELEMETRY
+MCU_EXCLUDES := $(filter-out telemetry/crsf.c,$(MCU_EXCLUDES))
+endif
+
 TARGET_MAP  = $(OBJECT_DIR)/$(FORKNAME)_$(TARGET).map
 
 LD_FLAGS    := \

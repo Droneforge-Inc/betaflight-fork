@@ -29,7 +29,9 @@
 
 #ifdef USE_TELEMETRY_CRSF
 
+#ifdef USE_MSP_OVER_TELEMETRY
 #include "build/atomic.h"
+#endif
 #include "build/build_config.h"
 #include "build/version.h"
 

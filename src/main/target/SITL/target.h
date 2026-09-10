@@ -148,6 +148,18 @@
 #undef USE_I2C
 #undef USE_SPI
 
+#ifdef DFSIM_CRSF_TAP
+#define USE_SERIALRX
+#define USE_SERIALRX_CRSF
+#define USE_TELEMETRY
+#define USE_TELEMETRY_CRSF
+// The observer has no UART receive/management path or ARM interrupt context.
+#undef USE_MSP_OVER_TELEMETRY
+#undef USE_CRSF_V3
+void dfsimTraceCrsf(const uint8_t *frame, unsigned length);
+void dfsimCrsfReceiveByte(uint8_t value);
+#endif
+
 #define TARGET_FLASH_SIZE 2048
 
 

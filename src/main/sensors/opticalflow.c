@@ -122,6 +122,9 @@ bool opticalflowInit(void) {
   opticalflow.velY = 0;
   opticalflow.flowQuality = 0;
   opticalflow.flowStatus = 0;
+#ifdef SITL
+  opticalflow.processedFrameSequence = 0;
+#endif
   opticalflow.lastValidResponseTimeMs = millis();
 
   return true;
@@ -167,6 +170,11 @@ bool opticalflowProcess(void) {
 #endif
 
     opticalflow.lastValidResponseTimeMs = millis();
+#ifdef SITL
+    // Cached processing is intentional baseline behavior. This records which
+    // UART message supplied the stored values; it does not gate processing.
+    opticalflow.processedFrameSequence = mtfRangefinderFrameSequence();
+#endif
     hasMeasurement = true;
   } else {
 #ifdef USE_RANGEFINDER_OPTFLOW_MTF
@@ -195,4 +203,10 @@ bool opticalflowIsHealthy(void) {
   return (millis() - opticalflow.lastValidResponseTimeMs) <
          OPTICALFLOW_HARDWARE_TIMEOUT_MS;
 }
+
+#ifdef SITL
+uint32_t opticalflowGetProcessedFrameSequence(void) {
+  return opticalflow.processedFrameSequence;
+}
+#endif
 #endif

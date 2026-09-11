@@ -32,7 +32,7 @@
 #include "config/config_eeprom.h"
 #include "config/config_streamer.h"
 #include "pg/pg.h"
-#ifdef DFSIM_CRSF_TAP
+#if defined(DFSIM_CRSF_TAP) || defined(SITL)
 #include "pg/pg_ids.h"
 #endif
 #include "config/config.h"
@@ -437,6 +437,16 @@ bool loadEEPROM(void)
             }
         } else {
             pgReset(reg);
+#ifdef SITL
+            // New simulator-only facilities default their absent groups in RAM.
+            // Preserve all existing flight settings and never migrate the seed.
+            bool optionalSimulatorGroup = pgN(reg) == PG_RANGEFINDER_CONFIG ||
+                pgN(reg) == PG_OPTICALFLOW_CONFIG;
+#ifdef DFSIM_CRSF_TAP
+            optionalSimulatorGroup = optionalSimulatorGroup || pgN(reg) == PG_TELEMETRY_CONFIG;
+#endif
+            if (!optionalSimulatorGroup) { success = false; }
+#else
 #ifdef DFSIM_CRSF_TAP
             // The normal SITL seed predates the optional telemetry observer.
             // Default only its newly enabled PG in memory. Reporting this one
@@ -446,6 +456,7 @@ bool loadEEPROM(void)
             if (pgN(reg) != PG_TELEMETRY_CONFIG)
 #endif
             success = false;
+#endif
         }
         *reg->fnv_hash = fnv_update(FNV_OFFSET_BASIS, reg->address, pgSize(reg));
     }

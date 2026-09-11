@@ -83,6 +83,22 @@ static uint8_t mtfFlowStatus;
 
 static uint16_t mtferrors = 0;
 
+#ifdef SITL
+// Passive transport diagnostics only. Preserve the pinned driver's validation,
+// cached reads and timeout behavior in both SITL and hardware processing.
+static uint32_t mtfFrameSequence;
+static timeMs_t mtfLastSensorFrameMs;
+
+uint32_t mtfRangefinderFrameSequence(void) { return mtfFrameSequence; }
+uint32_t mtfRangefinderFrameAgeMs(void) {
+  return mtfFrameSequence ? (timeMs_t)(millis() - mtfLastSensorFrameMs) : UINT32_MAX;
+}
+void mtfGetLatestRawFlow(int16_t *velX, int16_t *velY) {
+  *velX = mtfVelX;
+  *velY = mtfVelY;
+}
+#endif
+
 void mtfInit(optrangeDev_t *dev) {
   UNUSED(dev);
 
@@ -184,6 +200,12 @@ void mtfUpdate(optrangeDev_t *dev) {
             mtfVelY = (int16_t)(mtfPayload[14] | (mtfPayload[15] << 8));
             mtfFlowQuality = mtfPayload[16];
             mtfFlowStatus = mtfPayload[17];
+#ifdef SITL
+            // Count exactly what the baseline parser accepted, even when its
+            // permissive payload-length handling accepted a malformed report.
+            mtfFrameSequence++;
+            mtfLastSensorFrameMs = timeNowMs;
+#endif
           } break;
           }
         }
@@ -252,7 +274,10 @@ static bool mtfDetect(optrangeDev_t *dev, uint8_t devType) {
 
     mtfDetected = true;
 
+#ifndef SITL
+    // The host UART is already available; do not jump the virtual clock.
     delay(1000);
+#endif
     serialWriteBuf(mtfSerialPort, MTF_SET_MICOLINK_PROTOCOL_SEQUENCE,
                    MTF_SET_MICOLINK_PROTOCOL_LENGTH);
   }

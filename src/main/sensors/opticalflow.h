@@ -36,6 +36,9 @@ typedef struct opticalflow_s {
 #endif
 
   timeMs_t lastValidResponseTimeMs;
+#ifdef SITL
+  uint32_t processedFrameSequence; // Latest UART sequence observed by a callback.
+#endif
 } opticalflow_t;
 
 typedef struct opticalflowMeasurement_s {
@@ -62,3 +65,7 @@ uint8_t opticalflowGetLatestFlowStatus(void);
 void opticalflowUpdate(void);
 bool opticalflowProcess(void);
 bool opticalflowIsHealthy(void);
+
+#ifdef SITL
+uint32_t opticalflowGetProcessedFrameSequence(void);
+#endif

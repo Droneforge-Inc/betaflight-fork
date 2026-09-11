@@ -164,6 +164,9 @@ bool rangefinderInit(void)
     rangefinder.dev.init(&rangefinder.dev);
     rangefinder.rawAltitude = RANGEFINDER_OUT_OF_RANGE;
     rangefinder.calculatedAltitude = RANGEFINDER_OUT_OF_RANGE;
+#ifdef SITL
+    rangefinder.lastCosTilt = 1.0f;
+#endif
     rangefinder.maxTiltCos = cos_approx(DECIDEGREES_TO_RADIANS(rangefinder.dev.detectionConeExtendedDeciDegrees / 2.0f));
     rangefinder.lastValidResponseTimeMs = millis();
     rangefinder.snr = 0;
@@ -395,6 +398,10 @@ bool rangefinderProcess(float cosTiltAngle)
     *
     * When the ground is too far away or the tilt is too large, RANGEFINDER_OUT_OF_RANGE is returned.
     */
+#ifdef SITL
+    // Observe the baseline correction, including repeated cached readings.
+    rangefinder.lastCosTilt = cosTiltAngle;
+#endif
     if (cosTiltAngle < rangefinder.maxTiltCos || rangefinder.rawAltitude < 0) {
         rangefinder.calculatedAltitude = RANGEFINDER_OUT_OF_RANGE;
     } else {
@@ -420,6 +427,10 @@ int32_t rangefinderGetLatestRawAltitude(void)
 {
     return rangefinder.rawAltitude;
 }
+
+#ifdef SITL
+float rangefinderGetLatestCosTilt(void) { return rangefinder.lastCosTilt; }
+#endif
 
 #ifdef USE_RANGEFINDER_TF
 uint16_t rangefinderGetLatestStrength(void)

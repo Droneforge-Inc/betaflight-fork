@@ -54,6 +54,11 @@
 #include "sensors/battery.h"
 #include "sensors/voltage.h"
 #include "sensors/adcinternal.h"
+#include "sensors/rangefinder.h"
+#include "sensors/opticalflow.h"
+#include "sensors/sensors.h"
+#include "drivers/optrange/optrange_mtf.h"
+#include "io/serial.h"
 
 #include "config/feature.h"
 #include "config/config.h"
@@ -100,9 +105,58 @@ static dfsim_output_v2_t lastOutput;
 static bool atomicBatteryEnabled;
 static bool atomicSerialEnabled;
 static dfsim_input_v3_t lastSerialInput;
+static dfsim_input_v4_t lastTofInput;
+static bool atomicTofEnabled;
+static bool atomicFlowEnabled;
 static double lastBatteryVoltage;
 static double simulatedBatteryVoltage;
 static struct sockaddr_in atomicPeer;
+
+// One native MICOLINK frame traverses UART3 at 115200 baud, 8N1. Bytes remain
+// in the regular serial receive buffer until the native rangefinder task reads.
+static serialPort_t *tofSerialPort;
+static uint8_t tofUartFrame[DFSIM_TOF_FRAME_BYTES];
+static unsigned tofUartPosition = DFSIM_TOF_FRAME_BYTES;
+static uint64_t tofUartStartUs;
+
+static uint64_t nextTofByteUs(void)
+{
+    return tofUartStartUs + ((uint64_t)(tofUartPosition + 1) * 10000000ULL + 115199) / 115200;
+}
+
+static void initializeTof(void)
+{
+    if (tofSerialPort) { return; }
+    serialPortConfig_t *port = serialFindPortConfigurationMutable(SERIAL_PORT_USART3);
+    if (!port || port->functionMask != 0 || findSerialPortConfig(FUNCTION_OPTRANGE)) {
+        fprintf(stderr, "DFSim ToF requires unused UART3 and no existing OPTRANGE port\n");
+        exit(2);
+    }
+    port->functionMask = FUNCTION_OPTRANGE;
+    rangefinderConfigMutable()->rangefinder_hardware = RANGEFINDER_MTF02;
+    featureEnableImmediate(FEATURE_RANGEFINDER);
+    if (!rangefinderInit()) {
+        fprintf(stderr, "Cannot initialize native MTF02P rangefinder\n"); exit(2);
+    }
+    serialPortUsage_t *usage = findSerialPortUsageByIdentifier(SERIAL_PORT_USART3);
+    if (!usage || !usage->serialPort) { fprintf(stderr, "Missing native MTF UART\n"); exit(2); }
+    tofSerialPort = usage->serialPort;
+    setTaskEnabled(TASK_RANGEFINDER, true);
+    // No optical flow is synthesized or activated for the ToF-only source.
+    fprintf(stderr, "DFSIM_TOF native MTF02P UART3 115200 8N1, 50Hz task, no optical flow\n");
+}
+
+static void initializeOpticalflow(void)
+{
+    if (atomicFlowEnabled) { return; }
+    opticalflowConfigMutable()->opticalflow_hardware = OPTICALFLOW_MTF02;
+    featureEnableImmediate(FEATURE_OPTICALFLOW);
+    if (!opticalflowInit()) {
+        fprintf(stderr, "Cannot initialize native MTF02P optical flow\n"); exit(2);
+    }
+    setTaskEnabled(TASK_OPTICALFLOW, true);
+    fprintf(stderr, "DFSIM_FLOW native MTF02P optical flow enabled, cm/s@1m, 50Hz task\n");
+}
 
 #ifdef DFSIM_CRSF_TAP
 /* Observation-only UART serializer tap. The existing atomic RC source and
@@ -292,37 +346,75 @@ static void installAtomicIMU(const dfsim_input_t *input)
     virtualGyroSet(virtualGyroDev, w[0], w[1], w[2]);
 }
 
-static void replyAtomic(const dfsim_output_v2_t *output, bool withBattery)
+static void replyAtomic(const dfsim_output_v2_t *output, bool withBattery, bool withTof)
 {
+    if (withTof) {
+        rangefinderMeasurement_t measurement;
+        rangefinderGetLatestMeasurement(&measurement);
+        dfsim_output_v4_t extended = { .battery = *output,
+            .rangeRawCm = rangefinderGetLatestRawAltitude(),
+            .rangeCorrectedCm = rangefinderGetLatestAltitude(),
+            .rangeFrameSequence = mtfRangefinderFrameSequence(),
+            .rangeFrameAgeMs = mtfRangefinderFrameAgeMs(),
+            .rangeCosTilt = rangefinderGetLatestCosTilt(),
+            .rangeHealthy = measurement.isHealthy, .rangeStatus = measurement.distStatus,
+            .rangeStrength = measurement.distStrength, .rangePrecision = measurement.distPrecision };
+        if (output->base.magic == DFSIM_OUTPUT_V5_MAGIC) {
+            dfsim_output_v5_t flow = { .range = extended,
+                .flowAlignedX = opticalflowGetLatestVelX(), .flowAlignedY = opticalflowGetLatestVelY(),
+                .flowFrameSequence = mtfRangefinderFrameSequence(),
+                .flowFrameAgeMs = mtfRangefinderFrameAgeMs(),
+                .flowHealthy = opticalflowIsHealthy(), .flowStatus = opticalflowGetLatestFlowStatus(),
+                .flowQuality = opticalflowGetLatestFlowQuality(),
+                .flowProcessedSequence = opticalflowGetProcessedFrameSequence() };
+            mtfGetLatestRawFlow(&flow.flowRawX, &flow.flowRawY);
+            sendto(stateLink.fd, &flow, sizeof(flow), 0,
+                (struct sockaddr *)&stateLink.recv, sizeof(stateLink.recv));
+            return;
+        }
+        sendto(stateLink.fd, &extended, sizeof(extended), 0,
+            (struct sockaddr *)&stateLink.recv, sizeof(stateLink.recv));
+        return;
+    }
     sendto(stateLink.fd, output, withBattery ? sizeof(*output) : sizeof(output->base), 0,
         (struct sockaddr *)&stateLink.recv, sizeof(stateLink.recv));
 }
 
-static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batteryVoltage, const dfsim_input_v3_t *serial)
+static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batteryVoltage,
+        const dfsim_input_v3_t *serial, const dfsim_input_v4_t *tof)
 {
+    const bool withTof = tof != NULL;
+    const bool withFlow = input->magic == DFSIM_INPUT_V5_MAGIC;
     dfsim_output_v2_t out = { .base = { .magic = withBattery ? DFSIM_OUTPUT_V2_MAGIC : DFSIM_OUTPUT_MAGIC,
         .sequence = input->sequence, .sampleUs = input->sampleUs,
         .endUs = elapsedUs, .firmwareUs = virtualTimeUs } };
     if (serial) { out.base.magic = DFSIM_OUTPUT_V3_MAGIC; }
+    if (withTof) { out.base.magic = DFSIM_OUTPUT_V4_MAGIC; }
+    if (withFlow) { out.base.magic = DFSIM_OUTPUT_V5_MAGIC; }
     /* Error replies never advance time or replace inputs. A new process resets. */
-    if (transportMode == 1) { out.base.status = 5; replyAtomic(&out, withBattery); return; }
+    if (transportMode == 1) { out.base.status = 5; replyAtomic(&out, withBattery, withTof); return; }
     if (transportMode == 2 && (atomicPeer.sin_addr.s_addr != stateLink.recv.sin_addr.s_addr ||
             atomicPeer.sin_port != stateLink.recv.sin_port)) {
-        out.base.status = 6; replyAtomic(&out, withBattery); return;
+        out.base.status = 6; replyAtomic(&out, withBattery, withTof); return;
     }
     if (transportMode == 2 && input->sequence == lastInput.sequence) {
         if (memcmp(input, &lastInput, sizeof(*input)) == 0 &&
                 (!withBattery || memcmp(&batteryVoltage, &lastBatteryVoltage, sizeof(double)) == 0) &&
-                (!!serial == atomicSerialEnabled) && (!serial || memcmp(serial, &lastSerialInput, sizeof(*serial)) == 0)) { replyAtomic(&lastOutput, withBattery); return; }
-        out.base.status = 2; replyAtomic(&out, withBattery); return;
+                (!!serial == atomicSerialEnabled) && (!serial || memcmp(serial, &lastSerialInput, sizeof(*serial)) == 0) &&
+                (withTof == atomicTofEnabled) && (withFlow == atomicFlowEnabled) &&
+                (!tof || memcmp(tof, &lastTofInput, sizeof(*tof)) == 0)) {
+            replyAtomic(&lastOutput, withBattery, withTof); return;
+        }
+        out.base.status = 2; replyAtomic(&out, withBattery, withTof); return;
     }
-    if (transportMode == 2 && (withBattery != atomicBatteryEnabled || !!serial != atomicSerialEnabled)) {
-        out.base.status = 4; replyAtomic(&out, withBattery); return;
+    if (transportMode == 2 && (withBattery != atomicBatteryEnabled || !!serial != atomicSerialEnabled ||
+            withTof != atomicTofEnabled || withFlow != atomicFlowEnabled)) {
+        out.base.status = 4; replyAtomic(&out, withBattery, withTof); return;
     }
     if (input->sequence != (transportMode == 2 ? lastInput.sequence + 1 : 1)) { out.base.status = 2; }
     else if (input->sampleUs != elapsedUs || input->stepUs == 0 || input->stepUs > 10000 ||
             input->sampleUs + input->stepUs > 86400000000ULL) { out.base.status = 1; }
-    else if ((serial && input->flags != 0) || (!serial && ((input->flags & ~DFSIM_RC_FRESH) != 0 ||
+    else if ((serial && input->flags != (withTof ? DFSIM_RC_SERIAL : 0)) || (!serial && ((input->flags & ~DFSIM_RC_FRESH) != 0 ||
             (transportMode == 0 && !(input->flags & DFSIM_RC_FRESH))))) { out.base.status = 4; }
     else {
         for (unsigned i = 0; i < 3; i++) {
@@ -350,7 +442,23 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
     if (withBattery && (!isfinite(batteryVoltage) || batteryVoltage < 0 || batteryVoltage > 4.4)) {
         out.base.status = 3;
     }
-    if (out.base.status) { replyAtomic(&out, withBattery); return; }
+    if (tof) {
+        if ((tof->tofFrameLength != 0 && tof->tofFrameLength != DFSIM_TOF_FRAME_BYTES) || tof->reserved) {
+            out.base.status = 3;
+        }
+        for (unsigned i = 0; i < sizeof(tof->tofFrame); i++) {
+            if (i >= tof->tofFrameLength && tof->tofFrame[i]) { out.base.status = 3; }
+        }
+        if (tof->tofFrameLength && (tofUartPosition < DFSIM_TOF_FRAME_BYTES || (!withFlow && tof->tofFrame[23] != 0))) {
+            out.base.status = 3; // Overlapping UART frame, or flow without explicit v5 activation.
+        }
+        if (!serial) {
+            if (tof->serial.count || tof->serial.reserved) { out.base.status = 3; }
+            const dfsim_uart_event_t empty[DFSIM_MAX_UART_EVENTS] = {0};
+            if (memcmp(tof->serial.uart, empty, sizeof(empty)) != 0) { out.base.status = 3; }
+        }
+    }
+    if (out.base.status) { replyAtomic(&out, withBattery, withTof); return; }
     if (withBattery) {
         simulatedBatteryVoltage = batteryVoltage;
         if (!atomicBatteryEnabled) {
@@ -370,12 +478,21 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
     }
     transportMode = 2;
     atomicPeer = stateLink.recv;
+    if (tof) { initializeTof(); }
+    if (withFlow) { initializeOpticalflow(); }
 #ifdef DFSIM_CRSF_TAP
     initializeCrsfTap(serial != NULL);
 #endif
     virtualBaroSet((int32_t)lrint(input->pressurePa), 2500);
     atomicSerialEnabled = serial != NULL;
+    atomicTofEnabled = withTof;
+    atomicFlowEnabled = withFlow;
     if (!serial && (input->flags & DFSIM_RC_FRESH)) { installRC(input->channels); }
+    if (tof && tof->tofFrameLength) {
+        memcpy(tofUartFrame, tof->tofFrame, DFSIM_TOF_FRAME_BYTES);
+        tofUartPosition = 0;
+        tofUartStartUs = elapsedUs;
+    }
     unsigned uartIndex = 0;
     const uint64_t endUs = elapsedUs + input->stepUs;
     while (elapsedUs < endUs) {
@@ -388,11 +505,18 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
             dfsimCrsfReceiveByte(serial->uart[uartIndex++].value);
         }
 #endif
-        uint64_t tick = serial ? 25 - elapsedUs % 25 : 25;
+        while (tofUartPosition < DFSIM_TOF_FRAME_BYTES && nextTofByteUs() == elapsedUs) {
+            uint8_t value = tofUartFrame[tofUartPosition++];
+            tcpDataIn((tcpPort_t *)tofSerialPort, &value, 1);
+        }
+        uint64_t tick = (serial || withTof) ? 25 - elapsedUs % 25 : 25;
         if (tick > endUs - elapsedUs) { tick = endUs - elapsedUs; }
         if (serial && uartIndex < serial->count) {
             const uint64_t untilByte = input->sampleUs + serial->uart[uartIndex].offsetUs - elapsedUs;
             if (tick > untilByte) { tick = untilByte; }
+        }
+        if (tofUartPosition < DFSIM_TOF_FRAME_BYTES && tick > nextTofByteUs() - elapsedUs) {
+            tick = nextTofByteUs() - elapsedUs;
         }
         installAtomicIMU(input);
         virtualTimeUs += tick;
@@ -427,7 +551,8 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
     }
     lastInput = *input; lastOutput = out; lastBatteryVoltage = batteryVoltage;
     if (serial) { lastSerialInput = *serial; }
-    replyAtomic(&out, withBattery);
+    if (tof) { lastTofInput = *tof; }
+    replyAtomic(&out, withBattery, withTof);
 }
 
 void targetPoll(void)
@@ -435,24 +560,32 @@ void targetPoll(void)
     // One extra byte makes oversized datagrams distinguishable from a valid
     // maximum-length request even when recvfrom truncates the payload.
     union { fdm_packet legacy; dfsim_input_t atomic; dfsim_input_v2_t battery;
-        dfsim_input_v3_t serial; uint8_t oversized[sizeof(dfsim_input_v3_t) + 1]; } input;
+        dfsim_input_v3_t serial; dfsim_input_v4_t tof;
+        uint8_t oversized[sizeof(dfsim_input_v4_t) + 1]; } input;
     const int length = udpRecv(&stateLink, &input, sizeof(input), 100);
+    if (length >= 4 && (input.atomic.magic == DFSIM_INPUT_V4_MAGIC || input.atomic.magic == DFSIM_INPUT_V5_MAGIC)) {
+        if (length == sizeof(dfsim_input_v4_t) && ntohl(stateLink.recv.sin_addr.s_addr) == INADDR_LOOPBACK) {
+            const dfsim_input_v3_t *serial = input.atomic.flags & DFSIM_RC_SERIAL ? &input.tof.serial : NULL;
+            pollAtomic(&input.tof.serial.battery.base, true, input.tof.serial.battery.batteryVoltageV, serial, &input.tof);
+        }
+        return;
+    }
     if (length >= 4 && input.atomic.magic == DFSIM_INPUT_V3_MAGIC) {
         if (length == sizeof(dfsim_input_v3_t) && ntohl(stateLink.recv.sin_addr.s_addr) == INADDR_LOOPBACK) {
-            pollAtomic(&input.serial.battery.base, true, input.serial.battery.batteryVoltageV, &input.serial);
+            pollAtomic(&input.serial.battery.base, true, input.serial.battery.batteryVoltageV, &input.serial, NULL);
         }
         return;
     }
     if (length >= 4 && input.atomic.magic == DFSIM_INPUT_V2_MAGIC) {
         if (length == sizeof(dfsim_input_v2_t) && ntohl(stateLink.recv.sin_addr.s_addr) == INADDR_LOOPBACK) {
-            pollAtomic(&input.battery.base, true, input.battery.batteryVoltageV, NULL);
+            pollAtomic(&input.battery.base, true, input.battery.batteryVoltageV, NULL, NULL);
         }
         return;
     }
     if (length >= 4 && input.atomic.magic == DFSIM_INPUT_MAGIC) {
         /* Atomic protocol is simulator-local only. */
         if (length == sizeof(dfsim_input_t) && ntohl(stateLink.recv.sin_addr.s_addr) == INADDR_LOOPBACK) {
-            pollAtomic(&input.atomic, false, 0, NULL);
+            pollAtomic(&input.atomic, false, 0, NULL, NULL);
         }
         return;
     }

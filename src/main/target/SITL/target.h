@@ -83,6 +83,12 @@
 #define USE_BARO
 #define USE_VIRTUAL_BARO
 
+// Native MTF parser is compiled in; the simulator opts in at runtime with DFI4.
+// DFI4 enables range only; DFI5 explicitly enables native optical flow as well.
+#define USE_RANGEFINDER
+#define USE_RANGEFINDER_OPTFLOW_MTF
+#define USE_OPTICALFLOW
+
 #define USABLE_TIMER_CHANNEL_COUNT 0
 
 #define USE_UART1

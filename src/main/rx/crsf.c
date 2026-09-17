@@ -50,6 +50,9 @@
 #include "rx/crsf.h"
 
 #include "telemetry/crsf.h"
+#ifdef USE_DF3
+#include "flight/df3/df3_betaflight.h"
+#endif
 
 #define CRSF_TIME_NEEDED_PER_FRAME_US   1750 // a maximally sized 64byte payload will take ~1550us, round up to 1750.
 #define CRSF_TIME_BETWEEN_FRAMES_US     6667 // At fastest, frames are sent by the transmitter every 6.667 milliseconds, 150 Hz
@@ -389,6 +392,16 @@ STATIC_UNIT_TESTED void crsfDataReceive(uint16_t c, void *data)
                 crsfFrameErrorCnt = 0;
 #endif
                 switch (crsfFrame.frame.type) {
+#ifdef USE_DF3
+                case CRSF_FRAMETYPE_DF_REFERENCE:
+                    if (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER &&
+                        crsfFrame.frame.frameLength == DF3_REFERENCE_BYTES + 4 &&
+                        crsfFrame.frame.payload[0] == CRSF_ADDRESS_FLIGHT_CONTROLLER &&
+                        crsfFrame.frame.payload[1] == CRSF_ADDRESS_RADIO_TRANSMITTER) {
+                        df3BetaflightReferenceFrame(crsfFrame.frame.payload + 2, currentTimeUs);
+                    }
+                    break;
+#endif
                 case CRSF_FRAMETYPE_RC_CHANNELS_PACKED:
                 case CRSF_FRAMETYPE_SUBSET_RC_CHANNELS_PACKED:
                     if (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER) {
@@ -603,6 +616,9 @@ STATIC_UNIT_TESTED float crsfReadRawRC(const rxRuntimeState_t *rxRuntimeState, u
 
 void crsfRxWriteTelemetryData(const void *data, int len)
 {
+#ifdef USE_DF3
+    df3BetaflightTelemetryQueued(micros(),telemetryBufLen>0);
+#endif
     len = MIN(len, (int)sizeof(telemetryBuf));
     memcpy(telemetryBuf, data, len);
     telemetryBufLen = len;
@@ -619,6 +635,9 @@ void crsfRxSendTelemetryData(void)
             dfsimTraceCrsf(telemetryBuf, telemetryBufLen);
 #else
             serialWriteBuf(serialPort, telemetryBuf, telemetryBufLen);
+#endif
+#ifdef USE_DF3
+            df3BetaflightUartSubmitted(micros(),telemetryBuf[2]);
 #endif
         }
         telemetryBufLen = 0; // reset telemetry buffer

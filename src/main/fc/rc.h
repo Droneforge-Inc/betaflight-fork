@@ -38,6 +38,10 @@ float getMaxRcDeflectionAbs(void);
 void updateRcCommands(void);
 void resetYawAxis(void);
 void initRcProcessing(void);
+#ifdef USE_DF3
+// Convert the legacy CRSF calibration domain into normalized collective.
+float rcCalibrationCollective(float crsf);
+#endif
 bool isMotorsReversed(void);
 rcSmoothingFilter_t *getRcSmoothingData(void);
 bool rcSmoothingAutoCalculate(void);

@@ -158,6 +158,23 @@ static int16_t rcLookupThrottle(int32_t tmp)
     return lookupThrottleRC[tmp2] + (tmp - tmp2 * 100) * (lookupThrottleRC[tmp2 + 1] - lookupThrottleRC[tmp2]) / 100;
 }
 
+#ifdef USE_DF3
+// SDK calibration records legacy CRSF channel values, before BF's mincheck and
+// throttle expo. Return the same steady, level-flight collective that reaches
+// the DF3 mixer insertion point (before limits/linearization shared by both).
+float rcCalibrationCollective(float crsf)
+{
+    if (!isfinite(crsf) || featureIsEnabled(FEATURE_3D) ||
+        rxConfig()->mincheck >= PWM_RANGE_MAX ||
+        rxChannelRangeConfigs(THROTTLE)->min != PWM_RANGE_MIN ||
+        rxChannelRangeConfigs(THROTTLE)->max != PWM_RANGE_MAX) return NAN;
+    const int32_t pwm = (int32_t)(crsf * (1024.0f / 1639.0f) + 881.0f);
+    const int32_t tmp = (constrain(pwm, rxConfig()->mincheck, PWM_RANGE_MAX) - rxConfig()->mincheck)
+        * PWM_RANGE_MIN / (PWM_RANGE_MAX - rxConfig()->mincheck);
+    return (rcLookupThrottle(tmp) - PWM_RANGE_MIN) / (float)PWM_RANGE;
+}
+#endif
+
 #define SETPOINT_RATE_LIMIT_MIN -1998.0f
 #define SETPOINT_RATE_LIMIT_MAX 1998.0f
 STATIC_ASSERT(CONTROL_RATE_CONFIG_RATE_LIMIT_MAX <= (uint16_t)SETPOINT_RATE_LIMIT_MAX, CONTROL_RATE_CONFIG_RATE_LIMIT_MAX_too_large);

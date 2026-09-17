@@ -118,6 +118,10 @@
 #include "osd/osd_warnings.h"
 
 #include "pg/beeper.h"
+#ifdef USE_DF3
+#include "pg/df3.h"
+#include "flight/df3/df3_betaflight.h"
+#endif
 #include "pg/board.h"
 #include "pg/dyn_notch.h"
 #include "pg/gyrodev.h"
@@ -2307,6 +2311,50 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
 {
 
     switch (cmdMSP) {
+#ifdef USE_DF3
+    case MSP2_DF3_CALIBRATION:
+    case MSP2_SET_DF3_CALIBRATION: {
+        const bool setting = cmdMSP == MSP2_SET_DF3_CALIBRATION;
+        // v1, transaction ID, expected hardware UID, then (SET only) 3 f32s.
+        if (sbufBytesRemaining(src) != (setting ? 29 : 17) || sbufReadU8(src) != 1)
+            return MSP_RESULT_ERROR;
+        const uint32_t transaction = sbufReadU32(src);
+        const uint32_t uid0=sbufReadU32(src), uid1=sbufReadU32(src), uid2=sbufReadU32(src);
+        if (!transaction || uid0!=U_ID_0 || uid1!=U_ID_1 || uid2!=U_ID_2)
+            return MSP_RESULT_ERROR;
+        if (setting) {
+            if (ARMING_FLAG(ARMED) || featureIsEnabled(FEATURE_RX_SPI)) return MSP_RESULT_ERROR;
+            float values[3];
+            for (unsigned i=0;i<3;++i) {
+                const uint32_t bits=sbufReadU32(src);
+                memcpy(&values[i],&bits,sizeof(bits));
+            }
+            if (!df3BetaflightCalibrationValid(values[0],values[1],values[2])) return MSP_RESULT_ERROR;
+            df3CalibrationConfig_t *cal=df3CalibrationConfigMutable();
+            // A lost ACK/retry must not cause another flash write.
+            if (!cal->enabled || cal->a0!=values[0] || cal->a1!=values[1] || cal->v0!=values[2]) {
+                cal->a0=values[0];cal->a1=values[1];cal->v0=values[2];cal->enabled=1;
+                schedulerIgnoreTaskStateTime();
+                writeReadEeprom(NULL);
+            }
+            df3BetaflightReloadCalibration();
+        }
+        const df3CalibrationConfig_t *cal=df3CalibrationConfig();
+        sbufWriteU8(dst,1);sbufWriteU32(dst,transaction);
+        sbufWriteU32(dst,U_ID_0);sbufWriteU32(dst,U_ID_1);sbufWriteU32(dst,U_ID_2);
+        sbufWriteU8(dst,cal->enabled);
+        const float values[4]={cal->a0,cal->a1,cal->v0,
+            cal->enabled ? df3BetaflightCalibrationHover(cal->a0,cal->a1,cal->v0) : df3Config()->hover*.0001f};
+        for (unsigned i=0;i<4;++i) {
+            uint32_t bits;memcpy(&bits,&values[i],sizeof(bits));sbufWriteU32(dst,bits);
+        }
+        // v1 capability bits: 0 = throttle mapping, 1 = unambiguous AUX3 assist.
+        const uint8_t capabilities = (!featureIsEnabled(FEATURE_RX_SPI) &&
+            isfinite(df3BetaflightCalibrationHover(900,0,4))) ? 1 : 0;
+        sbufWriteU8(dst, capabilities | (df3BetaflightAssistMappingReady() ? 2 : 0));
+        return MSP_RESULT_ACK;
+    }
+#endif
     case MSP_BOXNAMES:
         {
             const int page = sbufBytesRemaining(src) ? sbufReadU8(src) : 0;

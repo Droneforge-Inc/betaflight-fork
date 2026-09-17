@@ -53,6 +53,10 @@ typedef struct rangefinder_s {
 #endif
     int32_t rawAltitude;
     int32_t calculatedAltitude;
+#ifdef USE_DF3
+    // Preserve MTF wire precision for fusion; legacy centimetre APIs stay intact.
+    float rawAltitudeMeters, calculatedAltitudeMeters;
+#endif
 #ifdef USE_RANGEFINDER_TF
     uint16_t strength;
 #endif
@@ -90,6 +94,9 @@ bool rangefinderInit(void);
 
 void rangefinderGetLatestMeasurement(rangefinderMeasurement_t *measurement);
 int32_t rangefinderGetLatestAltitude(void);
+#ifdef USE_DF3
+float rangefinderGetLatestAltitudeMeters(void);
+#endif
 int32_t rangefinderGetLatestRawAltitude(void);
 #ifdef SITL
 float rangefinderGetLatestCosTilt(void);

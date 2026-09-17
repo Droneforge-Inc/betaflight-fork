@@ -22,6 +22,9 @@
 #include <stdint.h>
 
 #include "platform.h"
+#ifdef USE_DF3
+#include "pg/df3.h"
+#endif
 
 #include "build/debug.h"
 
@@ -1025,6 +1028,26 @@ const clivalue_t valueTable[] = {
     { PARAM_NAME_IMU_PROCESS_DENOM,   VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 1,     4 }, PG_IMU_CONFIG, offsetof(imuConfig_t, imu_process_denom) },
 #ifdef USE_MAG
     { PARAM_NAME_IMU_MAG_DECLINATION, VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0,  3599 }, PG_IMU_CONFIG, offsetof(imuConfig_t, mag_declination) },
+#endif
+
+#ifdef USE_DF3
+    { "df3_hover", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 8000 }, PG_DF3_CONFIG, offsetof(df3Config_t, hover) },
+    { "df3_flow_rotation_scale", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 2000 }, PG_DF3_FLOW_CONFIG, offsetof(df3FlowConfig_t, rotationScale) },
+    { "df3_flow_offset_x", VAR_INT16 | MASTER_VALUE, .config.minmax = { -500, 500 }, PG_DF3_FLOW_CONFIG, offsetof(df3FlowConfig_t, sensorOffset[0]) },
+    { "df3_flow_offset_y", VAR_INT16 | MASTER_VALUE, .config.minmax = { -500, 500 }, PG_DF3_FLOW_CONFIG, offsetof(df3FlowConfig_t, sensorOffset[1]) },
+    { "df3_flow_offset_z", VAR_INT16 | MASTER_VALUE, .config.minmax = { -500, 500 }, PG_DF3_FLOW_CONFIG, offsetof(df3FlowConfig_t, sensorOffset[2]) },
+    { "df3_calibration", VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_DF3_CALIBRATION_CONFIG, offsetof(df3CalibrationConfig_t, enabled) },
+    { "df3_accel_to_throttle", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 1000 }, PG_DF3_CONFIG, offsetof(df3Config_t, accelToThrottle) },
+    { "df3_max_tilt", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 3, 40 }, PG_DF3_CONFIG, offsetof(df3Config_t, maxTiltDeg) },
+    { "df3_kp_x", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 30000 }, PG_DF3_CONFIG, offsetof(df3Config_t, kp[0]) },
+    { "df3_kp_y", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 30000 }, PG_DF3_CONFIG, offsetof(df3Config_t, kp[1]) },
+    { "df3_kp_z", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 30000 }, PG_DF3_CONFIG, offsetof(df3Config_t, kp[2]) },
+    { "df3_kv_x", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 20000 }, PG_DF3_CONFIG, offsetof(df3Config_t, kv[0]) },
+    { "df3_kv_y", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 20000 }, PG_DF3_CONFIG, offsetof(df3Config_t, kv[1]) },
+    { "df3_kv_z", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 20000 }, PG_DF3_CONFIG, offsetof(df3Config_t, kv[2]) },
+    { "df3_ki_x", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 10000 }, PG_DF3_CONFIG, offsetof(df3Config_t, ki[0]) },
+    { "df3_ki_y", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 10000 }, PG_DF3_CONFIG, offsetof(df3Config_t, ki[1]) },
+    { "df3_ki_z", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 10000 }, PG_DF3_CONFIG, offsetof(df3Config_t, ki[2]) },
 #endif
 
 // PG_ARMING_CONFIG

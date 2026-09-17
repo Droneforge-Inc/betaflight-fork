@@ -164,6 +164,10 @@ bool rangefinderInit(void)
     rangefinder.dev.init(&rangefinder.dev);
     rangefinder.rawAltitude = RANGEFINDER_OUT_OF_RANGE;
     rangefinder.calculatedAltitude = RANGEFINDER_OUT_OF_RANGE;
+#ifdef USE_DF3
+    rangefinder.rawAltitudeMeters = RANGEFINDER_OUT_OF_RANGE;
+    rangefinder.calculatedAltitudeMeters = RANGEFINDER_OUT_OF_RANGE;
+#endif
 #ifdef SITL
     rangefinder.lastCosTilt = 1.0f;
 #endif
@@ -355,14 +359,32 @@ bool rangefinderProcess(float cosTiltAngle)
 
         if (distance >= 0) {
             rangefinder.lastValidResponseTimeMs = millis();
+#if defined(USE_DF3) && defined(USE_RANGEFINDER_OPTFLOW_MTF) && !defined(USE_RANGEFINDER_TF)
+            // Median and monotone rounding commute: filtering in millimetres
+            // preserves the existing centimetre median exactly. Fusion keeps
+            // the original wire precision instead of differentiating 1 cm steps.
+            const int32_t medianMm = applyMedianFilter(distanceMm);
+            rangefinder.rawAltitude = (medianMm + 5) / 10;
+            rangefinder.rawAltitudeMeters = .001f * (float)medianMm;
+#else
             rangefinder.rawAltitude = applyMedianFilter(distance);
+#ifdef USE_DF3
+            rangefinder.rawAltitudeMeters = .01f * (float)rangefinder.rawAltitude;
+#endif
+#endif
         } else if (distance == RANGEFINDER_OUT_OF_RANGE) {
             rangefinder.lastValidResponseTimeMs = millis();
             rangefinder.rawAltitude = RANGEFINDER_OUT_OF_RANGE;
+#ifdef USE_DF3
+            rangefinder.rawAltitudeMeters = RANGEFINDER_OUT_OF_RANGE;
+#endif
         }
         else {
             // Invalid response / hardware failure
             rangefinder.rawAltitude = RANGEFINDER_HARDWARE_FAILURE;
+#ifdef USE_DF3
+            rangefinder.rawAltitudeMeters = RANGEFINDER_HARDWARE_FAILURE;
+#endif
         }
 
         rangefinder.snr = computePseudoSnr(distance);
@@ -390,6 +412,9 @@ bool rangefinderProcess(float cosTiltAngle)
     else {
         // Bad configuration
         rangefinder.rawAltitude = RANGEFINDER_OUT_OF_RANGE;
+#ifdef USE_DF3
+        rangefinder.rawAltitudeMeters = RANGEFINDER_OUT_OF_RANGE;
+#endif
     }
 
     /**
@@ -404,8 +429,14 @@ bool rangefinderProcess(float cosTiltAngle)
 #endif
     if (cosTiltAngle < rangefinder.maxTiltCos || rangefinder.rawAltitude < 0) {
         rangefinder.calculatedAltitude = RANGEFINDER_OUT_OF_RANGE;
+#ifdef USE_DF3
+        rangefinder.calculatedAltitudeMeters = RANGEFINDER_OUT_OF_RANGE;
+#endif
     } else {
         rangefinder.calculatedAltitude = rangefinder.rawAltitude * cosTiltAngle;
+#ifdef USE_DF3
+        rangefinder.calculatedAltitudeMeters = rangefinder.rawAltitudeMeters * cosTiltAngle;
+#endif
     }
 
     DEBUG_SET(DEBUG_RANGEFINDER, 1, rangefinder.rawAltitude);
@@ -422,6 +453,13 @@ int32_t rangefinderGetLatestAltitude(void)
 {
     return rangefinder.calculatedAltitude;
 }
+
+#ifdef USE_DF3
+float rangefinderGetLatestAltitudeMeters(void)
+{
+    return rangefinder.calculatedAltitudeMeters;
+}
+#endif
 
 int32_t rangefinderGetLatestRawAltitude(void)
 {

@@ -30,6 +30,10 @@
 #define MSP2_SET_LED_STRIP_CONFIG_VALUES    0x3009
 #define MSP2_SENSOR_CONFIG_ACTIVE           0x300A
 
+// Droneforge private extension, v1. These are MSP command IDs, not CRSF D3 telemetry.
+#define MSP2_DF3_CALIBRATION                0x30D0
+#define MSP2_SET_DF3_CALIBRATION            0x30D1
+
 // MSP2_SET_TEXT and MSP2_GET_TEXT variable types
 #define MSP2TEXT_PILOT_NAME                      1
 #define MSP2TEXT_CRAFT_NAME                      2

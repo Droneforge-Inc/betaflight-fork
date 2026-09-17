@@ -29,7 +29,7 @@
 
 #ifdef USE_TELEMETRY_CRSF
 
-#ifdef USE_MSP_OVER_TELEMETRY
+#if defined(USE_MSP_OVER_TELEMETRY) && !defined(SITL)
 #include "build/atomic.h"
 #endif
 #include "build/build_config.h"
@@ -54,6 +54,9 @@
 #include "fc/runtime_config.h"
 
 #include "flight/imu.h"
+#ifdef USE_DF3
+#include "flight/df3/df3_betaflight.h"
+#endif
 #ifdef USE_EKF
 #include "flight/kinematic_estimator.h"
 #endif
@@ -209,7 +212,12 @@ bool handleCrsfMspFrameBuffer(mspResponseFnPtr responseFn) {
       }
     }
     pos += CRSF_MSP_LENGTH_OFFSET + mspFrameLength;
-    ATOMIC_BLOCK(NVIC_PRIO_SERIALUART1) {
+    // DFSim delivers UART bytes and runs this task on the same scheduler thread.
+    // The hardware UART ISR still requires the original critical section.
+#ifndef SITL
+    ATOMIC_BLOCK(NVIC_PRIO_SERIALUART1)
+#endif
+    {
       if (pos >= mspRxBuffer.len) {
         mspRxBuffer.len = 0;
         return replyPending;
@@ -922,6 +930,9 @@ typedef enum {
   CRSF_FRAME_MAGNETOMETER_INDEX,
 #endif
   CRSF_FRAME_MOTOR_RPM_INDEX,
+#ifdef USE_DF3
+  CRSF_FRAME_DF3_STATE_INDEX,
+#endif
   CRSF_SCHEDULE_COUNT_MAX
 } crsfFrameTypeIndex_e;
 
@@ -930,6 +941,9 @@ static uint16_t crsfSchedule[CRSF_SCHEDULE_COUNT_MAX];
 static timeDelta_t crsfScheduleIntervalUs[CRSF_SCHEDULE_COUNT_MAX];
 static uint8_t crsfScheduleIndex;
 static timeUs_t crsfNextScheduleTimeUs;
+#ifdef USE_DF3
+static timeUs_t crsfLastDiagnosticsUs;
+#endif
 
 #define CRSF_FLIGHT_MODE_PAYLOAD_ESTIMATE 6
 #define CRSF_ASSUMED_LINK_SLOT_INTERVAL_US 5000U
@@ -939,6 +953,11 @@ static timeUs_t crsfNextScheduleTimeUs;
   (1000000U / CRSF_MIN_OTHER_TELEMETRY_HZ)
 
 static uint16_t crsfGetScheduledFrameSize(const uint16_t schedule) {
+#ifdef USE_DF3
+  if (schedule & BIT(CRSF_FRAME_DF3_STATE_INDEX)) {
+    return CRSF_FRAME_LENGTH_NON_PAYLOAD + DF3_STATE_BYTES;
+  }
+#endif
   if (schedule & BIT(CRSF_FRAME_ATTITUDE_INDEX)) {
     return CRSF_FRAME_LENGTH_NON_PAYLOAD + CRSF_FRAME_ATTITUDE_PAYLOAD_SIZE;
   }
@@ -1091,6 +1110,17 @@ static bool processCrsf(const uint16_t currentSchedule) {
     crsfFrameAttitude(dst);
     crsfFinalize(dst);
   }
+#ifdef USE_DF3
+  if (currentSchedule & BIT(CRSF_FRAME_DF3_STATE_INDEX)) {
+    uint8_t payload[DF3_STATE_BYTES];
+    df3BetaflightStatePayload(payload);
+    crsfInitializeFrame(dst);
+    sbufWriteU8(dst,DF3_STATE_BYTES+CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst,DF3_STATE_TYPE);
+    sbufWriteData(dst,payload,sizeof(payload));
+    crsfFinalize(dst);
+  }
+#endif
 #ifdef USE_EKF
   if (currentSchedule & BIT(CRSF_FRAME_KINEMATIC_STATE_INDEX)) {
     crsfInitializeFrame(dst);
@@ -1218,6 +1248,9 @@ void initCrsfTelemetry(void) {
 #endif
 
   int index = 0;
+#ifdef USE_DF3
+  crsfSchedule[index++]=BIT(CRSF_FRAME_DF3_STATE_INDEX);
+#endif
 #if defined(EKF_ONLY)
   uint16_t ekfOnlyOtherSchedule[CRSF_SCHEDULE_COUNT_MAX];
   uint8_t ekfOnlyOtherCount = 0;
@@ -1442,6 +1475,9 @@ void crsfProcessCommand(uint8_t *frameStart) {
  * Called periodically by the scheduler
  */
 void handleCrsfTelemetry(timeUs_t currentTimeUs) {
+#ifdef USE_DF3
+  df3BetaflightTelemetryPoll(currentTimeUs);
+#endif
   if (!crsfTelemetryEnabled) {
     return;
   }
@@ -1541,6 +1577,22 @@ void handleCrsfTelemetry(timeUs_t currentTimeUs) {
     crsfResetScheduleTiming(currentTimeUs);
     crsfScheduleIndex = (crsfScheduleIndex + 1) % crsfScheduleCount;
   }
+#ifdef USE_DF3
+  // One small diagnostic frame per second, only in a vacant regular slot.
+  // Existing D6 state layout and the normal telemetry schedule stay intact.
+  if ((uint32_t)(currentTimeUs-crsfLastDiagnosticsUs)>=1000000 &&
+      crsfRxIsTelemetryBufEmpty()) {
+    uint8_t payload[DF3_DIAGNOSTICS_BYTES];
+    df3BetaflightDiagnosticsPayload(payload);
+    sbuf_t buf; sbuf_t *dst=&buf;
+    crsfInitializeFrame(dst);
+    sbufWriteU8(dst,DF3_DIAGNOSTICS_BYTES+CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst,DF3_DIAGNOSTICS_TYPE);
+    sbufWriteData(dst,payload,sizeof(payload));
+    crsfFinalize(dst);
+    crsfLastDiagnosticsUs=currentTimeUs;
+  }
+#endif
 }
 
 #if defined(UNIT_TEST) || defined(USE_RX_EXPRESSLRS)

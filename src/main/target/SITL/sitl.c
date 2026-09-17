@@ -128,17 +128,22 @@ static void initializeTof(void)
 {
     if (tofSerialPort) { return; }
     serialPortConfig_t *port = serialFindPortConfigurationMutable(SERIAL_PORT_USART3);
-    if (!port || port->functionMask != 0 || findSerialPortConfig(FUNCTION_OPTRANGE)) {
+    const serialPortConfig_t *existing = findSerialPortConfig(FUNCTION_OPTRANGE);
+    if (!port || (port->functionMask != 0 && port->functionMask != FUNCTION_OPTRANGE) ||
+        (existing && existing->identifier != SERIAL_PORT_USART3)) {
         fprintf(stderr, "DFSim ToF requires unused UART3 and no existing OPTRANGE port\n");
         exit(2);
     }
     port->functionMask = FUNCTION_OPTRANGE;
     rangefinderConfigMutable()->rangefinder_hardware = RANGEFINDER_MTF02;
     featureEnableImmediate(FEATURE_RANGEFINDER);
-    if (!rangefinderInit()) {
+    serialPortUsage_t *usage = findSerialPortUsageByIdentifier(SERIAL_PORT_USART3);
+    // A saved simulator configuration may already have started this same UART
+    // at boot. Reuse it; never reopen or take over another sensor's port.
+    if ((!usage || !usage->serialPort) && !rangefinderInit()) {
         fprintf(stderr, "Cannot initialize native MTF02P rangefinder\n"); exit(2);
     }
-    serialPortUsage_t *usage = findSerialPortUsageByIdentifier(SERIAL_PORT_USART3);
+    usage = findSerialPortUsageByIdentifier(SERIAL_PORT_USART3);
     if (!usage || !usage->serialPort) { fprintf(stderr, "Missing native MTF UART\n"); exit(2); }
     tofSerialPort = usage->serialPort;
     setTaskEnabled(TASK_RANGEFINDER, true);
@@ -180,7 +185,9 @@ static void initializeCrsfTap(bool serialControl)
 {
     if (crsfTapInitialized) { return; }
     serialPortConfig_t *port = serialFindPortConfigurationMutable(SERIAL_PORT_USART2);
-    if (!port || port->functionMask != 0 || findSerialPortConfig(FUNCTION_RX_SERIAL)) {
+    const serialPortConfig_t *existing = findSerialPortConfig(FUNCTION_RX_SERIAL);
+    if (!port || (port->functionMask != 0 && port->functionMask != FUNCTION_RX_SERIAL) ||
+        (existing && existing->identifier != SERIAL_PORT_USART2)) {
         fprintf(stderr, "CRSF telemetry tap requires unused UART2 and no serial receiver\n");
         exit(2);
     }
@@ -192,7 +199,7 @@ static void initializeCrsfTap(bool serialControl)
         featureDisableImmediate(FEATURE_RX_MSP | FEATURE_RX_PPM | FEATURE_RX_SPI | FEATURE_RX_PARALLEL_PWM);
         featureEnableImmediate(FEATURE_RX_SERIAL);
         rxConfigMutable()->serialrx_provider = SERIALRX_CRSF;
-        rxInit(); // Installs the real CRSF parser, channel mapping and failsafe path.
+        if (!crsfRxIsActive()) rxInit(); // A saved serial receiver may already be running.
         if (rxRuntimeState.rxProvider != RX_PROVIDER_SERIAL || !crsfRxIsActive()) {
             fprintf(stderr, "Cannot initialize serial RC receiver\n"); exit(2);
         }
@@ -210,6 +217,14 @@ static void initializeCrsfTap(bool serialControl)
 
 static struct timespec start_time;
 static uint64_t virtualTimeUs;
+#ifdef USE_DF3
+// MicoLink's simulated device clock is DFSim elapsed time; firmware has a
+// startup offset. This adapter supplies clock provenance, never plant state.
+uint64_t df3SitlSensorTimeUs(uint32_t sensorTimeMs)
+{
+    return virtualTimeUs - elapsedUs + (uint64_t)sensorTimeMs * 1000;
+}
+#endif
 static pthread_t tcpWorker;
 static bool workerRunning = true;
 static udpLink_t stateLink, pwmLink, pwmRawLink, rcLink;
@@ -482,6 +497,14 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
     if (withFlow) { initializeOpticalflow(); }
 #ifdef DFSIM_CRSF_TAP
     initializeCrsfTap(serial != NULL);
+#endif
+#ifdef USE_DF3
+    if (input->sequence == 1) {
+        // Explicit process-local clock provenance for the SDK simulator adapter.
+        // No state data and no changes to physical-aircraft timestamp handling.
+        fprintf(stderr, "DFSIM_CLOCK 1 %llu %llu\n",
+                (unsigned long long)virtualTimeUs, (unsigned long long)elapsedUs);
+    }
 #endif
     virtualBaroSet((int32_t)lrint(input->pressurePa), 2500);
     atomicSerialEnabled = serial != NULL;

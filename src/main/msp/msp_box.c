@@ -103,6 +103,9 @@ static const box_t boxes[CHECKBOX_ITEM_COUNT] = {
     { .boxId = BOXREADY, .boxName = "READY", .permanentId = 53},
     { .boxId = BOXLAPTIMERRESET, .boxName = "LAP TIMER RESET", .permanentId = 54},
     { .boxId = BOXEKFRESET, .boxName = "EKF RESET", .permanentId = 55},
+#ifdef USE_DF3
+    { .boxId = BOXFLIGHTASSIST, .boxName = "FLIGHT ASSIST", .permanentId = 56},
+#endif
 };
 
 // mask of enabled IDs, calculated on startup based on enabled features. boxId_e is used as bit index
@@ -350,6 +353,9 @@ void initActiveBoxIds(void)
 
 #ifdef USE_EKF
     BME(BOXEKFRESET);
+#endif
+#ifdef USE_DF3
+    BME(BOXFLIGHTASSIST);
 #endif
 
 #undef BME

@@ -199,6 +199,10 @@ TARGET_FLAGS  	:= $(TARGET_FLAGS) -DUSE_CONFIG
 endif
 
 include $(MAKE_SCRIPT_DIR)/mcu/$(TARGET_MCU_FAMILY).mk
+# External research harnesses can supply a complete build definition.
+# The default stays self-contained in this fork.
+DF3_BUILD_RULES ?= $(MAKE_SCRIPT_DIR)/df3.mk
+include $(DF3_BUILD_RULES)
 
 # openocd specific includes
 include $(MAKE_SCRIPT_DIR)/openocd.mk
@@ -352,7 +356,9 @@ TARGET_HEX      = $(BIN_DIR)/$(TARGET_FULLNAME).hex
 TARGET_DFU      = $(BIN_DIR)/$(TARGET_FULLNAME).dfu
 TARGET_ZIP      = $(BIN_DIR)/$(TARGET_FULLNAME).zip
 TARGET_OBJ_DIR  = $(OBJECT_DIR)/$(TARGET_NAME)
+$(TARGET_OBJ_DIR)/flight/df3/joseph_m4f.o $(TARGET_OBJ_DIR)/flight/df3/df3_reset_m4f.o: ASFLAGS += $(DF3_ASM_FLAGS)
 TARGET_ELF      = $(OBJECT_DIR)/$(FORKNAME)_$(TARGET_NAME).elf
+$(TARGET_ELF): $(DF3_LINK_DEPS)
 TARGET_EXST_ELF = $(OBJECT_DIR)/$(FORKNAME)_$(TARGET_NAME)_EXST.elf
 TARGET_UNPATCHED_BIN = $(OBJECT_DIR)/$(FORKNAME)_$(TARGET_NAME)_UNPATCHED.bin
 TARGET_LST      = $(OBJECT_DIR)/$(FORKNAME)_$(TARGET_NAME).lst
@@ -450,7 +456,7 @@ $(TARGET_ELF): $(TARGET_OBJS) $(LD_SCRIPT) $(LD_SCRIPTS)
 ## compile_file takes two arguments: (1) optimisation description string and (2) optimisation compiler flag
 define compile_file
 	echo "%% ($(1)) $<" "$(STDOUT)" && \
-	$(CROSS_CC) -c -o $@ $(CFLAGS) $(2) $<
+	$(CROSS_CC) -c -o $@ $(CFLAGS) $(2) $(if $(filter ./src/main/flight/df3/%.c src/main/flight/df3/%.c,$<),-O3 -fno-fast-math -ffp-contract=off) $<
 endef
 
 ifeq ($(DEBUG),GDB)

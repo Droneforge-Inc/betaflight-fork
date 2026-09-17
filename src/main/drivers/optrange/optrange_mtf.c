@@ -12,6 +12,9 @@
 
 #include "drivers/optrange/optrange_mtf.h"
 #include "drivers/time.h"
+#ifdef USE_DF3
+#include "flight/df3/df3_betaflight.h"
+#endif
 
 #define MTF_DEVTYPE_NONE 0
 #define MTF_DEVTYPE_02 1
@@ -200,6 +203,13 @@ void mtfUpdate(optrangeDev_t *dev) {
             mtfVelY = (int16_t)(mtfPayload[14] | (mtfPayload[15] << 8));
             mtfFlowQuality = mtfPayload[16];
             mtfFlowStatus = mtfPayload[17];
+#ifdef USE_DF3
+            // DF3 receives only complete reports; legacy parser behavior stays
+            // unchanged for all existing consumers and builds.
+            if (mtfPayloadLength == 20) {
+              df3BetaflightMtfFrame(mtfPayload, mtfHeader[3]);
+            }
+#endif
 #ifdef SITL
             // Count exactly what the baseline parser accepted, even when its
             // permissive payload-length handling accepted a malformed report.

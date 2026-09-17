@@ -39,6 +39,13 @@ bool cliMode = false;
 #include "build/build_config.h"
 #include "build/debug.h"
 #include "build/version.h"
+#if defined(USE_DF3) && defined(USE_DF3_PROFILE)
+#include "flight/df3/df3_profile.h"
+#ifdef USE_DF3_MULTIRATE
+#include "flight/df3/df3_multirate.h"
+#endif
+#include "common/df_custom.h"
+#endif
 
 #include "cli/settings.h"
 
@@ -4932,6 +4939,190 @@ if (buildKey) {
     cliPrintLinefeed();
 }
 
+#if defined(USE_DF3) && defined(USE_DF3_PROFILE)
+static void cliDf3ProfileHealth(const char *phase, const df3ProfileHealth_t *h)
+{
+    cliPrintLinef("health,%s,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u", phase,
+        h->initialized, h->failed, h->dynamicsActive, h->valid, h->verticalValid,
+        h->predictions, h->updates, h->rejected, h->stale, h->overflow,
+        h->mtfFrames, h->flowAccepted, h->flowRejected, h->rangeStatus, h->flowStatus, h->flowQuality);
+}
+
+#ifdef USE_DF3_BUDGETED_WORKER
+static void cliDf3Service(const df3ProfileService_t *s)
+{
+    cliPrintLine("service_recorder,pre_fault_bounded_v1");
+    cliPrintLinef("service_bytes,%u", (unsigned)sizeof(*s));
+    cliPrintLinef("service_snapshot_mask,%u", s->snapshotMask);
+    cliPrintLine("fault_retention,first_failure_until_explicit_reset_or_reboot");
+    cliPrintLine("fault_reason_bits,queue_1_imu_gap_2_imu_invalid_4_gyro_history_8_epoch_burst_16_numerical_32_other_64");
+    if (s->snapshotMask & 4) {
+        cliPrintLinef("fault_reason_mask,%u", s->fault.reasons);
+        cliPrintLinef("fault_observed_boot_us,%u", s->fault.observedUs);
+        cliPrintLinef("fault_timing_active,%u", (unsigned)s->fault.timingActive);
+        cliPrintLinef("fault_reducer_gaps,%u", s->fault.reducerGaps);
+        cliPrintLinef("fault_reducer_invalid,%u", s->fault.reducerInvalid);
+        cliPrintLinef("fault_history_faults,%u", s->fault.historyFaults);
+        cliPrintLinef("fault_burst_faults,%u", s->fault.burstFaults);
+    }
+    cliPrintLinef("service_saturated,%u", s->saturated);
+    cliPrintLinef("service_bookkeeping_ticks,%u", s->bookkeepingTicks);
+    cliPrintLinef("service_windows,%u", s->windows);
+    cliPrintLinef("service_short_windows,%u", s->shortWindows);
+    cliPrintLinef("service_other_selected,%u", s->otherSelected);
+    cliPrintLine("service_cost,bucket,calls,total_ticks,max_ticks");
+    for (unsigned i = 0; i < DF3_SERVICE_BUCKETS; ++i)
+        if (s->cost[i].calls)
+            cliPrintLinef("service_cost,%u,%u,%u,%u", i, s->cost[i].calls,
+                s->cost[i].totalTicks, s->cost[i].maxTicks);
+    cliPrintLine("service_event,kind,arrived,accepted");
+    for (unsigned i = 0; i < 5; ++i)
+        cliPrintLinef("service_event,%u,%u,%u", i, s->arrived[i], s->accepted[i]);
+    cliPrintLine("service_window,lower_us,upper_us,samples");
+    for (unsigned i = 0; i < DF3_SERVICE_WINDOWS; ++i)
+        cliPrintLinef("service_window,%u,%u,%u", i * 32,
+            i == 5 ? UINT32_MAX : i * 32 + 31, s->windowBins[i]);
+    cliPrintLine("service_snapshot,index,elapsed_us,job_age_us,oldest_age_us,fusion_age_us,committed_age_us,predictions,updates,worker_ticks,phases,windows,short_windows,next_ticks,last_required_us,last_available_us,queue,inbox,pending,phase_key,core_phase,core_row,event_kind,incoming_kind,core_status,failed,overflow,busy");
+    for (unsigned i = 0; i < DF3_SERVICE_SNAPSHOTS; ++i) {
+        if (!(s->snapshotMask & (1U << i))) continue;
+        const df3ServiceSnapshot_t *v = &s->snapshot[i];
+        cliPrintLinef("service_snapshot,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u",
+            i, v->elapsedUs, v->jobAgeUs, v->oldestAgeUs, v->fusionAgeUs,
+            v->committedAgeUs, v->predictions, v->updates, v->workerTicks,
+            v->phases, v->windows, v->shortWindows, v->nextTicks,
+            v->requiredUs, v->availableUs, v->queue, v->inbox, v->pending,
+            v->phaseKey, v->corePhase, v->coreRow, v->eventKind, v->incomingKind,
+            v->coreStatus, v->failed, v->overflow, v->busy);
+    }
+}
+#endif
+
+static void cliDf3Profile(const char *cmdName, char *cmdline)
+{
+    UNUSED(cmdName);
+    if (ARMING_FLAG(ARMED)) {
+        cliPrintLine("DF3 profile: disarm before bench diagnostics");
+        return;
+    }
+    if (!strcmp(cmdline, "reset")) {
+        cliPrintLine("DF3 profile: cleared diagnostics only; recording 20 seconds; estimator unchanged");
+        df3ProfileRestart();
+        return;
+    }
+    if (!strcmp(cmdline, "start")) {
+#ifdef USE_DF3_BUDGETED_WORKER
+        if (df3ProfileGet()->service.snapshotMask & 4) {
+            cliPrintLine("DF3 profile: first fault retained; read with df3_profile; df3_profile reset explicitly discards it");
+            return;
+        }
+#endif
+        cliPrintLine("DF3 profile: recording 20 seconds; read with df3_profile afterward");
+        df3ProfileStart();
+        return;
+    }
+    if (*cmdline && strcmp(cmdline, "stop")) {
+        cliPrintLine("Usage: df3_profile [start|stop|reset]");
+        return;
+    }
+    // Freeze before formatting any output. Neither printing nor CLI transport
+    // overhead is included in the saved sample. No stack copy of the histogram.
+    df3ProfileStop();
+    const df3Profile_t *p = df3ProfileGet();
+    cliPrintLine("DF3_PROFILE_BEGIN,v1");
+    cliPrintLinef("firmware_df,0x%08x", FIRMWARE_VERSION_DF);
+#ifdef USE_DF3_MULTIRATE
+#if DF3_FUSION_HZ == 30
+    cliPrintLine("fusion_input,multirate_window_30hz");
+#else
+    cliPrintLine("fusion_input,multirate_window_100hz");
+#endif
+    cliPrintLine("output_projection,worker_exact_replay_foreground_max8");
+    cliPrintLinef("fusion_epoch_us,%u", DF3_EPOCH_US);
+    cliPrintLinef("stationary_constraint_period_us,%u", DF3_STATIONARY_PERIOD_US);
+#endif
+#ifdef USE_DF3_RESUMABLE
+#ifdef USE_DF3_BUDGETED_WORKER
+#ifdef USE_DF3_MULTIRATE
+    cliPrintLine("fusion_execution,resumable_budgeted_balanced_rows");
+    cliPrintLine("covariance_slices,predict5_6_7_right4_6_8_sym10_5_3");
+#else
+    cliPrintLine("fusion_execution,resumable_budgeted_six_rows");
+#endif
+    cliPrintLine("budget_policy,deadline_limited_adaptive_ceiling_v2");
+#ifdef USE_DF3_BUDGET_CYCLES
+    cliPrintLine("worker_clock,hardware_32bit_cycles");
+#else
+    cliPrintLine("worker_clock,host_thread_CPU_nanoseconds");
+#endif
+#else
+    cliPrintLine("fusion_execution,resumable_four_phases_six_rows");
+#endif
+    cliPrintLine("matrix_timing_unit,slice_not_whole_update");
+#else
+    cliPrintLine("fusion_execution,synchronous");
+    cliPrintLine("matrix_timing_unit,whole_update");
+#endif
+#ifdef USE_DF3_JOSEPH_ASM
+    cliPrintLine("joseph_backend,assembly");
+#else
+    cliPrintLine("joseph_backend,C");
+#endif
+#ifdef SITL
+    cliPrintLine("clock,host_monotonic_nanoseconds_NOT_STM32_cycles");
+#else
+    cliPrintLine("clock,STM32_DWT_including_interrupts");
+#if defined(STM32G4)
+    cliPrintLinef("fpu_fpscr,0x%08x", (unsigned)__get_FPSCR());
+#endif
+#endif
+    cliPrintLinef("window_us,%u", p->stoppedUs - p->startedUs);
+    cliPrintLinef("cycles_per_us,%u", p->cyclesPerUs);
+    cliPrintLinef("profile_bytes,%u", (unsigned)sizeof(*p));
+#ifdef USE_DF3_PROFILE_AUTOSTART
+    cliPrintLine("profile_autostart,first_sensor_initialization_once_per_boot");
+#endif
+    cliPrintLine("timings,inclusive_nested_do_not_sum_parent_and_child_rows");
+    if (!p->cyclesPerUs) {
+        cliPrintLine("error,no_capture_run_df3_profile_start");
+        cliPrintLine("DF3_PROFILE_END");
+        return;
+    }
+    cliPrintLinef("bookkeeping_us,%u", (unsigned)(p->bookkeepingCycles / p->cyclesPerUs));
+#ifdef USE_DF3_BUDGETED_WORKER
+    cliPrintLinef("budget_calls,%u", p->budget.calls);
+    cliPrintLinef("budget_phases,%u", p->budget.phases);
+    cliPrintLinef("budget_yields,%u", p->budget.yields);
+    cliPrintLinef("budget_overruns,%u", p->budget.overruns);
+    cliPrintLinef("budget_max_phases,%u", p->budget.maxPhases);
+    cliPrintLinef("budget_max_elapsed_ticks,%u", p->budget.maxElapsedTicks);
+    cliPrintLinef("budget_max_overrun_ticks,%u", p->budget.maxOverrunTicks);
+    cliPrintLinef("budget_max_next_ticks,%u", p->budget.maxNextTicks);
+    cliPrintLinef("budget_max_next_key,%u", p->budget.maxNextKey);
+    cliPrintLinef("budget_zero_phase_calls,%u", p->budget.zeroPhaseCalls);
+    cliDf3Service(&p->service);
+#endif
+    cliPrintLine("section,name,calls,min_cycles,avg_cycles,max_cycles,total_us,p95_upper_us");
+    for (unsigned i = 0; i < DF3_PROF_COUNT; ++i) {
+        const df3ProfileRow_t *r = &p->rows[i];
+        cliPrintLinef("section,%s,%u,%u,%u,%u,%u,%u", df3ProfileName(i), r->calls,
+            r->minCycles, r->calls ? (unsigned)(r->totalCycles / r->calls) : 0,
+            r->maxCycles, (unsigned)(r->totalCycles / p->cyclesPerUs), df3ProfileP95UpperUs(r));
+    }
+    cliPrintLine("gauge,name,samples,last,max,mean");
+    for (unsigned i = 0; i < DF3_PROF_GAUGE_COUNT; ++i) {
+        const df3ProfileGauge_t *g = &p->gauges[i];
+        cliPrintLinef("gauge,%s,%u,%u,%u,%u", df3ProfileGaugeName(i), g->samples, g->last,
+            g->max, g->samples ? (unsigned)(g->sum / g->samples) : 0);
+    }
+    cliPrintLine("health,phase,initialized,failed,dynamics_active,valid,vertical_valid,predictions,updates,rejected,stale,overflow,mtf_frames,flow_accepted,flow_rejected,range_status,flow_status,flow_quality");
+    if (p->hasHealth) {
+        cliDf3ProfileHealth("first", &p->first);
+        cliDf3ProfileHealth("last", &p->last);
+    }
+    cliPrintLine("DF3_PROFILE_END");
+}
+#endif
+
 static void cliTasks(const char *cmdName, char *cmdline)
 {
     UNUSED(cmdName);
@@ -6582,6 +6773,9 @@ const clicmd_t cmdTable[] = {
         CLI_COMMAND_DEF("color", "configure colors", NULL, cliColor),
 #endif
     CLI_COMMAND_DEF("defaults", "reset to defaults and reboot", "{nosave}", cliDefaults),
+#if defined(USE_DF3) && defined(USE_DF3_PROFILE)
+    CLI_COMMAND_DEF("df3_profile", "capture DF3 bench execution timings", "[start|stop|reset]", cliDf3Profile),
+#endif
     CLI_COMMAND_DEF("diff", "list configuration changes from default", "[master|profile|rates|hardware|all] {defaults|bare}", cliDiff),
 #ifdef USE_RESOURCE_MGMT
 

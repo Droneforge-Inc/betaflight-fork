@@ -93,6 +93,17 @@ COMMON_SRC = \
             ekf/kinematic.c \
             ekf/kinematic_filter.c \
             flight/kinematic_estimator.c \
+            flight/df3/df3_core.c \
+            flight/df3/df3_profile.c \
+            flight/df3/df3_policy.c \
+            flight/df3/df3_flow.c \
+            flight/df3/df3_estimator.c \
+            flight/df3/df3_betaflight.c \
+            flight/df3/df3_reference.c \
+            flight/df3/df3_state.c \
+            flight/df3/df3_diagnostics.c \
+            flight/df3/df3_control.c \
+            pg/df3.c \
             flight/imu.c \
             flight/mixer.c \
             flight/mixer_init.c \
@@ -464,6 +475,7 @@ SIZE_OPTIMISED_SRC := $(SIZE_OPTIMISED_SRC) \
 
 # check if target.mk supplied
 SRC := $(STARTUP_SRC) $(MCU_COMMON_SRC) $(TARGET_SRC) $(VARIANT_SRC)
+SRC += $(DF3_ASM_SRC)
 
 # Files that should not be optimized, useful for debugging IMPRECISE cpu faults.
 # Specify FULL PATH, e.g. "./lib/main/STM32F7/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_ll_sdmmc.c"

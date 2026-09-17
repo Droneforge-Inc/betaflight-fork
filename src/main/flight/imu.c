@@ -42,6 +42,9 @@
 
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
+#ifdef USE_DF3
+#include "flight/df3/df3_betaflight.h"
+#endif
 #ifdef USE_EKF
 #include "flight/kinematic_estimator.h"
 #endif
@@ -800,6 +803,9 @@ void imuUpdateAttitude(timeUs_t currentTimeUs)
 #endif
         IMU_UNLOCK;
 
+#ifdef USE_DF3
+        df3BetaflightAttitude();
+#endif
         // Update the throttle correction for angle and supply it to the mixer
         int throttleAngleCorrection = 0;
         if (throttleAngleValue && (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE)) && ARMING_FLAG(ARMED)) {

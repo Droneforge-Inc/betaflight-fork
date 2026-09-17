@@ -159,8 +159,12 @@
 #define USE_SERIALRX_CRSF
 #define USE_TELEMETRY
 #define USE_TELEMETRY_CRSF
-// The observer has no UART receive/management path or ARM interrupt context.
+// DF3 exercises the real MSP parser through its scheduler-owned UART input.
+#ifdef USE_DF3
+#define USE_MSP_OVER_TELEMETRY
+#else
 #undef USE_MSP_OVER_TELEMETRY
+#endif
 #undef USE_CRSF_V3
 void dfsimTraceCrsf(const uint8_t *frame, unsigned length);
 void dfsimCrsfReceiveByte(uint8_t value);

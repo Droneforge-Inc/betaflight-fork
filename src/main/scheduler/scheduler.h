@@ -182,6 +182,12 @@ typedef enum {
 #ifdef USE_OPTICALFLOW
     TASK_OPTICALFLOW,
 #endif
+#ifdef USE_DF3
+    TASK_DF3,
+#ifdef USE_DF3_RESUMABLE
+    TASK_DF3_FUSION,
+#endif
+#endif
 
     /* Count of real tasks */
     TASK_COUNT,
@@ -242,6 +248,10 @@ void schedulerResetTaskMaxExecutionTime(taskId_e taskId);
 void schedulerResetCheckFunctionMaxExecutionTime(void);
 void schedulerSetNextStateTime(timeDelta_t nextStateTime);
 timeDelta_t schedulerGetNextStateTime(void);
+#ifdef USE_DF3_BUDGETED_WORKER
+/* Remaining gyro deadline minus the existing scheduler guard. */
+unsigned schedulerTaskTimeAvailableUs(void);
+#endif
 void schedulerInit(void);
 void scheduler(void);
 timeUs_t schedulerExecuteTask(task_t *selectedTask, timeUs_t currentTimeUs);

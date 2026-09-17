@@ -55,6 +55,9 @@
 
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
+#ifdef USE_DF3
+#include "flight/df3/df3_betaflight.h"
+#endif
 #ifdef USE_EKF
 #include "flight/kinematic_estimator.h"
 #endif
@@ -320,6 +323,11 @@ void taskUpdateRangefinder(timeUs_t currentTimeUs) {
 #else
   rangefinderProcess(getCosTiltAngle());
 #endif
+#ifdef USE_DF3
+  // Queue each new valid MTF range after filtering and tilt correction.
+  // The observation uses processing time; fusion runs separately.
+  df3BetaflightRange();
+#endif
 }
 #endif
 
@@ -353,7 +361,36 @@ static void taskUpdateOpticalflow(timeUs_t currentTimeUs) {
 #else
   opticalflowProcess();
 #endif
+#ifdef USE_DF3
+  // Match each new flow report to gyro history over its measurement interval,
+  // compensate camera rotation/offset, and queue it at the interval midpoint.
+  df3BetaflightFlow();
+#endif
 }
+#endif
+
+#ifdef USE_DF3
+static void taskDf3(timeUs_t currentTimeUs) {
+  UNUSED(currentTimeUs);
+  // Consume reference packets, manage estimator initialization/arming state,
+  // predict the published estimate to now, and service the outer controller.
+  // The controller enforces its own period; fusion math has a separate worker.
+  df3BetaflightTick();
+}
+#ifdef USE_DF3_RESUMABLE
+static bool taskDf3FusionReady(timeUs_t now, timeDelta_t elapsed) {
+  UNUSED(now); UNUSED(elapsed);
+  // Tell the scheduler whether a fusion job is unfinished or an epoch is due.
+  // This only checks readiness; it does not perform a measurement update.
+  return df3BetaflightFusionReady();
+}
+static void taskDf3Fusion(timeUs_t now) {
+  UNUSED(now);
+  // Advance fusion in bounded pieces using the available scheduler time.
+  // Unfinished work resumes on a later opportunity to leave time for gyro/PID.
+  df3BetaflightFusionTick();
+}
+#endif
 #endif
 
 #ifdef USE_TELEMETRY
@@ -568,6 +605,18 @@ task_attribute_t task_attributes[TASK_COUNT] = {
                     TASK_PERIOD_HZ(50), TASK_PRIORITY_LOWEST),
 #endif
 
+#ifdef USE_DF3
+    // Foreground service at 500 Hz; this is not the 30 Hz fusion update rate.
+    [TASK_DF3] = DEFINE_TASK("DF3", NULL, NULL, taskDf3,
+                            TASK_PERIOD_HZ(500), TASK_PRIORITY_MEDIUM_HIGH),
+#ifdef USE_DF3_RESUMABLE
+    /* Event readiness; the period controls priority aging. The DF3 worker
+     * policy determines bounded work per opportunity, not a sensor rate. */
+    [TASK_DF3_FUSION] = DEFINE_TASK("DF3FUSION", NULL, taskDf3FusionReady, taskDf3Fusion,
+                            TASK_PERIOD_HZ(500), TASK_PRIORITY_MEDIUM_HIGH),
+#endif
+#endif
+
 #ifdef USE_CRSF_V3
     [TASK_SPEED_NEGOTIATION] =
         DEFINE_TASK("SPEED_NEGOTIATION", NULL, NULL, speedNegotiationProcess,
@@ -593,6 +642,15 @@ void tasksInitData(void) {
 
 void tasksInit(void) {
   schedulerInit();
+#ifdef USE_DF3
+  // Prepare estimator, sensor history, reference receiver and controller state
+  // before enabling their tasks. Sensor observations bootstrap the estimate later.
+  df3BetaflightInit();
+  setTaskEnabled(TASK_DF3, true);
+#ifdef USE_DF3_RESUMABLE
+  setTaskEnabled(TASK_DF3_FUSION, true);
+#endif
+#endif
 
   setTaskEnabled(TASK_MAIN, true);
 

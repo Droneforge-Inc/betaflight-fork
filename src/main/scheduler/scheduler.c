@@ -27,6 +27,9 @@
 #include <math.h>
 
 #include "platform.h"
+#if defined(USE_DF3) && defined(USE_DF3_PROFILE)
+#include "flight/df3/df3_profile.h"
+#endif
 
 #include "drivers/accgyro/accgyro.h"
 
@@ -48,6 +51,15 @@
 #include "flight/failsafe.h"
 
 #include "scheduler.h"
+#if defined(SITL) && defined(USE_DF3) && defined(USE_DF3_SCHED_BENCH)
+#include "flight/df3/df3_betaflight.h"
+#endif
+#ifdef USE_DF3_BUDGETED_WORKER
+#if !defined(USE_DF3_RESUMABLE) || (!defined(SITL) && !defined(USE_DF3_BUDGET_CYCLES))
+#error "Budgeted scheduling requires resumable DF3 and hardware cycle timing"
+#endif
+#include "flight/df3/df3_betaflight.h"
+#endif
 
 #include "sensors/gyro_init.h"
 
@@ -393,6 +405,16 @@ FAST_CODE timeDelta_t schedulerGetNextStateTime(void)
     return currentTask->anticipatedExecutionTime >> TASK_EXEC_TIME_SHIFT;
 }
 
+#ifdef USE_DF3_BUDGETED_WORKER
+unsigned schedulerTaskTimeAvailableUs(void)
+{
+    if (!gyroEnabled) return df3BetaflightFusionBudgetUs();
+    const int32_t remaining = cmpTimeCycles(lastTargetCycles + desiredPeriodCycles,
+                                            getCycleCounter()) - taskGuardCycles;
+    return remaining > 0 ? (unsigned)clockCyclesToMicros(remaining) : 0;
+}
+#endif
+
 FAST_CODE timeUs_t schedulerExecuteTask(task_t *selectedTask, timeUs_t currentTimeUs)
 {
     timeUs_t taskExecutionTimeUs = 0;
@@ -406,6 +428,19 @@ FAST_CODE timeUs_t schedulerExecuteTask(task_t *selectedTask, timeUs_t currentTi
         selectedTask->lastExecutedAtUs = currentTimeUs;
         selectedTask->lastDesiredAt += selectedTask->attribute->desiredPeriodUs;
         selectedTask->dynamicPriority = 0;
+#if defined(SITL) && defined(USE_DF3) && defined(USE_DF3_SCHED_BENCH)
+        /* Read-only native benchmark counters; no clock or scheduling change. */
+        df3BetaflightBenchTask((unsigned)(selectedTask-tasks), (uint32_t)period);
+#endif
+#if defined(USE_DF3) && defined(USE_DF3_PROFILE)
+        /* Read-only gap measurement before task execution; no scheduling
+         * decisions or thresholds change. The collector is normally inactive. */
+        if (selectedTask == &tasks[TASK_GYRO]) {
+            df3ProfileGauge(DF3_PROF_GYRO_GAP_US, (uint32_t)period);
+        } else if (selectedTask == &tasks[TASK_PID]) {
+            df3ProfileGauge(DF3_PROF_PID_GAP_US, (uint32_t)period);
+        }
+#endif
 
         // Execute task
         const timeUs_t currentTimeBeforeTaskCallUs = micros();
@@ -714,6 +749,10 @@ FAST_CODE void scheduler(void)
 
                 if (task->dynamicPriority > selectedTaskDynamicPriority) {
                     timeDelta_t taskRequiredTimeUs = task->anticipatedExecutionTime >> TASK_EXEC_TIME_SHIFT;
+#ifdef USE_DF3_BUDGETED_WORKER
+                    if (task == getTask(TASK_DF3_FUSION))
+                        taskRequiredTimeUs = df3BetaflightFusionMinTimeUs();
+#endif
                     int32_t taskRequiredTimeCycles = (int32_t)clockMicrosToCycles((uint32_t)taskRequiredTimeUs);
                     // Allow a little extra time
                     taskRequiredTimeCycles += checkCycles + taskGuardCycles;
@@ -735,9 +774,20 @@ FAST_CODE void scheduler(void)
         // that doesn't defeat its use
         checkCycles = cmpTimeCycles(getCycleCounter(), nowCycles);
 
+#if defined(USE_DF3_BUDGETED_WORKER) && defined(USE_DF3_PROFILE)
+        // One observation per selection pass while fusion is pending. This is
+        // not a count of disjoint windows or time guaranteed to the worker.
+        if (df3ProfileServiceActive() && df3BetaflightFusionReady())
+            df3ProfileServiceWindow(df3BetaflightFusionMinTimeUs(),
+                schedulerTaskTimeAvailableUs(), selectedTask == getTask(TASK_DF3_FUSION));
+#endif
         if (selectedTask) {
             // Recheck the available time as checkCycles is only approximate
             timeDelta_t taskRequiredTimeUs = selectedTask->anticipatedExecutionTime >> TASK_EXEC_TIME_SHIFT;
+#ifdef USE_DF3_BUDGETED_WORKER
+            if (selectedTask == getTask(TASK_DF3_FUSION))
+                taskRequiredTimeUs = df3BetaflightFusionMinTimeUs();
+#endif
 #if defined(USE_LATE_TASK_STATISTICS)
             selectedTask->execTime = taskRequiredTimeUs;
 #endif
@@ -751,6 +801,19 @@ FAST_CODE void scheduler(void)
 
             if (!gyroEnabled || firstSchedulingOpportunity || (taskRequiredTimeCycles < schedLoopRemainingCycles)) {
                 uint32_t antipatedEndCycles = nowCycles + taskRequiredTimeCycles;
+#ifdef USE_DF3_BUDGETED_WORKER
+                if (selectedTask == getTask(TASK_DF3_FUSION)) {
+                    unsigned offered = schedulerTaskTimeAvailableUs();
+                    const unsigned limit = df3BetaflightFusionBudgetUs();
+                    if (offered > limit) offered = limit;
+                    // This elastic task may use the offered interval. Compare
+                    // lateness to that deadline, not its minimum entry cost.
+                    antipatedEndCycles = nowCycles + clockMicrosToCycles(offered);
+#if defined(USE_LATE_TASK_STATISTICS)
+                    selectedTask->execTime = offered;
+#endif
+                }
+#endif
                 taskExecutionTimeUs += schedulerExecuteTask(selectedTask, currentTimeUs);
                 nowCycles = getCycleCounter();
                 int32_t cyclesOverdue = cmpTimeCycles(nowCycles, antipatedEndCycles);

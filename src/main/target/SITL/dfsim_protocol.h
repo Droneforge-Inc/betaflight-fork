@@ -100,3 +100,8 @@ _Static_assert(sizeof(dfsim_input_v4_t) == 1192, "DFSim v4 input ABI mismatch");
 _Static_assert(sizeof(dfsim_output_v4_t) == 144, "DFSim v4 output ABI mismatch");
 _Static_assert(sizeof(dfsim_input_v5_t) == 1192, "DFSim v5 input ABI mismatch");
 _Static_assert(sizeof(dfsim_output_v5_t) == 168, "DFSim v5 output ABI mismatch");
+
+#ifdef USE_DF3
+// Map the simulated sensor clock into firmware acquisition time.
+uint64_t df3SitlSensorTimeUs(uint32_t sensorTimeMs);
+#endif

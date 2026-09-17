@@ -25,6 +25,9 @@
 #include <math.h>
 
 #include "platform.h"
+#ifdef USE_DF3
+#include "flight/df3/df3_betaflight.h"
+#endif
 
 #include "blackbox/blackbox.h"
 #include "blackbox/blackbox_fielddefs.h"
@@ -1014,7 +1017,11 @@ void processRxModes(timeUs_t currentTimeUs)
     }
 
     bool canUseHorizonMode = true;
-    if ((IS_RC_MODE_ACTIVE(BOXANGLE) || failsafeIsActive()) && (sensors(SENSOR_ACC))) {
+    if ((IS_RC_MODE_ACTIVE(BOXANGLE) || failsafeIsActive()
+#ifdef USE_DF3
+        || df3BetaflightAssistSelected()
+#endif
+        ) && (sensors(SENSOR_ACC))) {
         // bumpless transfer to Level mode
         canUseHorizonMode = false;
 

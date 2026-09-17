@@ -23,6 +23,9 @@
 #include <float.h>
 
 #include "platform.h"
+#ifdef USE_DF3
+#include "flight/df3/df3_betaflight.h"
+#endif
 
 #include "build/debug.h"
 
@@ -640,6 +643,11 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
         scaledAxisPidYaw = -scaledAxisPidYaw;
     }
 
+#ifdef USE_DF3
+    // Direct calibrated collective; ordinary RC throttle mapping is bypassed
+    // only for explicit assist. Native motor limits/disarm/failsafe remain below.
+    if (df3BetaflightAssistActive()) throttle=df3BetaflightControl()->throttle;
+#endif
     // Apply the throttle_limit_percent to scale or limit the throttle based on throttle_limit_type
     if (currentControlRateProfile->throttle_limit_type != THROTTLE_LIMIT_TYPE_OFF) {
         throttle = applyThrottleLimit(throttle);
@@ -658,7 +666,11 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
 
     // apply throttle boost when throttle moves quickly
 #if defined(USE_THROTTLE_BOOST)
-    if (throttleBoost > 0.0f) {
+    if (throttleBoost > 0.0f
+#ifdef USE_DF3
+        && !df3BetaflightAssistActive()
+#endif
+        ) {
         const float throttleHpf = throttle - pt1FilterApply(&throttleLpf, throttle);
         throttle = constrainf(throttle + throttleBoost * throttleHpf, 0.0f, 1.0f);
     }

@@ -292,6 +292,11 @@ void initialiseMemorySections(void)
     extern uint8_t ccm_code_end;
     extern uint8_t ccm_code;
     memcpy(&ccm_code_start, &ccm_code, (size_t) (&ccm_code_end - &ccm_code_start));
+#ifdef USE_DF3_CCM
+    // Complete startup code writes before fetching the relocated routines.
+    __DSB();
+    __ISB();
+#endif
 #endif
 
 #ifdef USE_FAST_DATA

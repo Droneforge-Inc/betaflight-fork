@@ -23,6 +23,9 @@
 #include <string.h>
 
 #include "platform.h"
+#ifdef USE_DF3
+#include "pg/pg_ids.h"
+#endif
 
 #include "build/build_config.h"
 
@@ -437,6 +440,17 @@ bool loadEEPROM(void)
             }
         } else {
             pgReset(reg);
+#ifdef USE_DF3
+            // Adding the optional DF3 group must not reset an existing aircraft's
+            // arming modes or tuning. Its zero hover calibration prevents motor
+            // authority until explicitly configured. All other load validation
+            // retains its original behavior on hardware and SITL.
+            if (pgN(reg) == PG_DF3_CONFIG || pgN(reg) == PG_DF3_CALIBRATION_CONFIG ||
+                pgN(reg) == PG_DF3_FLOW_CONFIG) {
+                *reg->fnv_hash = fnv_update(FNV_OFFSET_BASIS, reg->address, pgSize(reg));
+                continue;
+            }
+#endif
 #ifdef SITL
             // New simulator-only facilities default their absent groups in RAM.
             // Preserve all existing flight settings and never migrate the seed.

@@ -157,7 +157,10 @@
 #define PG_MSP_CONFIG               557
 #define PG_SOFTSERIAL_PIN_CONFIG    558
 #define PG_OPTICALFLOW_CONFIG       559
-#define PG_BETAFLIGHT_END           559
+#define PG_DF3_CONFIG               560
+#define PG_DF3_CALIBRATION_CONFIG   561
+#define PG_DF3_FLOW_CONFIG          562
+#define PG_BETAFLIGHT_END           563
 
 
 // OSD configuration (subject to change)

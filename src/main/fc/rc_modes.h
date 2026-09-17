@@ -80,6 +80,10 @@ typedef enum {
     BOXREADY,
     BOXLAPTIMERRESET,
     BOXEKFRESET,
+#ifdef USE_DF3
+    // Append without renumbering existing stored mode IDs.
+    BOXFLIGHTASSIST,
+#endif
     CHECKBOX_ITEM_COUNT
 } boxId_e;
 

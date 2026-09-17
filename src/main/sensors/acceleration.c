@@ -38,6 +38,9 @@
 #include "sensors/boardalignment.h"
 
 #include "acceleration.h"
+#ifdef USE_DF3
+#include "flight/df3/df3_betaflight.h"
+#endif
 
 FAST_DATA_ZERO_INIT acc_t acc;                       // acc access functions
 
@@ -82,6 +85,9 @@ void accUpdate(timeUs_t currentTimeUs)
         const float val = acc.accADC[axis];
         acc.accADC[axis] = accelerationRuntime.accLpfCutHz ? pt2FilterApply(&accelerationRuntime.accFilter[axis], val) : val;
     }
+#ifdef USE_DF3
+    df3BetaflightAccelerometer();
+#endif
 }
 
 #endif

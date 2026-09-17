@@ -25,6 +25,9 @@
 #include <math.h>
 
 #include "platform.h"
+#ifdef USE_DF3
+#include "flight/df3/df3_betaflight.h"
+#endif
 
 #include "build/build_config.h"
 #include "build/debug.h"
@@ -391,6 +394,12 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 
 #ifdef USE_GPS_RESCUE
     angleTarget += gpsRescueAngle[axis] / 100.0f; // Angle is in centidegrees, stepped on roll at 10Hz but not on pitch
+#endif
+#ifdef USE_DF3
+    if (df3BetaflightAssistActive()) {
+        angleTarget=constrainf(df3BetaflightControl()->angleDeg[axis],-angleLimit,angleLimit);
+        angleFeedforward=0; // Ground RC sticks do not provide assist feedforward.
+    }
 #endif
     const float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
     const float errorAngle = angleTarget - currentAngle;
@@ -814,7 +823,11 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     const bool gpsRescueIsActive = FLIGHT_MODE(GPS_RESCUE_MODE);
     levelMode_e levelMode;
     if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE) || gpsRescueIsActive) {
-        if (pidRuntime.levelRaceMode && !gpsRescueIsActive) {
+        if (pidRuntime.levelRaceMode && !gpsRescueIsActive
+#ifdef USE_DF3
+            && !df3BetaflightAssistSelected()
+#endif
+            ) {
             levelMode = LEVEL_MODE_R;
         } else {
             levelMode = LEVEL_MODE_RP;
@@ -888,6 +901,10 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
 
         float currentPidSetpoint = getSetpointRate(axis);
+#ifdef USE_DF3
+        if (axis==FD_YAW && df3BetaflightAssistActive())
+            currentPidSetpoint=df3BetaflightControl()->yawRateDeg;
+#endif
         if (pidRuntime.maxVelocity[axis]) {
             currentPidSetpoint = accelerationLimit(axis, currentPidSetpoint);
         }

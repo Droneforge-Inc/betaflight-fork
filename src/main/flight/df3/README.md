@@ -17,6 +17,106 @@ production options. Profiling does not select a different runtime.
 Controller gains and sensor geometry remain in the existing `df3_*` settings;
 this build selection does not replace a board's calibrated profile.
 
+## Output corrections
+
+The current-time EKF projection remains separate from the position/velocity
+sent to the controller and state telemetry. A small translation observer
+predicts that output using the preceding estimated physical acceleration,
+then applies the disagreement with the new projection using a 15 ms time
+constant. A consistent constant-acceleration trajectory passes without lag;
+measurement-induced corrections are spread over successive output calls.
+This does not remove acceleration noise or establish absolute XY position.
+
+Acceleration, attitude and bias outputs are unchanged. The observer never
+feeds back into the EKF, its covariance, range policy or bias adaptation.
+`covarianceTimeUs` still identifies the internal fused state's covariance;
+it is not a covariance estimate for the smoothed output. Sensor freshness
+and fault checks remain authoritative, and the normal fusion reset clears
+the observer before another flight. The cost is 48 bytes of fixed state,
+one exponential and constant work per valid output, with no new option or
+telemetry payload. Longer correction times require renewed closed-loop
+validation: smoothing can reduce damping and increase physical jitter.
+
+## Sensor timing and noise weighting
+
+DF3 uses the complete MTF packet's raw millimetre range, tilt-corrected and
+stamped at the mapped acquisition time. It preserves the rangefinder validity
+gate; the legacy five-sample median remains available to other consumers.
+Stamping that median as a current observation adds a motion-dependent delay
+that can be mistaken for accelerometer bias.
+
+Flow conversion uses that same raw range report and carries its signal strength
+to fusion. The MTF-02's observed quantization is 10 cm/s at 1 m (the wire unit is
+still 1 cm/s), so velocity bin width is `0.1 * height` m/s. SITL can declare a
+different sensor resolution through its existing environment override.
+
+Flow's quality/rotation variance keeps its existing floor below 1 m and scales
+with height squared above it. Independent range uncertainty also contributes:
+linearizing `v = height * angularFlow` at predicted velocity gives a shared X/Y
+scale error. A diagonal upper bound preserves the quantized update's diagonal
+covariance requirement. This does not add gyro-bias covariance twice; that
+uncertainty is already propagated through the observation Jacobian. The range
+noise history available at the flow midpoint is used with this packet's strength.
+These conservative weights need flight validation; simulation cannot establish
+the real camera's delay, vibration sensitivity or complete noise distribution.
+
+The IMU reducer carries a bounded second-difference noise proxy alongside the
+unchanged windowed specific force. The fusion step increases measurement
+variance when that proxy rises. The proxy is tuned for the existing 25 Hz FC
+accelerometer low-pass; bypassing or changing that filter requires retuning.
+Range weighting similarly uses a bounded third-difference noise proxy and a
+positive variance floor. These proxies reject low-order motion; they are tuning
+signals, not calibrated estimates of every sensor's true noise distribution.
+Range variance is `(0.001 + 5 * measuredNoiseVariance)` m² before the existing
+signal-strength scaling. Raising IMU uncertainty alone can increase acceleration
+corrections from range; validate these weights together.
+
+Nominal IMU variances are 0.324, 0.324 and 1.200 (m/s²)². Jerk process
+intensities are 2.7, 2.7 and 5.4, and accelerometer-bias random-walk intensities
+are 0.1, 0.1 and 1.0. Prediction constants are shared by synchronous and
+multirate implementations. The existing bias states, covariance update,
+stationary constraints and terrain policy remain responsible for bias learning.
+Persistent, range-anchored body-Z IMU innovation uses a 200 ms signed average.
+Outside a 0.15 m/s² deadband it can add bounded bias covariance; this avoids
+keeping the fast bias response active during ordinary clean motion. Both the
+deadband and covariance bound must be validated together with sensor weighting.
+
+A rejected flow report does not invalidate a previously admitted measurement.
+Only a successful enqueue refreshes its age; sustained loss still expires at
+the existing 150 ms controller bound. No extra telemetry, debug option or
+controller input is introduced by these changes.
+
+## Fixed-gain outer controller
+
+FC 1.3.27 restores the original FC 1.3.22 flight-profile Riccati gains:
+Kp/Kv/Ki = 1.208/1.641/0.105 on X/Y and 2.987/2.642/0.501 on Z.
+The controller uses the configured gains directly for both feedback and
+antiwindup. There are no quiet/recovery endpoints, error-dependent gain
+thresholds or gain-scheduling option. Firmware task scheduling is unchanged.
+
+Firmware settings store the fixed gains in SI units multiplied by 1000.
+Updating firmware preserves saved PG values, so matching NimbusOS AIR75 II
+flash profiles restore all nine gains on existing aircraft too. This returns
+both lateral and vertical coefficients to the original R7 design, without
+applying the subsequent Qv multipliers.
+
+The estimator improvements and 15 ms output observer are retained. An invalid
+vertical reference still suppresses Z position feedback and integral accumulation,
+while configured velocity feedback and the existing integral remain active.
+Reference-loss handling, native/manual priority and actuator limits are unchanged.
+Restoring historical coefficients does not by itself qualify the resulting
+estimator/controller combination on hardware.
+
+Z accumulated position-error headroom is 3 m·s, allowing 1.503 m/s² of sustained
+correction at Ki = 0.501.
+The previous 0.5 m·s limit saturated during a long simulated battery discharge.
+Existing acceleration, throttle and conditional antiwindup limits still apply;
+this headroom does not replace a valid hover/thrust calibration.
+
+Native stress tests and full simulations measure errors, spikes and physical
+motion spectra separately. These results do not establish vibration rejection,
+timing margins or flight qualification for a particular aircraft.
+
 ## Backend and target support
 
 - Cortex-M4/M7 hard-float targets compile `joseph_m4f.S` and

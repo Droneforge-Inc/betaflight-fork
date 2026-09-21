@@ -42,10 +42,12 @@ void df3RotationStep(df3Rotation_t *rotation, const float gyro[3], const float b
 
 /* Left-held filtered accelerometer integrated by duration over fixed bins.
  * The event center is exact; data[3..5] is the window mean, data[0] records
- * stationary eligibility. data[1..2] are reserved, NOT gyro samples. */
+ * stationary eligibility. data[1..2] carry filtered force roughness (XY/Z),
+ * in squared m/s^2 normalized to a 1 ms second difference; never gyro. */
 typedef struct {
     uint64_t lastUs, startUs, attitudeBin, stationarySinceUs;
     float held[3], sum[3], rangeAnchor;
+    float forceDerivative[3], forceRoughness[3], derivativeDt;
     uint32_t windows, gaps, invalid, partial;
     bool haveSample, stationary;
 } df3ImuReducer_t;

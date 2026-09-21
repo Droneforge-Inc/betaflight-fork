@@ -18,6 +18,10 @@ static float strengthScale(float strength)
 {
     return 1 + 4 * (1 - qualityNormalized(strength));
 }
+float df3RangeMeasurementVariance(const df3RangePolicy_t *p, float strength)
+{
+    return (.001f + 5.f * p->measuredNoiseVariance) * strengthScale(strength);
+}
 static float rangeRateVariance(float dt)
 {
     const float s = fmaxf(1, .08f / dt);
@@ -36,6 +40,42 @@ void df3RangeReset(df3RangePolicy_t *p, float initialRange, uint64_t us, float s
     storeRange(p, initialRange, us, strengthScale(strength));
 }
 
+/* Sensor-noise proxy: the third divided difference
+ * eliminates constant position, velocity and acceleration, including unequal
+ * sample spacing. Divide by the coefficient energy to retain m^2 units. */
+static void observeRangeNoise(df3RangePolicy_t *p, float range, uint64_t us)
+{
+    if (p->noiseCount && (us <= p->noiseUs[p->noiseCount - 1] ||
+                         us - p->noiseUs[p->noiseCount - 1] > 250000)) {
+        p->noiseCount = 0;
+    }
+    if (p->noiseCount == 3) {
+        const float values[4] = {p->noiseRange[0], p->noiseRange[1], p->noiseRange[2], range};
+        const uint64_t times[4] = {p->noiseUs[0], p->noiseUs[1], p->noiseUs[2], us};
+        float residual = 0, weightEnergy = 0;
+        for (unsigned i = 0; i < 4; ++i) {
+            float coefficient = 1;
+            for (unsigned j = 0; j < 4; ++j) {
+                if (j != i) {
+                    coefficient /= (float)((int64_t)times[i] - (int64_t)times[j]) * .00005f;
+                }
+            }
+            residual += coefficient * values[i];
+            weightEnergy += coefficient * coefficient;
+        }
+        const float variance = fminf(1.f, residual * residual / weightEnergy);
+        const float dt = (float)(us - p->noiseUs[2]) * 1e-6f;
+        p->measuredNoiseVariance += dt / (.1f + dt) * (variance - p->measuredNoiseVariance);
+        for (unsigned i = 0; i < 2; ++i) {
+            p->noiseRange[i] = p->noiseRange[i + 1];
+            p->noiseUs[i] = p->noiseUs[i + 1];
+        }
+        p->noiseCount = 2;
+    }
+    p->noiseRange[p->noiseCount] = range;
+    p->noiseUs[p->noiseCount++] = us;
+}
+
 df3RangeDecision_t df3RangeObserve(df3RangePolicy_t *p, float range, uint64_t us, float position, float velocity,
                                    float strength, float positionVar, float velocityVar)
 {
@@ -47,6 +87,7 @@ df3RangeDecision_t df3RangeObserve(df3RangePolicy_t *p, float range, uint64_t us
     if (!isfinite(range) || !isfinite(position) || !isfinite(velocity)) {
         return d;
     }
+    observeRangeNoise(p, range, us);
     const float scale = strengthScale(strength);
     const bool hasDelta = p->previousUs != 0 && us > p->previousUs;
     const uint64_t deltaUs = hasDelta ? us - p->previousUs : 0;
@@ -150,11 +191,12 @@ df3RangeDecision_t df3RangeObserve(df3RangePolicy_t *p, float range, uint64_t us
     }
     d.hasPosition = true;
     d.position = range + p->terrain;
-    /* Constrain false vertical motion from changing acceleration bias. The
-     * 3.16-cm nominal sigma is fusion tuning, not a sensor accuracy claim.
+    /* Constrain false vertical motion from changing acceleration bias.
+     * The variance floor and measured-noise multiplier are fusion tuning,
+     * not sensor accuracy claims.
      * Keep terrain gates above unchanged and still weaken poor returns.
-     * See DF3_VERTICAL_FUSION_FIX_2026_09_16.md for bias/noise tradeoffs. */
-    d.positionVariance = .001f * scale;
+     * Bias response and physical motion must be checked together. */
+    d.positionVariance = df3RangeMeasurementVariance(p, strength);
     if (hasDt && fabsf(rate) <= 13.696244240f) {
         d.hasVelocity = true;
         d.velocity = rate;
@@ -178,20 +220,32 @@ void df3RobustVelocityCovariance(const float z[3], const float pred[3], const fl
                                  float quality, float R[9])
 {
     const float prior[2] = {P[DF3_EV * 18 + DF3_EV], P[(DF3_EV + 1) * 18 + DF3_EV + 1]};
-    df3RobustFlowCovariance(z, pred, prior, p, q, quality, R);
+    const df3FlowNoise_t noise = {.pRadps = p, .qRadps = q, .quality = quality, .height = 1};
+    df3RobustFlowCovariance(z, pred, prior, &noise, R);
 }
 
-void df3RobustFlowCovariance(const float z[3], const float pred[3], const float prior[2], float p, float q,
-                             float quality, float R[9])
+void df3RobustFlowCovariance(const float z[3], const float pred[3], const float prior[2],
+                             const df3FlowNoise_t *noise, float R[9])
 {
-    const float r2 = p * p + q * q, rate = sqrtf(r2), base = 1 + 2 * r2;
+    const float r2 = noise->pRadps * noise->pRadps + noise->qRadps * noise->qRadps;
+    const float rate = sqrtf(r2), base = 1 + 2 * r2;
     const float low = .3490658503988659f, high = 1.3962634015954636f;
     const float ratio = clamp((rate - low) / (high - low), 0, 1);
     const float rotationScale = rate <= low ? base : base + ratio * ratio * (fmaxf(base, 25) - base);
-    const float error = 1 - qualityNormalized(quality);
+    const float error = 1 - qualityNormalized(noise->quality);
+    const float height2 = noise->height * noise->height;
+    /* v = height * angular flow. Preserve the established near-ground floor;
+     * above 1 m the angular/rotation noise grows with squared distance.
+     * Linearize range scaling at predicted velocity; measurement residuals
+     * are handled separately by the robust weighting below.
+     * One shared range error correlates X/Y. Its trace times identity bounds
+     * that rank-one covariance while retaining the quantizer's diagonal R.
+     * Gyro-bias state uncertainty is already in HPH', not added again here. */
+    const float rangeNoise = noise->rangeVariance * (pred[0] * pred[0] + pred[1] * pred[1]) / fmaxf(height2, .0001f);
+    const float variance = .135f * rotationScale * (1 + 4 * error * error) * fmaxf(1, height2) + rangeNoise;
     memset(R, 0, 9 * sizeof(float));
     for (unsigned i = 0; i < 2; ++i) {
-        R[4 * i] = huber(z[i] - pred[i], fmaxf(0, prior[i]), .135f * rotationScale * (1 + 4 * error * error), 2.5f);
+        R[4 * i] = huber(z[i] - pred[i], fmaxf(0, prior[i]), variance, 2.5f);
     }
     R[8] = 1e6f;
 }

@@ -210,7 +210,7 @@ static void df3MultirateAddNoise(const df3CoreJob_t *j, float P[N * N])
     for (unsigned axis = 0; axis < 3; ++axis) {
         for (unsigned i = 0; i < 3; ++i) {
             for (unsigned k = 0; k < 3; ++k) {
-                P[IX(3 * i + axis, 3 * k + axis)] += jerk[3 * i + k];
+                P[IX(3 * i + axis, 3 * k + axis)] += jerk[3 * i + k] * jerkNoiseScale[axis];
             }
         }
     }
@@ -221,7 +221,7 @@ static void df3MultirateAddNoise(const df3CoreJob_t *j, float P[N * N])
             P[IX(DF3_EBG + k, DF3_ET + i)] += j->rotation.C[3 * i + k];
         }
         P[IX(DF3_EBG + i, DF3_EBG + i)] += j->rotation.bb;
-        P[IX(DF3_EBA + i, DF3_EBA + i)] += .000009f * dt;
+        P[IX(DF3_EBA + i, DF3_EBA + i)] += accelBiasNoise[i] * dt;
     }
 }
 

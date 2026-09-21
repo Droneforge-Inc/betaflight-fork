@@ -3,10 +3,10 @@
 #include "df3_estimator.h"
 #include "df3_reference.h"
 
-// Accumulated position error, m*s. With the effort-10x XY Ki of .088,
-// this permits .44 m/s^2 of steady correction without increasing Ki.
+// Accumulated position error, m*s. Acceleration/throttle limits and
+// conditional antiwindup still apply.
 #define DF3_CONTROL_XY_INTEGRAL_LIMIT_M_S 5.0f
-#define DF3_CONTROL_Z_INTEGRAL_LIMIT_M_S 0.5f
+#define DF3_CONTROL_Z_INTEGRAL_LIMIT_M_S 3.0f
 
 // Controller cadence and fallback policy; timestamps are microseconds.
 enum { DF3_CONTROL_PERIOD_US = 4000, DF3_CONTROL_MAX_GAP_US = 20000, DF3_CONTROL_REFERENCE_HOLD_US = 500000 };
@@ -17,6 +17,7 @@ enum { DF3_CONTROL_PERIOD_US = 4000, DF3_CONTROL_MAX_GAP_US = 20000, DF3_CONTROL
 #define DF3_CONTROL_MAX_THROTTLE .85f
 
 typedef struct {
+    // Fixed feedback gains from the aircraft configuration, in SI units.
     float kp[3], kv[3], ki[3], integralLimit[3];
     float hoverThrottle, accelToThrottle, maxTiltRad;
 } df3ControlConfig_t;

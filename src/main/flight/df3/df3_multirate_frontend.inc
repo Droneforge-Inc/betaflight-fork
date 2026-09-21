@@ -74,11 +74,31 @@ int df3ImuReducerPush(df3ImuReducer_t *r, uint64_t us, const float gyro[3], cons
             ++r->partial;
         }
         memset(r->sum, 0, sizeof(r->sum));
+        memset(r->forceDerivative, 0, sizeof(r->forceDerivative));
+        memset(r->forceRoughness, 0, sizeof(r->forceRoughness));
+        r->derivativeDt = 0;
         r->haveSample = true;
         r->lastUs = us;
         memcpy(r->held, force, sizeof(r->held));
         return 0;
     }
+    /* Second time difference rejects constant force and constant jerk.
+     * Normalize to one millisecond and smooth the energy by elapsed time.
+     * The tuned input is the FC accelerometer after its 25 Hz low-pass.
+     * This is a noise proxy, not an acceleration/bias observation. */
+    const float sensorDt = (float)(us - r->lastUs) * 1e-6f;
+    for (unsigned axis = 0; axis < 3; ++axis) {
+        const float derivative = (force[axis] - r->held[axis]) / sensorDt;
+        if (r->derivativeDt > 0) {
+            const float roughness = (derivative - r->forceDerivative[axis]) *
+                                    (.000002f / (sensorDt + r->derivativeDt));
+            const float energy = fminf(100.f, roughness * roughness);
+            r->forceRoughness[axis] += sensorDt / (.05f + sensorDt) *
+                                      (energy - r->forceRoughness[axis]);
+        }
+        r->forceDerivative[axis] = derivative;
+    }
+    r->derivativeDt = sensorDt;
     const uint64_t boundary = r->startUs + DF3_EPOCH_US;
     const uint64_t begin = r->lastUs > r->startUs ? r->lastUs : r->startUs;
     const uint64_t end = us < boundary ? us : boundary;
@@ -91,6 +111,8 @@ int df3ImuReducerPush(df3ImuReducer_t *r, uint64_t us, const float gyro[3], cons
     if (us >= boundary) {
         *out = (df3Event_t){.us = r->startUs + DF3_EPOCH_US / 2, .kind = DF3_EVENT_IMU};
         out->data[0] = r->stationary ? 1.f : 0.f;
+        out->data[1] = fmaxf(r->forceRoughness[0], r->forceRoughness[1]);
+        out->data[2] = r->forceRoughness[2];
         for (unsigned i = 0; i < 3; ++i) {
             out->data[i + 3] = r->sum[i] / DF3_EPOCH_US;
             r->sum[i] = r->held[i] * (float)(us - boundary);

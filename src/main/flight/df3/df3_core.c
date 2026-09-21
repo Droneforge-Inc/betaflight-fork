@@ -20,6 +20,12 @@
 #define DF3_CCM_CODE
 #endif
 
+/* Scale the analytic q=9 jerk block: XYZ intensities are 2.7, 2.7, 5.4.
+ * Body accelerometer bias random walks are 0.1, 0.1, 1.0 (m/s^2)^2/s.
+ * Both prediction paths share these constants. */
+static const float jerkNoiseScale[3] = {.3f, .3f, .6f};
+static const float accelBiasNoise[3] = {.1f, .1f, 1.f};
+
 #define N DF3_NE
 #define IX(r, c) ((r) * N + (c))
 
@@ -353,7 +359,7 @@ static DF3_CCM_CODE void addProcessNoise(float P[N * N], const float x[DF3_NX], 
     for (unsigned axis = 0; axis < 3; ++axis) {
         for (unsigned i = 0; i < 3; ++i) {
             for (unsigned j = 0; j < 3; ++j) {
-                P[IX(3 * i + axis, 3 * j + axis)] += jerk[3 * i + j];
+                P[IX(3 * i + axis, 3 * j + axis)] += jerk[3 * i + j] * jerkNoiseScale[axis];
             }
         }
     }
@@ -382,7 +388,7 @@ static DF3_CCM_CODE void addProcessNoise(float P[N * N], const float x[DF3_NX], 
     }
     for (unsigned i = 0; i < 3; ++i) {
         P[IX(DF3_EBG + i, DF3_EBG + i)] += .000004f * dt;
-        P[IX(DF3_EBA + i, DF3_EBA + i)] += .000009f * dt;
+        P[IX(DF3_EBA + i, DF3_EBA + i)] += accelBiasNoise[i] * dt;
     }
 }
 

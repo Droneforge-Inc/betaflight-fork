@@ -76,13 +76,20 @@ typedef struct {
 #ifdef USE_DF3_MULTIRATE
     /* Foreground output polling must not evict the worker replay hint. */
     uint16_t outputHistoryHint;
+    /* Controller-facing translation observer. The committed cache above stays
+     * an unmodified EKF projection; this state never feeds back into fusion.
+     * P/V plus the preceding physical acceleration for motion prediction. */
+    float outputMotion[9];
+    uint64_t outputTimeUs;
 #endif
 } df3FusionJob_t;
 #ifdef USE_DF3_MULTIRATE
 /* Baseline ARM owner 4064 B, minus 56*40 B batch entries, plus the explicitly
- * allocated 1024 B frontend/scratch allowance. No second covariance or heap. */
-_Static_assert(sizeof(df3FusionJob_t) + sizeof(df3ImuReducer_t) <= 2848,
-               "100 Hz owner/frontend exceeded the reviewed storage allowance");
+ * allocated 1024 B frontend/scratch allowance, plus 32 B for the IMU
+ * roughness observer and 48 B for the translation output observer (including
+ * alignment). No second covariance or heap. */
+_Static_assert(sizeof(df3FusionJob_t) + sizeof(df3ImuReducer_t) <= 2928,
+               "Multirate owner/frontend exceeded the bounded storage allowance");
 #endif
 
 void df3FusionReset(df3FusionJob_t *job);
@@ -99,7 +106,9 @@ void df3FusionResume(df3FusionJob_t *job, df3Estimator_t *e);
 /* Stable scheduling cost bucket; never changes estimator math or state. */
 unsigned df3FusionPhaseKey(const df3FusionJob_t *job);
 #endif
-/* Fast nominal projection of the last committed estimate. Never reads a
- * partly updated covariance. Expiration checks use fused sensor timestamps. */
+/* Fast nominal projection with gradual P/V corrections for the controller.
+ * Acceleration, attitude and biases retain their EKF meaning. Never reads a
+ * partly updated covariance. Expiration checks use fused sensor timestamps;
+ * covarianceTimeUs describes the raw fusion, not an observer covariance. */
 bool df3FusionOutput(df3FusionJob_t *job, const df3Estimator_t *e, uint64_t nowUs, df3Estimate_t *out);
 #endif

@@ -74,7 +74,7 @@ bool df3FusionEnqueue(df3FusionJob_t *j, df3Estimator_t *e, const df3Event_t *ev
     if (!j || !e || !event || !e->initialized || e->failed || (unsigned)event->kind >= DF3_EVENT_KIND_COUNT) {
         return false;
     }
-    const unsigned fields[] = {6, 4, 2, 6, 0};
+    const unsigned fields[] = {6, 4, 2, 7, 0};
     for (unsigned i = 0; i < fields[event->kind]; ++i) {
         if (!isfinite(event->data[i])) {
             return false;
@@ -453,6 +453,7 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
             return;
         }
 #endif
+        trackAccelerometerBias(e, event->us, event->data[5] - j->h[2]);
         memset(j->prior, 0, sizeof(j->prior));
         j->priorAxis = 0;
         j->phase = FUSION_PRIOR;
@@ -473,7 +474,18 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
         return;
     }
     case FUSION_IMU_UPDATE:
+        if (!event) {
+            fusionFail(j, e);
+            return;
+        }
         df3RobustAccelerometerCovariance(event->data + 3, j->h, j->prior, accelerationR, j->R);
+#ifdef USE_DF3_MULTIRATE
+        // Add measured force roughness to the observation covariance;
+        // the state still receives the original duration-weighted force mean.
+        j->R[0] += 1000.f * event->data[1];
+        j->R[4] += 1000.f * event->data[1];
+        j->R[8] += 6000.f * event->data[2];
+#endif
         fusionUpdate(j, event->data + 3, j->R, 16.27f, FUSION_IMU_ZERO_VEL);
         return;
     case FUSION_IMU_ZERO_VEL:
@@ -487,9 +499,13 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
             j->phase = FUSION_EVENT_DONE;
         }
         return;
-    case FUSION_FLOW_UPDATE:
-        df3RobustFlowCovariance(j->z, j->h, j->prior, event->data[2] - x[DF3_BG], -(event->data[3] - x[DF3_BG + 1]),
-                                event->data[4], j->R);
+    case FUSION_FLOW_UPDATE: {
+        const df3FlowNoise_t noise = {
+            .pRadps = event->data[2] - x[DF3_BG], .qRadps = event->data[3] - x[DF3_BG + 1],
+            .quality = event->data[4], .height = event->data[5] * e->flowHeightPerGain,
+            .rangeVariance = df3RangeMeasurementVariance(&e->terrain, event->data[6])};
+        df3RobustFlowCovariance(j->z, j->h, j->prior, &noise, j->R);
+    }
 #ifdef USE_DF3_MULTIRATE
         df3FlowQuantizedStart(&j->quantized, e->flowQuantumPerGain * event->data[5]);
         j->phase = FUSION_FLOW_QUANTIZED;
@@ -585,6 +601,44 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
     }
 }
 
+#ifdef USE_DF3_MULTIRATE
+static bool fusionObserveOutput(df3FusionJob_t *j, df3Estimate_t *out)
+{
+    if (!j->outputTimeUs) {
+        memcpy(j->outputMotion, out->x, sizeof(j->outputMotion));
+        j->outputTimeUs = out->timeUs;
+        return true;
+    }
+    if (out->timeUs < j->outputTimeUs) {
+        return false;
+    }
+    const float dt = (float)(out->timeUs - j->outputTimeUs) * 1e-6f;
+    /* Preserve predicted motion; relax only its disagreement with the latest
+     * corrected estimate. A consistent constant-acceleration trajectory has
+     * no filter lag. Fusion-induced P/V steps use a 15 ms time constant;
+     * longer correction times reduce damping in the closed-loop noise tests.
+     * Elapsed time, not poll count, sets the gain. One exp and three axes;
+     * no replay, covariance work, heap or new scheduler phase. */
+    const float gain = 1.f - expf(-dt / .015f);
+    float next[9];
+    for (unsigned i = 0; i < 3; ++i) {
+        const float position = j->outputMotion[i] + j->outputMotion[DF3_V + i] * dt +
+                               .5f * j->outputMotion[DF3_A + i] * dt * dt;
+        const float velocity = j->outputMotion[DF3_V + i] + j->outputMotion[DF3_A + i] * dt;
+        next[i] = position + gain * (out->x[i] - position);
+        next[DF3_V + i] = velocity + gain * (out->x[DF3_V + i] - velocity);
+        next[DF3_A + i] = out->x[DF3_A + i];
+        if (!isfinite(next[i]) || !isfinite(next[DF3_V + i]) || !isfinite(next[DF3_A + i])) {
+            return false;
+        }
+    }
+    memcpy(j->outputMotion, next, sizeof(next));
+    j->outputTimeUs = out->timeUs;
+    memcpy(out->x, next, 6 * sizeof(float));
+    return true;
+}
+#endif
+
 bool df3FusionOutput(df3FusionJob_t *j, const df3Estimator_t *e, uint64_t now, df3Estimate_t *out)
 {
     DF3_PROFILE_SCOPE(DF3_PROF_OUTPUT);
@@ -658,6 +712,11 @@ bool df3FusionOutput(df3FusionJob_t *j, const df3Estimator_t *e, uint64_t now, d
     out->valid = j->committed.valid && now - e->bootstrapUs >= 150000 && now >= j->committedImuUs &&
                  now - j->committedImuUs <= 200000 && now >= j->committedAttitudeUs &&
                  now - j->committedAttitudeUs <= 250000;
+#ifdef USE_DF3_MULTIRATE
+    if (out->valid && !fusionObserveOutput(j, out)) {
+        out->valid = false;
+    }
+#endif
     out->verticalReferenceValid = out->valid && now >= j->committedVerticalUs && now - j->committedVerticalUs <= 500000;
     return out->valid;
 }

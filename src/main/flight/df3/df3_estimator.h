@@ -22,9 +22,10 @@ typedef struct {
     /* IMU: gyro FRD rad/s, accelerometer FRD specific force m/s2.
      * ATTITUDE: q_LB wxyz. RANGE: negative clearance, strength.
      * FLOW: zero-bias compensated body forward/right m/s, interval-average
-     * FRD p/q, quality, height*rotationScale. Bias is applied at fusion time.
+     * FRD p/q, quality, height*rotationScale, same-report range strength.
+     * Bias is applied at fusion time.
      * ACTIVATE: none. */
-    float data[6];
+    float data[7];
 } df3Event_t;
 typedef struct {
     df3Core_t core;
@@ -38,10 +39,15 @@ typedef struct {
      * Multiply by the FLOW event's height*rotationScale for body m/s bins.
      * Zero retains legacy continuous observations. Set after initialization. */
     float flowQuantumPerGain;
+    float flowHeightPerGain; // 1 / calibrated rotationScale; default 1
     /* Fixed calibrated lens offset, body FRD metres. Set after initialization.
      * Do not include this in flowQuantumPerGain: a lever arm changes gyro
      * sensitivity but does not change the sensor's velocity bin width. */
     float flowSensorOffset[3];
+    /* Signed body-Z innovation average, maintained on the fusion clock.
+     * This controls covariance adaptation, not an additional bias estimate. */
+    float accelBiasInnovationMean;
+    uint64_t accelBiasInnovationUs;
     uint32_t lagUs, predictions, updates, rejected, stale, overflow;
     uint16_t count;
     uint8_t verticalUpdates;

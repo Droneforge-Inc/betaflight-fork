@@ -12,6 +12,7 @@ PG_REGISTER_WITH_RESET_TEMPLATE(df3FlowConfig_t, df3FlowConfig, PG_DF3_FLOW_CONF
 PG_RESET_TEMPLATE(df3FlowConfig_t, df3FlowConfig, .rotationScale = 758, .sensorOffset = {0, 0, 0});
 PG_RESET_TEMPLATE(df3Config_t, df3Config,
                   // No motor authority until the aircraft's collective calibration is set.
-                  .hover = 0, .accelToThrottle = 264, .kp = {4000, 4000, 14720}, .kv = {3600, 3600, 7256},
-                  .ki = {400, 400, 5781}, .maxTiltDeg = 20);
+                  .hover = 0, .accelToThrottle = 264,
+                  // Fixed Riccati gains restored from the FC 1.3.22 flight profile; SI units * 1000.
+                  .kp = {1208, 1208, 2987}, .kv = {1641, 1641, 2642}, .ki = {105, 105, 501}, .maxTiltDeg = 20);
 #endif

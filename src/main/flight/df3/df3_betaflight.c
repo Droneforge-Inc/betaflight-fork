@@ -117,15 +117,15 @@ static uint64_t lastImuUs, lastAttitudeUs, lastRangeUs, lastGyroHistoryUs;
 static bool booted, wasArmed, activationQueued;
 static struct {
     uint64_t receivedUs, endUs;
-    uint32_t generation, intervalUs, previousSourceMs;
+    uint32_t generation, intervalUs, previousSourceMs, rangeMm;
     uint8_t sequence;
     bool timingValid, hasPrevious;
     uint8_t rangeStatus, flowStatus, quality, strength;
 } mtf;
 static uint32_t rangeGeneration, flowGeneration, flowAccepted, flowRejected;
-/* MTF wire units are normalized cm/s. A coarser hardware acquisition grid is
- * not established by telemetry alone; do not assume the sim's 10-count grid. */
-static float flowQuantizationCMPS = 1;
+/* MTF-02 flight recordings exhibit a 10-count grid at 1 m, despite the
+ * normalized cm/s wire units. Match that observed acquisition resolution. */
+static float flowQuantizationCMPS = 10;
 
 float df3BetaflightCalibrationHover(float a0, float a1, float voltage)
 {
@@ -255,7 +255,7 @@ void df3BetaflightInit(void)
 #endif
 #ifdef SITL
     const char *quantum = getenv("DFSIM_DF3_FLOW_QUANTIZATION_CMPS");
-    flowQuantizationCMPS = 1;
+    flowQuantizationCMPS = 10;
     if (quantum && *quantum) {
         char *end;
         const float value = strtof(quantum, &end);
@@ -287,6 +287,7 @@ void df3BetaflightInit(void)
     memset(&mtf, 0, sizeof(mtf));
     lastImuUs = lastAttitudeUs = lastRangeUs = lastGyroHistoryUs = 0;
     rangeGeneration = flowGeneration = flowAccepted = flowRejected = 0;
+    memset(&lastFlow, 0, sizeof(lastFlow));
     wasArmed = activationQueued = false;
     booted = true;
 #ifdef SITL
@@ -562,11 +563,25 @@ void df3BetaflightMtfFrame(const uint8_t payload[20], uint8_t sequence)
     mtf.previousSourceMs = sourceMs;
     mtf.sequence = sequence;
     mtf.hasPrevious = true;
+    mtf.rangeMm = little32(payload + 4);
     mtf.rangeStatus = payload[10];
     mtf.flowStatus = payload[17];
     mtf.quality = payload[16];
     mtf.strength = payload[8];
     ++mtf.generation;
+}
+
+static bool mtfClearance(float *clearance)
+{
+    // rangeMm comes directly from the MTF packet, before the legacy rangefinder's
+    // median filter and tilt correction. Apply tilt once to this raw distance;
+    // the already-corrected altitude getter below is only a validity check.
+    *clearance = .001f * (float)mtf.rangeMm * getCosTiltAngle();
+    const uint64_t now = df3TimeUs();
+    // Share the raw report and health checks; the legacy altitude includes a
+    // median filter and integer-cm rounding, unsuitable for scaling this flow.
+    return mtf.rangeStatus && isfinite(*clearance) && rangefinderGetLatestAltitudeMeters() > 0 &&
+           *clearance > 0 && *clearance < 6 && mtf.endUs && now >= mtf.endUs && now - mtf.endUs <= 100000;
 }
 
 void df3BetaflightRange(void)
@@ -576,16 +591,16 @@ void df3BetaflightRange(void)
         return;
     }
     rangeGeneration = mtf.generation;
-    const float clearance = rangefinderGetLatestAltitudeMeters();
-    if (!mtf.rangeStatus || !isfinite(clearance) || clearance <= 0 || df3TimeUs() - mtf.receivedUs > 100000) {
+    float clearance;
+    if (!mtfClearance(&clearance)) {
         return;
     }
     lastRange = -clearance;
     lastStrength = (float)mtf.strength;
-    lastRangeUs = df3TimeUs();
+    lastRangeUs = mtf.endUs;
     const float data[2] = {lastRange, lastStrength};
-    /* Preserve median filtering and tilt correction at the MTF's mm precision.
-   * Its timestamp is processing time, not a fictitious raw capture time. */
+    /* DF3 owns range weighting. Fuse the unfiltered millimetre sample at
+     * acquisition time; the legacy median remains available to other users. */
     enqueue(DF3_EVENT_RANGE, lastRangeUs, data, 2);
 }
 
@@ -596,8 +611,7 @@ void df3BetaflightFlow(void)
         return;
     }
     flowGeneration = mtf.generation;
-    const int32_t cm = rangefinderGetLatestAltitude();
-    const uint64_t now = df3TimeUs();
+    float clearance;
     const float normalized[2] = {.01f * (float)opticalflowGetLatestVelX(), -.01f * (float)opticalflowGetLatestVelY()};
     // Use the same fixed geometry for zero-bias compensation and fusion.
     const float scale = .001f * df3FlowConfig()->rotationScale;
@@ -605,20 +619,22 @@ void df3BetaflightFlow(void)
     for (unsigned i = 0; i < 3; ++i) {
         offset[i] = .001f * df3FlowConfig()->sensorOffset[i];
     }
-    if (!mtf.timingValid || !mtf.rangeStatus || !mtf.flowStatus || cm <= 0 || mtf.endUs < mtf.intervalUs ||
-        now < mtf.endUs || now - mtf.endUs > 100000 ||
-        !df3FlowCompensate(&gyroHistory, mtf.endUs - mtf.intervalUs, mtf.endUs, normalized, (float)cm * .01f, scale,
-                           offset, &lastFlow)) {
+    df3FlowResult_t flow;
+    if (!mtf.timingValid || !mtf.flowStatus || !mtf.quality || !mtfClearance(&clearance) || mtf.endUs < mtf.intervalUs ||
+        !df3FlowCompensate(&gyroHistory, mtf.endUs - mtf.intervalUs, mtf.endUs, normalized, clearance, scale,
+                           offset, &flow)) {
         ++flowRejected;
         return;
     }
-    const float data[6] = {lastFlow.correctedBodyVelocity[0],
-                           lastFlow.correctedBodyVelocity[1],
-                           lastFlow.averageGyro[0],
-                           lastFlow.averageGyro[1],
+    const float data[7] = {flow.correctedBodyVelocity[0],
+                           flow.correctedBodyVelocity[1],
+                           flow.averageGyro[0],
+                           flow.averageGyro[1],
                            (float)mtf.quality,
-                           scale * (float)cm * .01f};
-    if (enqueue(DF3_EVENT_FLOW, lastFlow.midpointUs, data, 6)) {
+                           scale * clearance,
+                           (float)mtf.strength};
+    if (enqueue(DF3_EVENT_FLOW, flow.midpointUs, data, 7)) {
+        lastFlow = flow;
         ++flowAccepted;
     } else {
         ++flowRejected;
@@ -812,7 +828,8 @@ void df3BetaflightTick(void)
         df3ProfileAutoStart(); // first usable sensor set, once per boot; retained for CLI readback
 #endif
         if (df3EstimatorInitialize(&estimator, now, lastRange, lastQ, lastGyro, lastStrength)) {
-            estimator.flowQuantumPerGain = .01f * flowQuantizationCMPS / (.001f * df3FlowConfig()->rotationScale);
+            estimator.flowHeightPerGain = 1.f / (.001f * df3FlowConfig()->rotationScale);
+            estimator.flowQuantumPerGain = .01f * flowQuantizationCMPS * estimator.flowHeightPerGain;
             for (unsigned i = 0; i < 3; ++i) {
                 estimator.flowSensorOffset[i] = .001f * df3FlowConfig()->sensorOffset[i];
             }
@@ -881,7 +898,9 @@ void df3BetaflightTick(void)
         const bool haveReference = df3ReferenceSample(&referenceReceiver, now, &reference);
         const bool imuFresh = lastImuUs && now >= lastImuUs && now - lastImuUs <= 20000;
         const bool rangeFresh = lastRangeUs && now >= lastRangeUs && now - lastRangeUs <= 200000;
-        const bool flowFresh = mtf.flowStatus && mtf.quality && mtf.rangeStatus && lastFlow.endUs &&
+        // A rejected report does not erase a recent accepted measurement.
+        // Sustained loss still expires at the existing 150 ms bound.
+        const bool flowFresh = lastFlow.endUs &&
                                now >= lastFlow.endUs && now - lastFlow.endUs <= 150000;
         const df3CalibrationConfig_t *cal = df3CalibrationConfig();
         if (cal->enabled) {

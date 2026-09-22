@@ -1,6 +1,5 @@
 /* Bounded fixed-lag fusion with nominal output propagated to controller time.
- * Core model follows the SDK; DF3 has its own sensor-noise tuning. Bounded bias
- * covariance adaptation below uses persistent, range-anchored IMU innovation.
+ * Core model follows the SDK; DF3 has its own sensor/process-noise tuning.
  * The new lag is scheduling for genuinely timestamped observations; it is not
  * a guessed correction applied to telemetry receipt timestamps. */
 #include "df3_estimator.h"
@@ -13,32 +12,6 @@ static const float accelerationR[9] = {.324f, 0, 0, 0, .324f, 0, 0, 0, 1.2f};
 static const float zeroAccelerationR[9] = {.04f, 0, 0, 0, .04f, 0, 0, 0, .04f};
 static const float zeroVelocityR[9] = {.0025f, 0, 0, 0, .0025f, 0, 0, 0, .0025f};
 static const float attitudeR[9] = {.00274155677808038f, 0, 0, 0, .00274155677808038f, 0, 0, 0, .0109662271123215f};
-
-/* Persistent signed IMU innovation is evidence for changing bias; alternating
- * vibration and short maneuver residuals should not keep the bias gain high.
- * Use the existing bias state/cross-covariances. Sensor-noise weighting is
- * handled separately in the measurement covariance. The added covariance is nonnegative, preserving PSD.
- * Validate these bounds against physical motion as well as state error. */
-static void trackAccelerometerBias(df3Estimator_t *e, uint64_t us, float residual)
-{
-    const float dt = e->accelBiasInnovationUs && us > e->accelBiasInnovationUs
-                         ? fminf(.1f, (float)(us - e->accelBiasInnovationUs) * 1e-6f)
-                         : 0;
-    e->accelBiasInnovationUs = us;
-    if (!e->dynamicsActive || us < e->rangeUs || us - e->rangeUs > 100000 ||
-        !e->lastRangeDecision.surfaceLocked) {
-        e->accelBiasInnovationMean = 0;
-        return;
-    }
-    // 200 ms signed average; bound one bad sample's influence to 3 m/s^2.
-    residual = fminf(3.f, fmaxf(-3.f, residual));
-    e->accelBiasInnovationMean += dt / (.2f + dt) * (residual - e->accelBiasInnovationMean);
-    // Leave nominal bias noise unchanged within a .15 m/s^2 deadband. Above
-    // it, smoothly add at most 9 (m/s^2)^2 per second to body-Z bias variance.
-    const float weight = fminf(1.f, fmaxf(0.f, (fabsf(e->accelBiasInnovationMean) - .15f) / .3f));
-    const unsigned zBias = DF3_EBA + 2;
-    e->core.P[zBias * DF3_NE + zBias] += 9.f * weight * dt;
-}
 
 void df3EstimatorReset(df3Estimator_t *e, uint32_t lagUs)
 {
@@ -173,7 +146,6 @@ static bool apply(df3Estimator_t *e, const df3Event_t *event)
         if (!df3ModelObserve(x, DF3_BODY_ACCELEROMETER, 0, h, H)) {
             return false;
         }
-        trackAccelerometerBias(e, event->us, event->data[5] - h[2]);
         for (unsigned axis = 0; axis < 3; ++axis) {
             for (unsigned i = 0; i < 18; ++i) {
                 if (H[axis * 18 + i] == 0) {

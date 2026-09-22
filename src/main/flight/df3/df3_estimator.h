@@ -44,10 +44,6 @@ typedef struct {
      * Do not include this in flowQuantumPerGain: a lever arm changes gyro
      * sensitivity but does not change the sensor's velocity bin width. */
     float flowSensorOffset[3];
-    /* Signed body-Z innovation average, maintained on the fusion clock.
-     * This controls covariance adaptation, not an additional bias estimate. */
-    float accelBiasInnovationMean;
-    uint64_t accelBiasInnovationUs;
     uint32_t lagUs, predictions, updates, rejected, stale, overflow;
     uint16_t count;
     uint8_t verticalUpdates;

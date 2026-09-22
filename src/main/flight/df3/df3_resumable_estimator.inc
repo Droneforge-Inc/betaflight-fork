@@ -453,7 +453,6 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
             return;
         }
 #endif
-        trackAccelerometerBias(e, event->us, event->data[5] - j->h[2]);
         memset(j->prior, 0, sizeof(j->prior));
         j->priorAxis = 0;
         j->phase = FUSION_PRIOR;
@@ -480,11 +479,12 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
         }
         df3RobustAccelerometerCovariance(event->data + 3, j->h, j->prior, accelerationR, j->R);
 #ifdef USE_DF3_MULTIRATE
-        // Add measured force roughness to the observation covariance;
-        // the state still receives the original duration-weighted force mean.
+        // Retain lateral roughness weighting. Z uses its base covariance and
+        // innovation-based outlier weighting: high-rate force roughness is not
+        // the variance of the window mean, and inflating Z from it delays the
+        // vertical velocity response. The measured force mean is unchanged.
         j->R[0] += 1000.f * event->data[1];
         j->R[4] += 1000.f * event->data[1];
-        j->R[8] += 6000.f * event->data[2];
 #endif
         fusionUpdate(j, event->data + 3, j->R, 16.27f, FUSION_IMU_ZERO_VEL);
         return;

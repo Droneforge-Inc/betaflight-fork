@@ -69,6 +69,11 @@
 #include "flight/servos.h"
 #include "flight/gps_rescue.h"
 #include "flight/position.h"
+#ifdef USE_DF3_BLACKBOX
+#include "flight/df3/df3_betaflight.h"
+#include "pg/df3.h"
+#include "common/df_custom.h"
+#endif
 
 #include "io/beeper.h"
 #include "io/gps.h"
@@ -185,6 +190,13 @@ static const blackboxDeltaFieldDefinition_t blackboxMainFields[] = {
     {"loopIteration",-1, UNSIGNED, .Ipredict = PREDICT(0),     .Iencode = ENCODING(UNSIGNED_VB), .Ppredict = PREDICT(INC),           .Pencode = FLIGHT_LOG_FIELD_ENCODING_NULL, CONDITION(ALWAYS)},
     /* Time advances pretty steadily so the P-frame prediction is a straight line */
     {"time",       -1, UNSIGNED, .Ipredict = PREDICT(0),       .Iencode = ENCODING(UNSIGNED_VB), .Ppredict = PREDICT(STRAIGHT_LINE), .Pencode = ENCODING(SIGNED_VB), CONDITION(ALWAYS)},
+#ifdef USE_DF3_BLACKBOX
+#define DF3_BLACKBOX_FIELD(id, name) \
+    {name, -1, SIGNED, .Ipredict = PREDICT(0), .Iencode = ENCODING(SIGNED_VB), \
+     .Ppredict = PREDICT(PREVIOUS), .Pencode = ENCODING(TAG8_8SVB), CONDITION(ALWAYS)},
+    DF3_BLACKBOX_FIELDS(DF3_BLACKBOX_FIELD)
+#undef DF3_BLACKBOX_FIELD
+#endif
     {"axisP",       0, SIGNED,   .Ipredict = PREDICT(0),       .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(SIGNED_VB), CONDITION(PID)},
     {"axisP",       1, SIGNED,   .Ipredict = PREDICT(0),       .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(SIGNED_VB), CONDITION(PID)},
     {"axisP",       2, SIGNED,   .Ipredict = PREDICT(0),       .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(SIGNED_VB), CONDITION(PID)},
@@ -322,6 +334,9 @@ typedef enum BlackboxState {
 
 typedef struct blackboxMainState_s {
     uint32_t time;
+#ifdef USE_DF3_BLACKBOX
+    int32_t df3[DF3_BLACKBOX_FIELD_COUNT];
+#endif
 
     int32_t axisPID_P[XYZ_AXIS_COUNT];
     int32_t axisPID_I[XYZ_AXIS_COUNT];
@@ -600,6 +615,9 @@ static void writeIntraframe(void)
 
     blackboxWriteUnsignedVB(blackboxIteration);
     blackboxWriteUnsignedVB(blackboxCurrent->time);
+#ifdef USE_DF3_BLACKBOX
+    blackboxWriteSignedVBArray(blackboxCurrent->df3, DF3_BLACKBOX_FIELD_COUNT);
+#endif
 
     if (testBlackboxCondition(CONDITION(PID))) {
         blackboxWriteSignedVBArray(blackboxCurrent->axisPID_P, XYZ_AXIS_COUNT);
@@ -754,6 +772,14 @@ static void writeInterframe(void)
 
     int32_t deltas[8];
     int32_t setpointDeltas[4];
+#ifdef USE_DF3_BLACKBOX
+    // Groups of unchanged fields cost one tag byte, including between 250 Hz snapshots.
+    STATIC_ASSERT(DF3_BLACKBOX_FIELD_COUNT % 8 == 0, df3_blackbox_groups_of_eight);
+    for (unsigned first = 0; first < DF3_BLACKBOX_FIELD_COUNT; first += 8) {
+        arraySubInt32(deltas, blackboxCurrent->df3 + first, blackboxLast->df3 + first, 8);
+        blackboxWriteTag8_8SVB(deltas, 8);
+    }
+#endif
 
     if (testBlackboxCondition(CONDITION(PID))) {
         arraySubInt32(deltas, blackboxCurrent->axisPID_P, blackboxLast->axisPID_P, XYZ_AXIS_COUNT);
@@ -1130,6 +1156,9 @@ static void loadMainState(timeUs_t currentTimeUs)
     blackboxMainState_t *blackboxCurrent = blackboxHistory[0];
 
     blackboxCurrent->time = currentTimeUs;
+#ifdef USE_DF3_BLACKBOX
+    df3BetaflightBlackbox(currentTimeUs, blackboxCurrent->df3);
+#endif
 
     for (int i = 0; i < XYZ_AXIS_COUNT; i++) {
         blackboxCurrent->axisPID_P[i] = lrintf(pidData[i].P);
@@ -1362,6 +1391,17 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE("Firmware type", "%s",                   "Cleanflight");
         BLACKBOX_PRINT_HEADER_LINE("Firmware revision", "%s %s (%s) %s",    FC_FIRMWARE_NAME, FC_VERSION_STRING, shortGitRevision, targetName);
         BLACKBOX_PRINT_HEADER_LINE("Firmware date", "%s %s",                buildDate, buildTime);
+#ifdef USE_DF3_BLACKBOX
+        BLACKBOX_PRINT_HEADER_LINE("df3_log_version", "%u", 2);
+        BLACKBOX_PRINT_HEADER_LINE("df3_firmware", "0x%08x", FIRMWARE_VERSION_DF);
+        BLACKBOX_PRINT_HEADER_LINE("df3_x_gains_milli", "%u,%u,%u", df3Config()->kp[0], df3Config()->kv[0], df3Config()->ki[0]);
+        BLACKBOX_PRINT_HEADER_LINE("df3_y_gains_milli", "%u,%u,%u", df3Config()->kp[1], df3Config()->kv[1], df3Config()->ki[1]);
+        BLACKBOX_PRINT_HEADER_LINE("df3_z_gains_milli", "%u,%u,%u", df3Config()->kp[2], df3Config()->kv[2], df3Config()->ki[2]);
+        BLACKBOX_PRINT_HEADER_LINE("df3_hover_accel_scale", "%u,%u", df3Config()->hover, df3Config()->accelToThrottle);
+        BLACKBOX_PRINT_HEADER_LINE("df3_calibration_bits", "0x%x,0x%x,0x%x,%u", castFloatBytesToInt(df3CalibrationConfig()->a0),
+            castFloatBytesToInt(df3CalibrationConfig()->a1), castFloatBytesToInt(df3CalibrationConfig()->v0), df3CalibrationConfig()->enabled);
+        BLACKBOX_PRINT_HEADER_LINE("df3_observer_us", "%u", (unsigned)lrintf(DF3_OUTPUT_OBSERVER_TAU_S * 1e6f));
+#endif
 #ifdef USE_BOARD_INFO
         BLACKBOX_PRINT_HEADER_LINE("Board information", "%s %s",            getManufacturerId(), getBoardName());
 #endif

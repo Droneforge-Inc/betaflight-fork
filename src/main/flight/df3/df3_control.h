@@ -2,6 +2,9 @@
 #pragma once
 #include "df3_estimator.h"
 #include "df3_reference.h"
+#ifdef USE_DF3_BLACKBOX
+#include "df3_blackbox.h"
+#endif
 
 // Accumulated position error, m*s. Acceleration/throttle limits and
 // conditional antiwindup still apply.
@@ -33,6 +36,9 @@ typedef struct {
     float angleDeg[2], yawRateDeg, throttle, acceleration[3];
     df3ControlMode_e mode;
     bool authority;
+#ifdef USE_DF3_BLACKBOX
+    df3ControlTrace_t trace;
+#endif
 } df3ControlOutput_t;
 typedef struct {
     float integral[3];

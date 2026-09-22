@@ -36,6 +36,9 @@ void df3BetaflightDiagnosticsPayload(uint8_t payload[DF3_DIAGNOSTICS_BYTES]);
 void df3BetaflightTelemetryPoll(uint32_t now);
 void df3BetaflightTelemetryQueued(uint32_t now, bool replacing);
 void df3BetaflightUartSubmitted(uint32_t now, uint8_t type);
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+void df3BetaflightBlackbox(uint32_t nowUs, int32_t values[DF3_BLACKBOX_FIELD_COUNT]);
+#endif
 bool df3BetaflightCalibrationValid(float a0, float a1, float v0);
 float df3BetaflightCalibrationHover(float a0, float a1, float voltage);
 void df3BetaflightReloadCalibration(void);

@@ -5,6 +5,9 @@
  * Public estimates are published only after a complete fusion transaction. */
 #pragma once
 #include "df3_estimator.h"
+#ifdef USE_DF3_BLACKBOX
+#include "df3_blackbox.h"
+#endif
 #ifdef USE_DF3_MULTIRATE
 #include "df3_multirate.h"
 #endif
@@ -51,6 +54,10 @@ bool df3CoreResume(df3CoreJob_t *job, df3Core_t *core, df3Workspace_t *work);
 
 typedef struct {
     df3CoreJob_t coreJob;
+#ifdef USE_DF3_BLACKBOX
+    // Caller-owned observations. Never retain a pointer into EKF scratch.
+    df3FusionTrace_t *trace;
+#endif
 #ifdef USE_DF3_MULTIRATE
     df3Event_t batch[DF3_EPOCH_CAPACITY];
     const df3GyroHistory_t *history;

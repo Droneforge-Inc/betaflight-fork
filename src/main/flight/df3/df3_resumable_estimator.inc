@@ -301,6 +301,31 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
         if (!df3CoreResume(&j->coreJob, &e->core, &e->work)) {
             return;
         }
+#ifdef USE_DF3_BLACKBOX
+        if (j->trace && j->operation &&
+            (j->afterCore == FUSION_IMU_ZERO_VEL || j->afterCore == FUSION_RANGE_DONE ||
+             (event && event->kind == DF3_EVENT_FLOW && j->afterCore == FUSION_EVENT_DONE))) {
+            const bool imu = j->afterCore == FUSION_IMU_ZERO_VEL;
+            df3FusionTraceSample_t *sample = imu ? &j->trace->imu :
+                event->kind == DF3_EVENT_FLOW ? &j->trace->flow : &j->trace->range;
+            if (imu) {
+                ++sample->sequence;
+#ifdef USE_DF3_MULTIRATE
+                j->trace->imuRoughness = event->data[2];
+                j->trace->imuRoughnessXY = event->data[1];
+#endif
+            }
+            sample->sensorUs = event->us;
+            sample->status = j->coreJob.status;
+            for (unsigned i = 0; i < 3; ++i) {
+                sample->measurement[i] = j->coreJob.z[i];
+                sample->innovation[i] = j->coreJob.z[i] - j->coreJob.h[i];
+                sample->variance[i] = j->coreJob.R[4 * i];
+                sample->deltaV[i] = sample->status == DF3_OK ? j->coreJob.dx[DF3_EV + i] : 0;
+                sample->deltaA[i] = sample->status == DF3_OK ? j->coreJob.dx[DF3_EA + i] : 0;
+            }
+        }
+#endif
         if (j->coreJob.status != DF3_OK && (j->operation == 0 || j->coreJob.status != DF3_REJECTED)) {
 #ifdef USE_DF3_MULTIRATE
             if (!j->operation && j->coreJob.status == DF3_INVALID_ARGUMENT) {
@@ -376,6 +401,18 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
                 df3RangeObserve(&e->terrain, range, event->us, x[2], moving ? x[5] : 0, strength, e->core.P[2 * 18 + 2],
                                 moving ? e->core.P[5 * 18 + 5] : 0);
             e->lastRangeDecision = decision;
+#ifdef USE_DF3_BLACKBOX
+            if (j->trace) {
+                df3FusionTraceSample_t *sample = &j->trace->range;
+                const uint32_t sequence = sample->sequence + 1;
+                *sample = (df3FusionTraceSample_t){.sensorUs = event->us, .sequence = sequence,
+                    .status = -1, .measurement = {0, 0, decision.hasPosition ? decision.position : NAN},
+                    .innovation = {0, 0, decision.positionInnovation},
+                    .variance = {0, 0, decision.positionVariance}};
+                j->trace->rangeFlags = decision.mode | (decision.hasPosition << 2) |
+                    (decision.plausible << 3) | (decision.surfaceLocked << 4);
+            }
+#endif
             e->lastRange = range;
             e->lastStrength = strength;
             e->rangeUs = event->us;
@@ -402,6 +439,16 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
             return;
         }
         case DF3_EVENT_FLOW:
+#ifdef USE_DF3_BLACKBOX
+            if (j->trace) {
+                // A consumed but skipped report must not retain the preceding
+                // accepted correction. Completed fusion replaces this snapshot.
+                df3FusionTraceSample_t *sample = &j->trace->flow;
+                *sample = (df3FusionTraceSample_t){.sensorUs = event->us, .sequence = sample->sequence + 1,
+                    .status = -1, .measurement = {event->data[0], event->data[1], 0},
+                    .innovation = {NAN, NAN, 0}, .variance = {NAN, NAN, 0}};
+            }
+#endif
             j->phase = FUSION_EVENT_DONE;
             if (
 #ifdef USE_DF3_MULTIRATE
@@ -619,7 +666,7 @@ static bool fusionObserveOutput(df3FusionJob_t *j, df3Estimate_t *out)
      * longer correction times reduce damping in the closed-loop noise tests.
      * Elapsed time, not poll count, sets the gain. One exp and three axes;
      * no replay, covariance work, heap or new scheduler phase. */
-    const float gain = 1.f - expf(-dt / .015f);
+    const float gain = 1.f - expf(-dt / DF3_OUTPUT_OBSERVER_TAU_S);
     float next[9];
     for (unsigned i = 0; i < 3; ++i) {
         const float position = j->outputMotion[i] + j->outputMotion[DF3_V + i] * dt +

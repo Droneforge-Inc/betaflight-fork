@@ -101,12 +101,17 @@ void blackboxOpen(void)
     }
 }
 
+static uint32_t bbDrops;
 #ifdef DEBUG_BB_OUTPUT
 static uint32_t bbBits;
 static timeMs_t bbLastclearMs;
 static uint16_t bbRateMax;
-static uint32_t bbDrops;
 #endif
+
+uint32_t blackboxGetDroppedBytes(void)
+{
+    return bbDrops;
+}
 
 void blackboxWrite(uint8_t value)
 {
@@ -117,6 +122,11 @@ void blackboxWrite(uint8_t value)
     switch (blackboxConfig()->device) {
 #ifdef USE_FLASHFS
     case BLACKBOX_DEVICE_FLASH:
+        // Do not wrap the asynchronous ring into data still owned by flash DMA.
+        if (flashfsGetWriteBufferFreeSpace() == 0) {
+            ++bbDrops;
+            return;
+        }
         flashfsWriteByte(value); // Write byte asynchronously
         break;
 #endif
@@ -136,8 +146,8 @@ void blackboxWrite(uint8_t value)
 #endif
 
             if (txBytesFree == 0) {
-#ifdef DEBUG_BB_OUTPUT
                 ++bbDrops;
+#ifdef DEBUG_BB_OUTPUT
                 DEBUG_SET(DEBUG_BLACKBOX_OUTPUT, 2, bbDrops);
 #endif
                 return;

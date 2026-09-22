@@ -1,4 +1,4 @@
-# Production options: USE_DF3, plus optional USE_DF3_PROFILE diagnostics.
+# Production: USE_DF3. Optional diagnostics: USE_DF3_PROFILE, USE_DF3_BLACKBOX.
 # Kernel source/assembler flags below are derived from the target, not user knobs.
 DF3_ASM_SRC :=
 DF3_ASM_FLAGS :=

@@ -49,5 +49,5 @@ uint32_t castFloatBytesToInt(float f)
  */
 uint32_t zigzagEncode(int32_t value)
 {
-    return (uint32_t)((value << 1) ^ (value >> 31));
+    return ((uint32_t)value << 1) ^ (uint32_t)-(value < 0);
 }

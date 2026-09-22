@@ -8,6 +8,8 @@ extern "C" {
 #endif
 
 enum { DF3_EVENT_CAPACITY = 64 };
+// Time constant of the controller-facing position/velocity correction observer.
+#define DF3_OUTPUT_OBSERVER_TAU_S .015f
 typedef enum {
     DF3_EVENT_IMU,
     DF3_EVENT_ATTITUDE,

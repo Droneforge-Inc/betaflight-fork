@@ -50,6 +50,10 @@ static df3BudgetTicks_t fusionClock(void *unused)
 #include "pg/df3.h"
 #include "rx/rx.h"
 #include "sensors/acceleration.h"
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+#include "blackbox/blackbox.h"
+#include "blackbox/blackbox_io.h"
+#endif
 #include "sensors/gyro.h"
 #include "sensors/opticalflow.h"
 #include "sensors/rangefinder.h"
@@ -123,6 +127,143 @@ static struct {
     uint8_t rangeStatus, flowStatus, quality, strength;
 } mtf;
 static uint32_t rangeGeneration, flowGeneration, flowAccepted, flowRejected;
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+static df3FusionTrace_t blackboxFusion;
+static int32_t blackboxValues[DF3_BLACKBOX_FIELD_COUNT];
+static uint64_t blackboxControlUs, blackboxRangeReceiptUs;
+static uint32_t blackboxSequence, blackboxRangeMm;
+static float blackboxForce[3], blackboxFlowClearance;
+static uint8_t blackboxFlowQuality;
+
+// Bounded integers keep previous-frame differences within signed 32 bits.
+// The sentinel distinguishes unavailable/nonfinite data from a real zero.
+static int32_t blackboxValue(float value, float scale)
+{
+    const float scaled = value * scale;
+    return isfinite(scaled) ? lrintf(fmaxf(-1e9f, fminf(1e9f, scaled))) : -1000000001;
+}
+
+static int32_t blackboxAge(uint64_t now, uint64_t sample)
+{
+    return !sample || sample > now ? -1 : (int32_t)MIN(now - sample, 1000000000ULL);
+}
+
+static void captureBlackbox(uint64_t now, bool haveReference)
+{
+    if (blackboxConfig()->device == BLACKBOX_DEVICE_NONE) {
+        return;
+    }
+    int32_t *v = blackboxValues;
+    const df3ControlAxisTrace_t *c = &controlOutput.trace.axis[2];
+    v[DF3_BB_SAMPLE] = (int32_t)(++blackboxSequence & 0x3fffffff);
+    v[DF3_BB_FLAGS] = controlOutput.mode | (controlOutput.authority << 3) |
+        (estimate.valid << 4) | (estimate.verticalReferenceValid << 5) | (haveReference << 6);
+    v[DF3_BB_REFERENCE_AGE] = blackboxAge(now, referenceReceiver.receivedUs);
+    for (unsigned i = 0; i < 3; ++i) {
+        v[DF3_BB_REFERENCE_P + i] = blackboxValue(c->reference[i], 1000);
+        v[DF3_BB_POSITION + i] = blackboxValue(estimate.x[3 * i + 2], 1000);
+        v[DF3_BB_FORCE_X + i] = blackboxValue(blackboxForce[i], 1000);
+        v[DF3_BB_BIAS_X + i] = blackboxValue(estimate.x[DF3_BA + i], 1000);
+    }
+    v[DF3_BB_PROJECTED_P] = blackboxValue(fusionJob.committed.x[2], 1000);
+    v[DF3_BB_PROJECTED_V] = blackboxValue(fusionJob.committed.x[5], 1000);
+    v[DF3_BB_FUSION_AGE] = blackboxAge(now, estimate.covarianceTimeUs);
+    for (unsigned i = 0; i < 4; ++i) {
+        v[DF3_BB_QW + i] = blackboxValue(estimate.x[DF3_Q + i], 1000000);
+        v[DF3_BB_FEEDFORWARD + i] = blackboxValue(c->terms[i], 1000);
+    }
+    v[DF3_BB_IMU_AGE] = blackboxAge(now, lastImuUs);
+    v[DF3_BB_RANGE_RAW] = (int32_t)MIN(blackboxRangeMm, 1000000000U);
+    v[DF3_BB_RANGE_DOWN] = blackboxValue(lastRange, 1000);
+    v[DF3_BB_RANGE_STRENGTH] = blackboxValue(lastStrength, 1);
+    v[DF3_BB_RANGE_AGE] = blackboxAge(now, lastRangeUs);
+    v[DF3_BB_RANGE_RECEIPT_AGE] = blackboxAge(now, blackboxRangeReceiptUs);
+    v[DF3_BB_TERRAIN] = blackboxValue(estimate.terrainDown, 1000);
+    for (unsigned i = 0; i < 2; ++i) {
+        const df3FusionTraceSample_t *s = i ? &blackboxFusion.range : &blackboxFusion.imu;
+        const unsigned first = i ? DF3_BB_RANGE_SEQUENCE : DF3_BB_IMU_SEQUENCE;
+        v[first] = (int32_t)(s->sequence & 0x3fffffff);
+        v[first + 1] = blackboxAge(now, s->sensorUs);
+        v[first + 2] = blackboxValue(s->measurement[2], 1000);
+        v[first + 3] = blackboxValue(s->innovation[2], 1000);
+        v[first + 4] = blackboxValue(s->variance[2], i ? 1000000 : 1000);
+        v[first + 5] = blackboxValue(s->deltaV[2], 1000000);
+        v[first + 6] = blackboxValue(s->deltaA[2], 1000000);
+        v[first + 7] = s->status;
+    }
+    v[DF3_BB_RANGE_FLAGS] = blackboxFusion.rangeFlags;
+    v[DF3_BB_ACCEL_REQUESTED] = blackboxValue(c->requestedAccel, 1000);
+    v[DF3_BB_ACCEL_APPLIED] = blackboxValue(controlOutput.acceleration[2], 1000);
+    v[DF3_BB_INTEGRAL] = blackboxValue(c->integral, 1000);
+    v[DF3_BB_HOVER] = blackboxValue(controlConfig.hoverThrottle, 10000);
+    v[DF3_BB_THROTTLE_REQUESTED] = blackboxValue(controlOutput.trace.requestedThrottle, 10000);
+    v[DF3_BB_THROTTLE_APPLIED] = blackboxValue(controlOutput.throttle, 10000);
+    v[DF3_BB_INTEGRATION_HELD] = c->integrationHeld;
+    v[DF3_BB_REFERENCE_SEQUENCE] = referenceReceiver.reference.sequence;
+    v[DF3_BB_DIAGNOSTICS] = diagnostics.current;
+    v[DF3_BB_LOG_DROPS] = (int32_t)MIN(blackboxGetDroppedBytes(), 1000000000U);
+    v[DF3_BB_IMU_ROUGHNESS] = blackboxValue(blackboxFusion.imuRoughness, 1000000);
+    v[DF3_BB_EPOCH] = stateEpoch;
+    v[DF3_BB_QUEUE] = estimator.count + (fusionJob.busy ? fusionJob.count - fusionJob.index : 0);
+    // X/Y control blocks share the Z semantics and use local-NED axes.
+    const unsigned controlFields[2] = {DF3_BB_REFERENCE_P_X, DF3_BB_REFERENCE_P_Y};
+    const unsigned imuFields[2] = {DF3_BB_IMU_MEASUREMENT_X, DF3_BB_IMU_MEASUREMENT_Y};
+    const unsigned flowFields[2] = {DF3_BB_FLOW_MEASUREMENT_X, DF3_BB_FLOW_MEASUREMENT_Y};
+    const unsigned rawFlowFields[2] = {DF3_BB_FLOW_RAW_X, DF3_BB_FLOW_RAW_Y};
+    for (unsigned axis = 0; axis < 2; ++axis) {
+        const unsigned first = controlFields[axis];
+        const df3ControlAxisTrace_t *a = &controlOutput.trace.axis[axis];
+        for (unsigned i = 0; i < 3; ++i) {
+            v[first + i] = blackboxValue(a->reference[i], 1000);
+            v[first + 3 + i] = blackboxValue(estimate.x[3 * i + axis], 1000);
+        }
+        for (unsigned i = 0; i < 2; ++i) {
+            v[first + 6 + i] = blackboxValue(fusionJob.committed.x[3 * i + axis], 1000);
+        }
+        for (unsigned i = 0; i < 4; ++i) {
+            v[first + 8 + i] = blackboxValue(a->terms[i], 1000);
+        }
+        v[first + 12] = blackboxValue(a->requestedAccel, 1000);
+        v[first + 13] = blackboxValue(controlOutput.acceleration[axis], 1000);
+        v[first + 14] = blackboxValue(a->integral, 1000);
+        v[first + 15] = a->integrationHeld;
+        for (unsigned kind = 0; kind < 2; ++kind) {
+            const df3FusionTraceSample_t *s = kind ? &blackboxFusion.flow : &blackboxFusion.imu;
+            const unsigned field = kind ? flowFields[axis] : imuFields[axis];
+            v[field] = blackboxValue(s->measurement[axis], 1000);
+            v[field + 1] = blackboxValue(s->innovation[axis], 1000);
+            v[field + 2] = blackboxValue(s->variance[axis], kind ? 1000000 : 1000);
+            v[field + 3] = blackboxValue(s->deltaV[axis], 1000000);
+            v[field + 4] = blackboxValue(s->deltaA[axis], 1000000);
+        }
+        v[rawFlowFields[axis]] = blackboxValue(lastFlow.rawBodyVelocity[axis], 1000);
+        v[rawFlowFields[axis] + 1] = blackboxValue(lastFlow.rotationCorrection[axis], 1000);
+        v[rawFlowFields[axis] + 2] = blackboxValue(lastFlow.leverCorrection[axis], 1000);
+    }
+    v[DF3_BB_ROLL_REQUESTED] = blackboxValue(controlOutput.angleDeg[0], 1000);
+    v[DF3_BB_PITCH_REQUESTED] = blackboxValue(controlOutput.angleDeg[1], 1000);
+    v[DF3_BB_IMU_ROUGHNESS_XY] = blackboxValue(blackboxFusion.imuRoughnessXY, 1000000);
+    v[DF3_BB_FLOW_SEQUENCE] = (int32_t)(blackboxFusion.flow.sequence & 0x3fffffff);
+    v[DF3_BB_FLOW_FUSION_AGE] = blackboxAge(now, blackboxFusion.flow.sensorUs);
+    v[DF3_BB_FLOW_STATUS] = blackboxFusion.flow.status;
+    v[DF3_BB_FLOW_AGE] = blackboxAge(now, lastFlow.midpointUs);
+    v[DF3_BB_FLOW_INTERVAL] = (int32_t)MIN(lastFlow.endUs - lastFlow.startUs, 1000000000U);
+    v[DF3_BB_FLOW_QUALITY] = blackboxFlowQuality;
+    v[DF3_BB_FLOW_CLEARANCE] = blackboxValue(blackboxFlowClearance, 1000);
+    v[DF3_BB_FLOW_ACCEPTED] = (int32_t)(flowAccepted & 0x3fffffff);
+    v[DF3_BB_FLOW_REJECTED] = (int32_t)(flowRejected & 0x3fffffff);
+    v[DF3_BB_FLOW_GYRO_P] = blackboxValue(lastFlow.averageGyro[0], 1000000);
+    v[DF3_BB_FLOW_GYRO_Q] = blackboxValue(lastFlow.averageGyro[1], 1000000);
+    blackboxControlUs = now;
+}
+
+void df3BetaflightBlackbox(uint32_t nowUs, int32_t values[DF3_BLACKBOX_FIELD_COUNT])
+{
+    memcpy(values, blackboxValues, sizeof(blackboxValues));
+    values[DF3_BB_AGE] = blackboxControlUs ?
+        (int32_t)MIN((uint32_t)(nowUs - (uint32_t)blackboxControlUs), 1000000000U) : -1;
+}
+#endif
 /* MTF-02 flight recordings exhibit a 10-count grid at 1 m, despite the
  * normalized cm/s wire units. Match that observed acquisition resolution. */
 static float flowQuantizationCMPS = 10;
@@ -245,6 +386,15 @@ static uint64_t extendedSourceMs;
 
 void df3BetaflightInit(void)
 {
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+    memset(&blackboxFusion, 0, sizeof(blackboxFusion));
+    memset(blackboxValues, 0, sizeof(blackboxValues));
+    memset(blackboxForce, 0, sizeof(blackboxForce));
+    blackboxControlUs = blackboxRangeReceiptUs = 0;
+    blackboxSequence = blackboxRangeMm = 0;
+    blackboxFlowClearance = 0;
+    blackboxFlowQuality = 0;
+#endif
     df3EstimatorReset(&estimator, 40000);
 #ifdef USE_DF3_BUDGETED_WORKER
 #ifdef SITL
@@ -269,6 +419,9 @@ void df3BetaflightInit(void)
 #endif
 #ifdef USE_DF3_RESUMABLE
     df3FusionReset(&fusionJob);
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+    fusionJob.trace = &blackboxFusion;
+#endif
 #endif
     df3GyroHistoryReset(&gyroHistory);
 #ifdef USE_DF3_MULTIRATE
@@ -472,6 +625,9 @@ void df3BetaflightAccelerometer(void)
     const float nativeAccel[3] = {acc.accADC[X], acc.accADC[Y], acc.accADC[Z]};
     float data[6] = {gyroFrd[0], gyroFrd[1], gyroFrd[2]};
     df3NativeVectorToFrd(nativeAccel, g, data + 3);
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+    memcpy(blackboxForce, data + 3, sizeof(blackboxForce));
+#endif
     memcpy(lastGyro, gyroFrd, sizeof(lastGyro));
     lastImuUs = now;
 #ifdef USE_DF3_MULTIRATE
@@ -598,6 +754,10 @@ void df3BetaflightRange(void)
     lastRange = -clearance;
     lastStrength = (float)mtf.strength;
     lastRangeUs = mtf.endUs;
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+    blackboxRangeMm = mtf.rangeMm;
+    blackboxRangeReceiptUs = mtf.receivedUs;
+#endif
     const float data[2] = {lastRange, lastStrength};
     /* DF3 owns range weighting. Fuse the unfiltered millimetre sample at
      * acquisition time; the legacy median remains available to other users. */
@@ -635,6 +795,10 @@ void df3BetaflightFlow(void)
                            (float)mtf.strength};
     if (enqueue(DF3_EVENT_FLOW, flow.midpointUs, data, 7)) {
         lastFlow = flow;
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+        blackboxFlowClearance = clearance;
+        blackboxFlowQuality = mtf.quality;
+#endif
         ++flowAccepted;
     } else {
         ++flowRejected;
@@ -813,6 +977,10 @@ void df3BetaflightTick(void)
     if (wasArmed && !armed) {
 #ifdef USE_DF3_RESUMABLE
         df3FusionReset(&fusionJob);
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+        memset(&blackboxFusion, 0, sizeof(blackboxFusion));
+        fusionJob.trace = &blackboxFusion;
+#endif
 #endif
         df3EstimatorReset(&estimator, 40000);
 #ifdef USE_DF3_MULTIRATE
@@ -934,6 +1102,9 @@ void df3BetaflightTick(void)
                                                        .overflow = estimator.overflow,
                                                        .rejected = referenceReceiver.rejected};
         df3DiagnosticsUpdate(&diagnostics, micros(), &diagnosticInput);
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+        captureBlackbox(now, haveReference);
+#endif
         controlUs = now;
     }
 #if defined(SITL) && defined(USE_DF3_SCHED_BENCH)

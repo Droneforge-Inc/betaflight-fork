@@ -37,6 +37,128 @@ one exponential and constant work per valid output, with no new option or
 telemetry payload. Longer correction times require renewed closed-loop
 validation: smoothing can reduce damping and increase physical jitter.
 
+## Onboard Blackbox observations
+
+With `USE_DF3 USE_DF3_BLACKBOX` and the target's normal `USE_BLACKBOX`, each main
+log frame includes 136 DF3 fields (schema 2) defined in `df3_blackbox.h`.
+No extra PG, radio packet or debug-mode selection is required. Normal Blackbox enable,
+arming, sample-rate and storage settings still apply. Existing motor, battery,
+gyro and accelerometer fields remain available; retain those for diagnosis.
+
+The adapter freezes a snapshot after each 250 Hz controller calculation.
+Reading it for Blackbox does not advance the controller or output observer.
+`df3Sample` identifies repeated snapshots, and `time - df3AgeUs` gives the
+snapshot's FC time. All other `*AgeUs` values are relative to that snapshot;
+subtract them as well to obtain a measurement's FC timestamp. Unwrap the normal
+Blackbox microsecond clock before subtracting ages. `-1` means no usable time.
+`df3FusionAgeUs` refers to covariance time, not the 15 ms output time constant.
+
+Unless noted below, floating values are SI values multiplied by 1000 and
+rounded. Position/velocity/acceleration are local NED, so upward is negative Z.
+Finite values clip to ±1,000,000,000; `-1,000,000,001` denotes nonfinite data.
+Validity flags and sequence numbers distinguish initialization from real zeros.
+
+| Fields | Meaning / other scales |
+| --- | --- |
+| `df3RefPz/Vz/Az`, `df3Pz/Vz/Az` | Controller's effective reference (including hold/landing fallback) and the actual estimate it used |
+| `df3ProjectedPz/Vz` | Current-time EKF projection before the output observer |
+| `df3Qw/Qx/Qy/Qz` | Body-FRD to local-NED quaternion ×1,000,000 |
+| `df3ForceX/Y/Z` | Latest FC-filtered specific force in body FRD, before window reduction; not raw sensor-register data |
+| `df3RangeRaw`, `df3RangeDown`, `df3RangeStrength` | Latest admitted raw slant range in mm, negative tilt-corrected clearance ×1000, and unscaled signal strength |
+| `df3RangeAgeUs`, `df3RangeRxAgeUs`, `df3ImuAgeUs` | Adapter acquisition/receipt ages; range acquisition time is the existing mapped MTF time |
+| `df3Terrain`, `df3BiasX/Y/Z` | Terrain NED down and body-FRD accelerometer biases |
+| `df3ImuSeq`, `df3RangeSeq` | Observation counters; only a change denotes a new fusion observation |
+| `df3ImuFusionAgeUs`, `df3RangeFusionAgeUs` | Acquisition ages of those fusion observations |
+| `df3ImuZ/Innovation/R` | Windowed body-Z specific force, pre-update residual, and actual adaptive variance; variance is (m/s²)² ×1000 |
+| `df3ImuRoughness` | Vertical reducer roughness ×1,000,000; diagnostic only, not added to Z observation variance |
+| `df3RangeZ/Innovation/R` | Range-derived global NED position, residual and actual range variance; variance is m² ×1,000,000 |
+| `df3ImuDv/Da`, `df3RangeDv/Da` | Applied NED-Z velocity/acceleration corrections ×1,000,000; zero for rejected/skipped updates |
+| `df3ImuStatus`, `df3RangeStatus` | `df3Status_e`; range `-1` means the policy skipped the Kalman update. Interpret only with a nonzero sequence |
+| `df3RangeFlags` | Policy mode in bits 0–1; has-position, plausible and surface-locked in bits 2–4 |
+| `df3Ff`, `df3P`, `df3V`, `df3I` | Actual acceleration contributions: feedforward, Kp×position error, Kv×velocity error and Ki×candidate integral |
+| `df3AccelRequest/Applied` | Z acceleration before/after controller limits |
+| `df3Integral`, `df3IntegrationHeld` | Retained integral (m·s ×1000) and antiwindup decision; candidate I can differ from retained I |
+| `df3Hover`, `df3ThrottleRequest/Applied` | Voltage-compensated hover collective and collective before/after controller clipping, all ×10,000; final motor outputs remain the normal Blackbox fields |
+| `df3RefAgeUs`, `df3RefSeq` | Accepted reference receipt age and wire sequence |
+| `df3Flags` | Control mode in bits 0–2; authority, estimate-valid, vertical-reference-valid and reference-present in bits 3–6 |
+| `df3Diagnostics`, `df3Epoch`, `df3Queue` | Existing fault mask, state epoch and pending fusion-event count |
+| `df3LogDrops` | Bytes rejected by Blackbox's output buffer since boot |
+| `df3RefPx/Vx/Ax`, `df3RefPy/Vy/Ay`, `df3Px/Vx/Ax`, `df3Py/Vy/Ay` | Effective X/Y references and estimates actually used by control, local NED |
+| `df3ProjectedPx/Vx`, `df3ProjectedPy/Vy` | X/Y current-time EKF projection before the 15 ms output observer |
+| `df3Ffx/y`, `df3Ptermx/y`, `df3Vtermx/y`, `df3Itermx/y` | X/Y feedforward and position, velocity and candidate-integral acceleration contributions |
+| `df3AccelRequestx/y`, `df3AccelAppliedx/y` | X/Y acceleration before/after tilt limiting and flow-loss suppression |
+| `df3Integralx/y`, `df3IntegrationHeldx/y` | Retained lateral integrals and conditional antiwindup decisions; flow loss also freezes the candidate |
+| `df3RollRequest`, `df3PitchRequest` | Angle commands sent to Betaflight, degrees ×1000. BF pitch has the opposite sign to quaternion FRD pitch |
+| `df3ImuX/Y`, `df3ImuInnovationX/Y`, `df3ImuRX/RY` | Windowed body-FRD lateral specific force, pre-update residual and actual variance, using the existing `df3ImuSeq/FusionAgeUs/Status` |
+| `df3ImuDvX/Y`, `df3ImuDaX/Y` | Applied local-NED X/Y IMU velocity/acceleration corrections ×1,000,000 |
+| `df3ImuRoughnessXY` | Lateral reducer roughness ×1,000,000; current lateral R adds `1000 * roughness` to both body axes |
+| `df3FlowSeq/FusionAgeUs/Status` | Consumed flow-observation sequence, acquisition age and fusion result; `-1` means skipped/not yet completed |
+| `df3FlowX/Y`, `df3FlowInnovationX/Y`, `df3FlowRX/RY` | Effective body-FRD COM velocity observation/residual after quantization handling; actual R is (m/s)² ×1,000,000 |
+| `df3FlowDvX/Y`, `df3FlowDaX/Y` | Applied flow corrections to local-NED X/Y velocity/acceleration ×1,000,000; zero on rejection or skip |
+| `df3FlowRawX/Y`, `df3FlowRotationX/Y`, `df3FlowLeverX/Y` | Latest enqueued report's body velocity after distance scaling, rotation correction and lens-offset correction, m/s ×1000; their sum is the pre-quantization COM observation |
+| `df3FlowAgeUs`, `df3FlowIntervalUs` | Midpoint age and duration of that frontend report's acquisition interval, microseconds |
+| `df3FlowQuality`, `df3FlowClearance`, `df3FlowGyroP/Q` | Quality (0–255), tilt-corrected clearance (m ×1000), and interval-average body-FRD roll/pitch gyro rates (rad/s ×1,000,000) for the same enqueued report |
+| `df3FlowAccepted/Rejected` | Frontend enqueue-success and discard counters; these are distinct from EKF acceptance/rejection |
+
+IMU fields describe the latest completed operation. Range/flow sequences begin
+when a report is consumed; status remains -1 until an update completes, or
+stays -1 if policy skips it. Group repeated samples by sequence and use the last
+snapshot to inspect the result. Completion may precede publication of its whole
+epoch. A core error also retains its `df3Status_e` code; consult validity/fault
+flags (in particular, -1 is also `DF3_INVALID_ARGUMENT`). A skipped range has no applied correction;
+its global-position measurement is unavailable if the policy had no position.
+These are snapshots, not a complete raw-sensor replay: skipped sequence numbers
+mean intermediate observations were not captured. Match frontend and fused flow
+by their acquisition ages, not by neighboring log rows: they refer to different
+points in the delayed pipeline. Quantization can change the effective flow
+observation/variance, so it need not equal the frontend sum. The log contains no
+physical ground truth. Compare slow/fast takeoffs using common FC timestamps, spectra,
+range/IMU residuals, correction magnitudes, controller terms and actual motors.
+
+The log header includes schema version, DF firmware version, configured XYZ gains,
+hover/acceleration scale, calibration float bit patterns and observer time.
+I-frames store signed variable-length integers; P-frames use previous-value
+differences in eight-field groups. An unchanged group costs one tag byte.
+Readers need room for up to 256 main fields, 4096-byte headers and 2048-byte
+frames. Pandora's vendored decoder has matching limits; rebuild that decoder
+before importing these logs. The 64 original DF3 fields retain their names,
+order and scaling, but readers with the old capacity limits can discard the
+expanded frames or headers.
+
+### Recording capacity and throughput
+
+MCU firmware flash and Blackbox recording flash are separate resources on the
+AIR75 II. A successful firmware link proves only that the program fits. Read
+`flash_info` on the disarmed aircraft to obtain actual FlashFS `size`,
+`usedSize`, `freeSize`, buffer space and `Blackbox droppedBytes`. A missing/zero
+FlashFS volume cannot record. Do not infer chip capacity from the MCU model.
+
+Begin around 500 Hz Blackbox sampling for the 250 Hz control snapshots; inspect
+`df3Sample` for gaps and use lower rates only if the needed transients remain
+resolved. The saved `1/4` sample-rate setting is a fraction of the PID rate,
+not a fixed frequency. Logging faster cannot increase DF3's update rate.
+No logging settings or stored flights are changed automatically.
+
+Measure a representative short recording and calculate
+`bytesPerSecond = (usedSizeAfter - usedSizeBefore) / recordedSeconds` after the
+normal disarm/flush. Budget `0.75 * freeSize / bytesPerSecond` seconds for the
+next recording, allowing 25% headroom. Include noisy motion in the rate sample:
+variable-length deltas grow with signal activity. For a conservative bound,
+the DF3 addition alone is at most 697 bytes per logged P-frame (680 per I-frame),
+plus the existing Blackbox fields, headers and events. This is a bound, not a
+measured aircraft recording rate. The 72 new fields add nine P-frame tag bytes
+when unchanged, plus their signed deltas when they change and 72–360 bytes per
+I-frame. Measure storage use again after this update; the old recording-duration
+budget is no longer valid.
+
+DF3 builds use a 2048-byte asynchronous flash ring (2047 usable) to fit the
+larger frames; indices are wide enough to wrap correctly. Full-buffer writes
+are rejected and counted instead of overwriting bytes owned by flash DMA.
+This does not guarantee sustained flash throughput: compare the drop counter
+before/after recording, inspect decoded frame gaps, and verify task timing on
+hardware. A partial frame from any dropped byte is not valid evidence. Download
+and preserve wanted flights before using the existing erase operation.
+
 ## Sensor timing and noise weighting
 
 DF3 uses the complete MTF packet's raw millimetre range, tilt-corrected and

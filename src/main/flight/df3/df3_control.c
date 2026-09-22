@@ -122,6 +122,16 @@ void df3ControlStep(df3Control_t *c, const df3ControlConfig_t *cfg, uint64_t now
         raw[i] = target.acceleration[i] + cfg->kp[i] * error[i] + cfg->kv[i] * (target.velocity[i] - s->x[DF3_V + i]) +
                  cfg->ki[i] * candidate[i];
     }
+#ifdef USE_DF3_BLACKBOX
+    // Observe the actual candidate used above, before antiwindup can reject it.
+    for (unsigned i = 0; i < 3; ++i) {
+        out->trace.axis[i] = (df3ControlAxisTrace_t){
+            .reference = {target.position[i], target.velocity[i], target.acceleration[i]},
+            .terms = {target.acceleration[i], cfg->kp[i] * error[i],
+                      cfg->kv[i] * (target.velocity[i] - s->x[DF3_V + i]), cfg->ki[i] * candidate[i]},
+            .requestedAccel = raw[i]};
+    }
+#endif
     raw[2] = clip(raw[2], -DF3_CONTROL_VERTICAL_ACCEL_LIMIT_M_S2, DF3_CONTROL_VERTICAL_ACCEL_LIMIT_M_S2);
     float horizontal = hypotf(raw[0], raw[1]);
     const float maxHorizontal = (gravity - raw[2]) * tanf(cfg->maxTiltRad);
@@ -142,6 +152,9 @@ void df3ControlStep(df3Control_t *c, const df3ControlConfig_t *cfg, uint64_t now
     const float total = hypotf(hypotf(forward, right), vertical);
     const float throttle = cfg->hoverThrottle + cfg->accelToThrottle * (total - gravity);
     out->throttle = clip(throttle, DF3_CONTROL_MIN_THROTTLE, DF3_CONTROL_MAX_THROTTLE);
+#ifdef USE_DF3_BLACKBOX
+    out->trace.requestedThrottle = throttle;
+#endif
     out->angleDeg[0] = atan2f(right, hypotf(forward, vertical)) * 57.295779513f;
     // BF's pitch angle is opposite the FRD quaternion pitch; positive BF
     // pitch tilts thrust forward. Roll has the same sign in both frames.
@@ -169,6 +182,10 @@ void df3ControlStep(df3Control_t *c, const df3ControlConfig_t *cfg, uint64_t now
         if (allow) {
             c->integral[i] = candidate[i];
         }
+#ifdef USE_DF3_BLACKBOX
+        out->trace.axis[i].integral = c->integral[i];
+        out->trace.axis[i].integrationHeld = !allow;
+#endif
         out->acceleration[i] = raw[i];
     }
 }

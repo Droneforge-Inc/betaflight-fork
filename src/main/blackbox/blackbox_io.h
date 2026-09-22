@@ -42,6 +42,8 @@ extern int32_t blackboxHeaderBudget;
 
 void blackboxOpen(void);
 void blackboxWrite(uint8_t value);
+// Bytes rejected by the output buffer since boot; zero is required for a complete log.
+uint32_t blackboxGetDroppedBytes(void);
 int blackboxWriteString(const char *s);
 
 void blackboxDeviceFlush(void);

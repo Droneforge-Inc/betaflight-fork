@@ -35,6 +35,7 @@ bool cliMode = false;
 #ifdef USE_CLI
 
 #include "blackbox/blackbox.h"
+#include "blackbox/blackbox_io.h"
 
 #include "build/build_config.h"
 #include "build/debug.h"
@@ -2563,12 +2564,13 @@ static void cliFlashInfo(const char *cmdName, char *cmdline)
         cliPrintLinef("  %d: %s %u %u", index, flashPartitionGetTypeName(partition->type), partition->startSector, partition->endSector);
     }
 #ifdef USE_FLASHFS
-    const flashPartition_t *flashPartition = flashPartitionFindByType(FLASH_PARTITION_TYPE_FLASHFS);
-
-    cliPrintLinef("FlashFS size=%u, usedSize=%u",
-            FLASH_PARTITION_SECTOR_COUNT(flashPartition) * layout->sectorSize,
-            flashfsGetOffset()
-    );
+    const uint32_t size = flashfsGetSize();
+    const uint32_t used = flashfsGetOffset();
+    cliPrintLinef("FlashFS size=%u, usedSize=%u, freeSize=%u", size, used, size > used ? size - used : 0);
+    cliPrintLinef("FlashFS bufferSize=%u, bufferFree=%u", flashfsGetWriteBufferSize(), flashfsGetWriteBufferFreeSpace());
+#ifdef USE_BLACKBOX
+    cliPrintLinef("Blackbox droppedBytes=%u (since boot)", blackboxGetDroppedBytes());
+#endif
 #endif
 }
 #endif // USE_FLASH_CHIP

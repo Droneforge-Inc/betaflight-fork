@@ -20,7 +20,12 @@
 
 #pragma once
 
+#ifdef USE_DF3_BLACKBOX
+// DF3 XYZ diagnostics need room for a complete frame alongside pending flash DMA.
+#define FLASHFS_WRITE_BUFFER_SIZE 2048
+#else
 #define FLASHFS_WRITE_BUFFER_SIZE 128
+#endif
 #define FLASHFS_WRITE_BUFFER_USABLE (FLASHFS_WRITE_BUFFER_SIZE - 1)
 
 // Automatically trigger a flush when this much data is in the buffer

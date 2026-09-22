@@ -13,6 +13,7 @@ PG_RESET_TEMPLATE(df3FlowConfig_t, df3FlowConfig, .rotationScale = 758, .sensorO
 PG_RESET_TEMPLATE(df3Config_t, df3Config,
                   // No motor authority until the aircraft's collective calibration is set.
                   .hover = 0, .accelToThrottle = 264,
-                  // Fixed Riccati gains restored from the FC 1.3.22 flight profile; SI units * 1000.
-                  .kp = {1208, 1208, 2987}, .kv = {1641, 1641, 2642}, .ki = {105, 105, 501}, .maxTiltDeg = 20);
+                  // Fixed Riccati costs: XY Q=(0.064,0.016,0.00064), R=0.0285714285714.
+                  // Z Q=(0.06,0.03,1/90), R=0.07375. Gains stored in SI units * 1000.
+                  .kp = {1677, 1677, 1493}, .kv = {1977, 1977, 1841}, .ki = {149, 149, 387}, .maxTiltDeg = 20);
 #endif

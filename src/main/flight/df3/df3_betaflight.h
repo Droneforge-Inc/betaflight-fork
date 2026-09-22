@@ -42,5 +42,7 @@ void df3BetaflightBlackbox(uint32_t nowUs, int32_t values[DF3_BLACKBOX_FIELD_COU
 bool df3BetaflightCalibrationValid(float a0, float a1, float v0);
 float df3BetaflightCalibrationHover(float a0, float a1, float voltage);
 void df3BetaflightReloadCalibration(void);
+// Reload persisted controller gains while disarmed; estimator state is preserved.
+void df3BetaflightReloadGains(void);
 bool df3BetaflightAssistMappingReady(void);
 #endif

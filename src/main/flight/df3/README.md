@@ -210,6 +210,27 @@ controller input is introduced by these changes.
 
 ## Fixed-gain outer controller
 
+FC 1.3.42 adds disarmed, addressed MSP tuning without changing the 1.3.41
+defaults. `MSP2_DF3_LQR` (0x30D2) reads and `MSP2_SET_DF3_LQR` (0x30D3)
+validates, persists and reloads all nine controller gains. Both use a 17-byte
+header: version 1, nonzero little-endian u32 transaction ID, and three u32
+hardware UID words. SET and replies append nine little-endian u16 values:
+Kp XYZ, Kv XYZ, Ki XYZ, each in SI units multiplied by 1000. Limits match
+the CLI: 30000, 20000, 10000 respectively. The complete SET is checked before
+any PG value changes; identical values do not rewrite EEPROM. Reload clears
+controller integrals while preserving the estimator and reference connection.
+
+Nimbus solves the 250 Hz discrete Riccati equation from diagonal Q
+(position, velocity, integral) and scalar R independently for each axis. It
+accounts for integrating the current error before feedback and checks the
+rounded gains against the ideal model. Only gains are persisted in the
+existing DF3 PG: Q/R remain labeled SDK drafts, since gains cannot uniquely
+identify their cost matrices. The SDK serializes calibration and LQR
+transactions, requires fresh disarmed telemetry, and verifies a save with
+an independent GET. A lost SET acknowledgement triggers readback, not another
+SET. No controller scheduling, estimator noise, observer time, calibration,
+PG layout, or ELRS firmware change is needed for this feature.
+
 FC 1.3.27 restores the original FC 1.3.22 flight-profile Riccati gains:
 Kp/Kv/Ki = 1.208/1.641/0.105 on X/Y and 2.987/2.642/0.501 on Z.
 The controller uses the configured gains directly for both feedback and

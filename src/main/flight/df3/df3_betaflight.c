@@ -290,6 +290,18 @@ bool df3BetaflightCalibrationValid(float a0, float a1, float v0)
     return true;
 }
 
+void df3BetaflightReloadGains(void)
+{
+    const df3Config_t *p = df3Config();
+    for (unsigned i = 0; i < 3; ++i) {
+        controlConfig.kp[i] = p->kp[i] * .001f;
+        controlConfig.kv[i] = p->kv[i] * .001f;
+        controlConfig.ki[i] = p->ki[i] * .001f;
+    }
+    // A new tune starts with empty controller integrals, without restarting DF3.
+    df3ControlReset(&controller);
+}
+
 void df3BetaflightReloadCalibration(void)
 {
     // MSP calls this only while disarmed, after persistence/readback.
@@ -337,10 +349,8 @@ static uint64_t df3TimeUs(void)
 static void configureAssist(void)
 {
     const df3Config_t *p = df3Config();
+    df3BetaflightReloadGains();
     for (unsigned i = 0; i < 3; ++i) {
-        controlConfig.kp[i] = p->kp[i] * .001f;
-        controlConfig.kv[i] = p->kv[i] * .001f;
-        controlConfig.ki[i] = p->ki[i] * .001f;
         controlConfig.integralLimit[i] = i < 2 ? DF3_CONTROL_XY_INTEGRAL_LIMIT_M_S : DF3_CONTROL_Z_INTEGRAL_LIMIT_M_S;
     }
     controlConfig.hoverThrottle = p->hover * .0001f;

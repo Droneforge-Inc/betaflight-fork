@@ -2312,6 +2312,48 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
 
     switch (cmdMSP) {
 #ifdef USE_DF3
+    case MSP2_DF3_LQR:
+    case MSP2_SET_DF3_LQR: {
+        const bool setting = cmdMSP == MSP2_SET_DF3_LQR;
+        // v1, transaction ID, expected hardware UID; SET adds kp/kv/ki XYZ
+        // as nine u16 values in SI units x1000 (the existing PG/CLI format).
+        if (sbufBytesRemaining(src) != (setting ? 35 : 17) || sbufReadU8(src) != 1)
+            return MSP_RESULT_ERROR;
+        const uint32_t transaction = sbufReadU32(src);
+        const uint32_t uid0 = sbufReadU32(src), uid1 = sbufReadU32(src), uid2 = sbufReadU32(src);
+        if (!transaction || uid0 != U_ID_0 || uid1 != U_ID_1 || uid2 != U_ID_2)
+            return MSP_RESULT_ERROR;
+        if (setting) {
+            if (ARMING_FLAG(ARMED)) return MSP_RESULT_ERROR;
+            uint16_t gains[3][3];
+            const uint16_t limits[3] = {30000, 20000, 10000};
+            for (unsigned term = 0; term < 3; ++term)
+                for (unsigned axis = 0; axis < 3; ++axis) {
+                    gains[term][axis] = sbufReadU16(src);
+                    if (gains[term][axis] > limits[term]) return MSP_RESULT_ERROR;
+                }
+            // Validate the entire tune before changing any axis. Idempotent
+            // retries do not consume another EEPROM erase/write cycle.
+            df3Config_t *p = df3ConfigMutable();
+            if (memcmp(p->kp, gains[0], sizeof(p->kp)) ||
+                memcmp(p->kv, gains[1], sizeof(p->kv)) ||
+                memcmp(p->ki, gains[2], sizeof(p->ki))) {
+                memcpy(p->kp, gains[0], sizeof(p->kp));
+                memcpy(p->kv, gains[1], sizeof(p->kv));
+                memcpy(p->ki, gains[2], sizeof(p->ki));
+                schedulerIgnoreTaskStateTime();
+                writeReadEeprom(NULL);
+            }
+            df3BetaflightReloadGains();
+        }
+        sbufWriteU8(dst, 1); sbufWriteU32(dst, transaction);
+        sbufWriteU32(dst, U_ID_0); sbufWriteU32(dst, U_ID_1); sbufWriteU32(dst, U_ID_2);
+        const df3Config_t *p = df3Config();
+        for (unsigned i = 0; i < 3; ++i) sbufWriteU16(dst, p->kp[i]);
+        for (unsigned i = 0; i < 3; ++i) sbufWriteU16(dst, p->kv[i]);
+        for (unsigned i = 0; i < 3; ++i) sbufWriteU16(dst, p->ki[i]);
+        return MSP_RESULT_ACK;
+    }
     case MSP2_DF3_CALIBRATION:
     case MSP2_SET_DF3_CALIBRATION: {
         const bool setting = cmdMSP == MSP2_SET_DF3_CALIBRATION;

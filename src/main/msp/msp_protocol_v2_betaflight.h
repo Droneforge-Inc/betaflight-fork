@@ -33,6 +33,8 @@
 // Droneforge private extension, v1. These are MSP command IDs, not CRSF D3 telemetry.
 #define MSP2_DF3_CALIBRATION                0x30D0
 #define MSP2_SET_DF3_CALIBRATION            0x30D1
+#define MSP2_DF3_LQR                       0x30D2
+#define MSP2_SET_DF3_LQR                   0x30D3
 
 // MSP2_SET_TEXT and MSP2_GET_TEXT variable types
 #define MSP2TEXT_PILOT_NAME                      1

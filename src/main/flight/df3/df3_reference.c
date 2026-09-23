@@ -12,14 +12,17 @@ bool df3ReferenceDecode(const uint8_t p[DF3_REFERENCE_BYTES], df3Reference_t *ou
     if (!p || !out || p[DF3_WIRE_VERSION] != DF3_PROTOCOL_VERSION || p[DF3_WIRE_FLAGS] > DF3_REFERENCE_INACTIVE) {
         return false;
     }
+    const int16_t yawMillirad = df3ReadI16Be(p + DF3_WIRE_REFERENCE_YAW);
     df3Reference_t value = {.epoch = df3ReadU16Be(p + DF3_WIRE_EPOCH),
                             .sequence = df3ReadU16Be(p + DF3_WIRE_SEQUENCE),
                             .sourceMs = df3ReadU32Be(p + DF3_WIRE_SOURCE_MS),
-                            .yaw = df3ReadI16Be(p + DF3_WIRE_REFERENCE_YAW) * .001f,
+                            .yaw = yawMillirad * .001f,
                             .leaseMs = df3ReadU16Be(p + DF3_WIRE_REFERENCE_LEASE),
                             .active = p[DF3_WIRE_FLAGS] == 0};
     if (!value.epoch || value.leaseMs < DF3_REFERENCE_MIN_LEASE_MS || value.leaseMs > DF3_REFERENCE_MAX_LEASE_MS ||
-        fabsf(value.yaw) > 3.142f) {
+        // Rounded +/-pi is +/-3142 on the wire. Check that integer domain:
+        // 3142 * .001f can round above the float literal 3.142f.
+        yawMillirad < -3142 || yawMillirad > 3142) {
         return false;
     }
     for (unsigned i = 0; i < 3; ++i) {

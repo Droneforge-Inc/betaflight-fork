@@ -150,10 +150,16 @@ static int32_t blackboxAge(uint64_t now, uint64_t sample)
 
 static void captureBlackbox(uint64_t now, bool haveReference)
 {
-    if (blackboxConfig()->device == BLACKBOX_DEVICE_NONE) {
+    if (!ARMING_FLAG(ARMED) || !df3BlackboxConfig()->axes || blackboxConfig()->device == BLACKBOX_DEVICE_NONE) {
         return;
     }
     int32_t *v = blackboxValues;
+    const float *q = estimate.x + DF3_Q;
+    v[DF3_BB_NATIVE_YAW] = attitude.values.yaw * 100; // decidegrees -> millidegrees
+    v[DF3_BB_YAW_REFERENCE] = blackboxValue(controlOutput.trace.yawReference, 57295.779513f);
+    v[DF3_BB_YAW] = blackboxValue(atan2f(2 * (q[0] * q[3] + q[1] * q[2]),
+        1 - 2 * (q[2] * q[2] + q[3] * q[3])), 57295.779513f);
+    v[DF3_BB_YAW_RATE] = blackboxValue(controlOutput.yawRateDeg, 1000);
     const df3ControlAxisTrace_t *c = &controlOutput.trace.axis[2];
     v[DF3_BB_SAMPLE] = (int32_t)(++blackboxSequence & 0x3fffffff);
     v[DF3_BB_FLAGS] = controlOutput.mode | (controlOutput.authority << 3) |
@@ -205,6 +211,20 @@ static void captureBlackbox(uint64_t now, bool haveReference)
     v[DF3_BB_IMU_ROUGHNESS] = blackboxValue(blackboxFusion.imuRoughness, 1000000);
     v[DF3_BB_EPOCH] = stateEpoch;
     v[DF3_BB_QUEUE] = estimator.count + (fusionJob.busy ? fusionJob.count - fusionJob.index : 0);
+    df3OutputTrace_t *failure = &blackboxFusion.output;
+    if (controlOutput.mode == DF3_CONTROL_FAULT && !failure->controlFault) {
+        // The first invalid poll may precede controller engagement. Preserve
+        // the result actually consumed when the controller first faults too.
+        failure->controlFaultReason = failure->reason;
+        failure->controlFault = true;
+    }
+    v[DF3_BB_OUTPUT_REASON] = failure->reason;
+    v[DF3_BB_OUTPUT_FAULT_REASON] = failure->firstReason;
+    v[DF3_BB_OUTPUT_FAULT_MS] = (int32_t)((failure->firstFailureUs / 1000) & 0x3fffffff);
+    v[DF3_BB_OUTPUT_FAULT_NOMINAL_AGE] = failure->nominalAgeUs;
+    v[DF3_BB_OUTPUT_FAULT_PHASE] = failure->phase;
+    v[DF3_BB_OUTPUT_FAULT_COUNT] = (int32_t)(failure->failures & 0x3fffffff);
+    v[DF3_BB_CONTROL_FAULT_OUTPUT_REASON] = failure->controlFault ? (int32_t)failure->controlFaultReason : -1;
     // X/Y control blocks share the Z semantics and use local-NED axes.
     const unsigned controlFields[2] = {DF3_BB_REFERENCE_P_X, DF3_BB_REFERENCE_P_Y};
     const unsigned imuFields[2] = {DF3_BB_IMU_MEASUREMENT_X, DF3_BB_IMU_MEASUREMENT_Y};
@@ -430,7 +450,7 @@ void df3BetaflightInit(void)
 #ifdef USE_DF3_RESUMABLE
     df3FusionReset(&fusionJob);
 #if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
-    fusionJob.trace = &blackboxFusion;
+    fusionJob.trace = NULL;
 #endif
 #endif
     df3GyroHistoryReset(&gyroHistory);
@@ -989,7 +1009,7 @@ void df3BetaflightTick(void)
         df3FusionReset(&fusionJob);
 #if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
         memset(&blackboxFusion, 0, sizeof(blackboxFusion));
-        fusionJob.trace = &blackboxFusion;
+        fusionJob.trace = NULL;
 #endif
 #endif
         df3EstimatorReset(&estimator, 40000);
@@ -999,6 +1019,10 @@ void df3BetaflightTick(void)
 #endif
         activationQueued = false;
     }
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
+    fusionJob.trace = armed && df3BlackboxConfig()->axes && blackboxConfig()->device != BLACKBOX_DEVICE_NONE
+        ? &blackboxFusion : NULL;
+#endif
     wasArmed = armed;
     if (!estimator.initialized && !armed && lastImuUs && lastAttitudeUs && lastRangeUs && now - lastImuUs <= 200000 &&
         now - lastAttitudeUs <= 250000 && now - lastRangeUs <= 300000) {

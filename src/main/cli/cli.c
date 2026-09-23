@@ -4978,7 +4978,7 @@ static void cliDf3Service(const df3ProfileService_t *s)
             cliPrintLinef("service_cost,%u,%u,%u,%u", i, s->cost[i].calls,
                 s->cost[i].totalTicks, s->cost[i].maxTicks);
     cliPrintLine("service_event,kind,arrived,accepted");
-    for (unsigned i = 0; i < 5; ++i)
+    for (unsigned i = 0; i < ARRAYLEN(s->arrived); ++i)
         cliPrintLinef("service_event,%u,%u,%u", i, s->arrived[i], s->accepted[i]);
     cliPrintLine("service_window,lower_us,upper_us,samples");
     for (unsigned i = 0; i < DF3_SERVICE_WINDOWS; ++i)

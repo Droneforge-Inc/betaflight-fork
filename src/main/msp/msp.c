@@ -2312,6 +2312,65 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
 
     switch (cmdMSP) {
 #ifdef USE_DF3
+#if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX) && defined(USE_FLASHFS)
+    case MSP2_DF3_BLACKBOX:
+    case MSP2_SET_DF3_BLACKBOX: {
+        const bool setting = cmdMSP == MSP2_SET_DF3_BLACKBOX;
+        // Addressed v1 transaction, same envelope as calibration/LQR.
+        // SET byte: 0 off, 1 lateral, 2 vertical, 3 both, 4 erase flight logs.
+        if (sbufBytesRemaining(src) != (setting ? 18 : 17) || sbufReadU8(src) != 1)
+            return MSP_RESULT_ERROR;
+        const uint32_t transaction = sbufReadU32(src);
+        const uint32_t uid0 = sbufReadU32(src), uid1 = sbufReadU32(src), uid2 = sbufReadU32(src);
+        if (!transaction || uid0 != U_ID_0 || uid1 != U_ID_1 || uid2 != U_ID_2)
+            return MSP_RESULT_ERROR;
+        if (setting) {
+            const uint8_t action = sbufReadU8(src);
+            if (action > 4 || ARMING_FLAG(ARMED) || !blackboxMayEditConfig() || !flashfsGetSize())
+                return MSP_RESULT_ERROR;
+            static uint32_t lastEraseTransaction;
+            if (action == 4) {
+                // Automatic disarmed recording could restart as the erase frees space.
+                if (blackboxConfig()->mode != BLACKBOX_MODE_NORMAL) return MSP_RESULT_ERROR;
+                // A repeated packet must never restart an erase. FlashFS owns
+                // the log partition; firmware and EEPROM are separate storage.
+                if (lastEraseTransaction != transaction) {
+                    if (!flashfsIsReady()) return MSP_RESULT_ERROR;
+                    flashfsEraseCompletely();
+                    lastEraseTransaction = transaction;
+                }
+            } else {
+                if (!flashfsIsReady()) return MSP_RESULT_ERROR;
+                df3BlackboxConfig_t *p = df3BlackboxConfigMutable();
+                blackboxConfig_t *b = blackboxConfigMutable();
+                // Record at 1/16 of the PID rate (250 Hz at 4 kHz).
+                // Keep gyro, magnetometer, PID and motor fields for diagnosis.
+                if (p->axes != action || (action && (b->device != BLACKBOX_DEVICE_FLASH ||
+                    b->mode != BLACKBOX_MODE_NORMAL || b->sample_rate != BLACKBOX_RATE_16TH))) {
+                    p->axes = action;
+                    if (action) {
+                        b->device = BLACKBOX_DEVICE_FLASH;
+                        b->mode = BLACKBOX_MODE_NORMAL;
+                        b->sample_rate = BLACKBOX_RATE_16TH;
+                    }
+                    schedulerIgnoreTaskStateTime();
+                    writeReadEeprom(NULL);
+                    blackboxInit();
+                }
+            }
+        }
+        sbufWriteU8(dst, 1); sbufWriteU32(dst, transaction);
+        sbufWriteU32(dst, U_ID_0); sbufWriteU32(dst, U_ID_1); sbufWriteU32(dst, U_ID_2);
+        sbufWriteU8(dst, df3BlackboxConfig()->axes);
+        sbufWriteU8(dst, flashfsIsReady());
+        sbufWriteU8(dst, blackboxMayEditConfig());
+        sbufWriteU8(dst, blackboxConfig()->device);
+        sbufWriteU8(dst, blackboxConfig()->sample_rate);
+        sbufWriteU32(dst, flashfsGetSize());
+        sbufWriteU32(dst, flashfsGetOffset());
+        return MSP_RESULT_ACK; // 30 bytes
+    }
+#endif
     case MSP2_DF3_LQR:
     case MSP2_SET_DF3_LQR: {
         const bool setting = cmdMSP == MSP2_SET_DF3_LQR;

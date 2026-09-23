@@ -446,7 +446,7 @@ bool loadEEPROM(void)
             // authority until explicitly configured. All other load validation
             // retains its original behavior on hardware and SITL.
             if (pgN(reg) == PG_DF3_CONFIG || pgN(reg) == PG_DF3_CALIBRATION_CONFIG ||
-                pgN(reg) == PG_DF3_FLOW_CONFIG) {
+                pgN(reg) == PG_DF3_FLOW_CONFIG || pgN(reg) == PG_DF3_BLACKBOX_CONFIG) {
                 *reg->fnv_hash = fnv_update(FNV_OFFSET_BASIS, reg->address, pgSize(reg));
                 continue;
             }

@@ -1031,6 +1031,9 @@ const clivalue_t valueTable[] = {
 #endif
 
 #ifdef USE_DF3
+#ifdef USE_DF3_BLACKBOX
+    { "df3_blackbox", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 3 }, PG_DF3_BLACKBOX_CONFIG, offsetof(df3BlackboxConfig_t, axes) },
+#endif
     { "df3_hover", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 8000 }, PG_DF3_CONFIG, offsetof(df3Config_t, hover) },
     { "df3_flow_rotation_scale", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 2000 }, PG_DF3_FLOW_CONFIG, offsetof(df3FlowConfig_t, rotationScale) },
     { "df3_flow_offset_x", VAR_INT16 | MASTER_VALUE, .config.minmax = { -500, 500 }, PG_DF3_FLOW_CONFIG, offsetof(df3FlowConfig_t, sensorOffset[0]) },

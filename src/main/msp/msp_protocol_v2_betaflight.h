@@ -35,6 +35,8 @@
 #define MSP2_SET_DF3_CALIBRATION            0x30D1
 #define MSP2_DF3_LQR                       0x30D2
 #define MSP2_SET_DF3_LQR                   0x30D3
+#define MSP2_DF3_BLACKBOX                  0x30D4
+#define MSP2_SET_DF3_BLACKBOX              0x30D5
 
 // MSP2_SET_TEXT and MSP2_GET_TEXT variable types
 #define MSP2TEXT_PILOT_NAME                      1

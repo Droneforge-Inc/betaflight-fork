@@ -20,3 +20,9 @@ typedef struct {
     int16_t sensorOffset[3]; // lens from COM, body FRD millimetres
 } df3FlowConfig_t;
 PG_DECLARE(df3FlowConfig_t, df3FlowConfig);
+
+// Separate PG: adding diagnostics must preserve the aircraft's gains/calibration.
+typedef struct {
+    uint8_t axes; // 0 off, 1 lateral, 2 vertical, 3 both
+} df3BlackboxConfig_t;
+PG_DECLARE(df3BlackboxConfig_t, df3BlackboxConfig);

@@ -154,6 +154,7 @@ void df3ControlStep(df3Control_t *c, const df3ControlConfig_t *cfg, uint64_t now
     out->throttle = clip(throttle, DF3_CONTROL_MIN_THROTTLE, DF3_CONTROL_MAX_THROTTLE);
 #ifdef USE_DF3_BLACKBOX
     out->trace.requestedThrottle = throttle;
+    out->trace.yawReference = target.yaw;
 #endif
     out->angleDeg[0] = atan2f(right, hypotf(forward, vertical)) * 57.295779513f;
     // BF's pitch angle is opposite the FRD quaternion pitch; positive BF

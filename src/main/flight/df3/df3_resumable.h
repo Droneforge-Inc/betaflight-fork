@@ -13,6 +13,28 @@
 #endif
 
 #ifdef USE_DF3_RESUMABLE
+// Stable Blackbox reason codes. Observation only; output validity is unchanged.
+typedef enum {
+    DF3_OUTPUT_OK = 0,
+    DF3_OUTPUT_ARGUMENT = 1,
+    DF3_OUTPUT_UNPUBLISHED = 2,
+    DF3_OUTPUT_ESTIMATOR_FAILED = 3,
+    DF3_OUTPUT_UNINITIALIZED = 4,
+    DF3_OUTPUT_CLOCK_ORDER = 5,
+    DF3_OUTPUT_NOMINAL_FUTURE = 6,
+    DF3_OUTPUT_HISTORY = 7,
+    DF3_OUTPUT_PROJECTION = 8,
+    DF3_OUTPUT_STEP_LIMIT = 9,
+    DF3_OUTPUT_COMMITTED_INVALID = 10,
+    DF3_OUTPUT_BOOTSTRAP = 11,
+    DF3_OUTPUT_IMU_TIME = 12,
+    DF3_OUTPUT_IMU_STALE = 13,
+    DF3_OUTPUT_ATTITUDE_TIME = 14,
+    DF3_OUTPUT_ATTITUDE_STALE = 15,
+    DF3_OUTPUT_OBSERVER = 16,
+    DF3_OUTPUT_RESEARCH_AGE = 17,
+} df3OutputReason_e;
+
 enum { DF3_SLICE_ROWS = 6 };
 #ifdef USE_DF3_MULTIRATE
 /* Three resumptions per pass, with boundaries matched to arithmetic cost.

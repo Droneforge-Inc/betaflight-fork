@@ -160,6 +160,7 @@
 #define PG_DF3_CONFIG               560
 #define PG_DF3_CALIBRATION_CONFIG   561
 #define PG_DF3_FLOW_CONFIG          562
+#define PG_DF3_BLACKBOX_CONFIG      563
 #define PG_BETAFLIGHT_END           563
 
 

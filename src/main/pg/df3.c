@@ -9,6 +9,10 @@ PG_RESET_TEMPLATE(df3CalibrationConfig_t, df3CalibrationConfig, .enabled = 0);
 PG_REGISTER_WITH_RESET_TEMPLATE(df3FlowConfig_t, df3FlowConfig, PG_DF3_FLOW_CONFIG, 0);
 // Preserve legacy hardware calibration until measured for that sensor/mount.
 // The rendered simulator uses rotationScale=1000 and sensorOffset={0,0,35}.
+#ifdef USE_DF3_BLACKBOX
+PG_REGISTER_WITH_RESET_TEMPLATE(df3BlackboxConfig_t, df3BlackboxConfig, PG_DF3_BLACKBOX_CONFIG, 0);
+PG_RESET_TEMPLATE(df3BlackboxConfig_t, df3BlackboxConfig, .axes = 0);
+#endif
 PG_RESET_TEMPLATE(df3FlowConfig_t, df3FlowConfig, .rotationScale = 758, .sensorOffset = {0, 0, 0});
 PG_RESET_TEMPLATE(df3Config_t, df3Config,
                   // No motor authority until the aircraft's collective calibration is set.

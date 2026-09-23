@@ -524,15 +524,10 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
             fusionFail(j, e);
             return;
         }
+        // High-rate force roughness is not the variance of the window mean.
+        // Keep it diagnostic; use innovation-based weighting for IMU outliers
+        // without suppressing velocity feedback during ordinary vibration.
         df3RobustAccelerometerCovariance(event->data + 3, j->h, j->prior, accelerationR, j->R);
-#ifdef USE_DF3_MULTIRATE
-        // Retain lateral roughness weighting. Z uses its base covariance and
-        // innovation-based outlier weighting: high-rate force roughness is not
-        // the variance of the window mean, and inflating Z from it delays the
-        // vertical velocity response. The measured force mean is unchanged.
-        j->R[0] += 1000.f * event->data[1];
-        j->R[4] += 1000.f * event->data[1];
-#endif
         fusionUpdate(j, event->data + 3, j->R, 16.27f, FUSION_IMU_ZERO_VEL);
         return;
     case FUSION_IMU_ZERO_VEL:
@@ -686,17 +681,55 @@ static bool fusionObserveOutput(df3FusionJob_t *j, df3Estimate_t *out)
 }
 #endif
 
+static bool fusionOutputResult(df3FusionJob_t *j, uint64_t now, df3OutputReason_e reason)
+{
+#ifdef USE_DF3_BLACKBOX
+    if (j && j->trace) {
+        df3OutputTrace_t *trace = &j->trace->output;
+        trace->reason = reason;
+        if (reason == DF3_OUTPUT_OK) {
+            trace->sawValid = true;
+        } else if (trace->sawValid) {
+            ++trace->failures;
+            if (!trace->firstReason) {
+                trace->firstReason = reason;
+                trace->firstFailureUs = now;
+                const uint64_t stamp = j->committed.timeUs;
+                trace->nominalAgeUs = !stamp || stamp > now ? -1 :
+                    (int32_t)(now - stamp > 1000000000ULL ? 1000000000ULL : now - stamp);
+                trace->phase = j->busy ? j->phase : 0;
+            }
+        }
+    }
+#else
+    (void)j;
+    (void)now;
+#endif
+    return reason == DF3_OUTPUT_OK;
+}
+
 bool df3FusionOutput(df3FusionJob_t *j, const df3Estimator_t *e, uint64_t now, df3Estimate_t *out)
 {
     DF3_PROFILE_SCOPE(DF3_PROF_OUTPUT);
     if (!out) {
-        return false;
+        return fusionOutputResult(j, now, DF3_OUTPUT_ARGUMENT);
     }
     memset(out, 0, sizeof(*out));
     out->timeUs = now;
-    if (!j || !e || !j->published || e->failed || !e->initialized || now < e->lastTickUs || now < e->bootstrapUs ||
-        now < j->committed.covarianceTimeUs) {
-        return false;
+    if (!j || !e) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_ARGUMENT);
+    }
+    if (!j->published) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_UNPUBLISHED);
+    }
+    if (e->failed) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_ESTIMATOR_FAILED);
+    }
+    if (!e->initialized) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_UNINITIALIZED);
+    }
+    if (now < e->lastTickUs || now < e->bootstrapUs || now < j->committed.covarianceTimeUs) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_CLOCK_ORDER);
     }
     *out = j->committed;
     out->valid = out->verticalReferenceValid = false;
@@ -707,20 +740,22 @@ bool df3FusionOutput(df3FusionJob_t *j, const df3Estimator_t *e, uint64_t now, d
     df3Estimate_t candidate = j->committed;
     uint64_t cursor = candidate.timeUs;
     if (cursor > now) {
-        return false;
+        return fusionOutputResult(j, now, DF3_OUTPUT_NOMINAL_FUTURE);
     }
     unsigned steps = 0;
     while (cursor < now && steps++ < 8) {
         float gyro[3];
         uint64_t next;
-        if (!df3GyroHistoryIntervalHint(j->history, cursor, now, true, gyro, &next, NULL, &j->outputHistoryHint) ||
-            !df3ProjectNominal(candidate.x, gyro, (float)(next - cursor) * 1e-6f)) {
-            return false;
+        if (!df3GyroHistoryIntervalHint(j->history, cursor, now, true, gyro, &next, NULL, &j->outputHistoryHint)) {
+            return fusionOutputResult(j, now, DF3_OUTPUT_HISTORY);
+        }
+        if (!df3ProjectNominal(candidate.x, gyro, (float)(next - cursor) * 1e-6f)) {
+            return fusionOutputResult(j, now, DF3_OUTPUT_PROJECTION);
         }
         cursor = next;
     }
     if (cursor != now) {
-        return false;
+        return fusionOutputResult(j, now, DF3_OUTPUT_STEP_LIMIT);
     }
     candidate.timeUs = now;
     j->committed = candidate;
@@ -745,25 +780,45 @@ bool df3FusionOutput(df3FusionJob_t *j, const df3Estimator_t *e, uint64_t now, d
                 continue;
             }
             if (!df3ProjectNominal(out->x, gyro, (float)(event->us - projected) * 1e-6f)) {
-                return false;
+                return fusionOutputResult(j, now, DF3_OUTPUT_PROJECTION);
             }
             projected = event->us;
             memcpy(gyro, event->data, sizeof(gyro));
         }
     }
-    if (now < projected || now - projected > 200000 ||
-        !df3ProjectNominal(out->x, gyro, (float)(now - projected) * 1e-6f)) {
-        return false;
+    if (now < projected || now - projected > 200000) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_RESEARCH_AGE);
+    }
+    if (!df3ProjectNominal(out->x, gyro, (float)(now - projected) * 1e-6f)) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_PROJECTION);
     }
 #endif
-    out->valid = j->committed.valid && now - e->bootstrapUs >= 150000 && now >= j->committedImuUs &&
-                 now - j->committedImuUs <= 200000 && now >= j->committedAttitudeUs &&
-                 now - j->committedAttitudeUs <= 250000;
+    out->valid = out->verticalReferenceValid = false;
+    if (!j->committed.valid) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_COMMITTED_INVALID);
+    }
+    if (now - e->bootstrapUs < 150000) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_BOOTSTRAP);
+    }
+    if (now < j->committedImuUs) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_IMU_TIME);
+    }
+    if (now - j->committedImuUs > 200000) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_IMU_STALE);
+    }
+    if (now < j->committedAttitudeUs) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_ATTITUDE_TIME);
+    }
+    if (now - j->committedAttitudeUs > 250000) {
+        return fusionOutputResult(j, now, DF3_OUTPUT_ATTITUDE_STALE);
+    }
+    out->valid = true;
 #ifdef USE_DF3_MULTIRATE
-    if (out->valid && !fusionObserveOutput(j, out)) {
+    if (!fusionObserveOutput(j, out)) {
         out->valid = false;
+        return fusionOutputResult(j, now, DF3_OUTPUT_OBSERVER);
     }
 #endif
     out->verticalReferenceValid = out->valid && now >= j->committedVerticalUs && now - j->committedVerticalUs <= 500000;
-    return out->valid;
+    return fusionOutputResult(j, now, DF3_OUTPUT_OK);
 }

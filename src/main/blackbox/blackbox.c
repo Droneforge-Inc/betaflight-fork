@@ -191,9 +191,9 @@ static const blackboxDeltaFieldDefinition_t blackboxMainFields[] = {
     /* Time advances pretty steadily so the P-frame prediction is a straight line */
     {"time",       -1, UNSIGNED, .Ipredict = PREDICT(0),       .Iencode = ENCODING(UNSIGNED_VB), .Ppredict = PREDICT(STRAIGHT_LINE), .Pencode = ENCODING(SIGNED_VB), CONDITION(ALWAYS)},
 #ifdef USE_DF3_BLACKBOX
-#define DF3_BLACKBOX_FIELD(id, name) \
+#define DF3_BLACKBOX_FIELD(id, name, group) \
     {name, -1, SIGNED, .Ipredict = PREDICT(0), .Iencode = ENCODING(SIGNED_VB), \
-     .Ppredict = PREDICT(PREVIOUS), .Pencode = ENCODING(TAG8_8SVB), CONDITION(ALWAYS)},
+     .Ppredict = PREDICT(PREVIOUS), .Pencode = ENCODING(TAG8_8SVB), CONDITION(DF3_ ## group)},
     DF3_BLACKBOX_FIELDS(DF3_BLACKBOX_FIELD)
 #undef DF3_BLACKBOX_FIELD
 #endif
@@ -418,7 +418,7 @@ static uint16_t blackboxIFrameIndex;
 // typically 32 for 1kHz loop, 64 for 2kHz loop etc
 STATIC_UNIT_TESTED int16_t blackboxIInterval = 0;
 // number of flight loop iterations before logging P-frame
-STATIC_UNIT_TESTED int8_t blackboxPInterval = 0;
+STATIC_UNIT_TESTED int16_t blackboxPInterval = 0;
 STATIC_UNIT_TESTED int32_t blackboxSInterval = 0;
 STATIC_UNIT_TESTED int32_t blackboxSlowFrameIterationTimer;
 static bool blackboxLoggedAnyFrames;
@@ -463,6 +463,14 @@ static bool isFieldEnabled(FlightLogFieldSelect_e field)
 static bool testBlackboxConditionUncached(FlightLogFieldCondition condition)
 {
     switch (condition) {
+#ifdef USE_DF3_BLACKBOX
+    case CONDITION(DF3_COMMON):
+        return df3BlackboxConfig()->axes != 0;
+    case CONDITION(DF3_LATERAL):
+        return (df3BlackboxConfig()->axes & 1) != 0;
+    case CONDITION(DF3_VERTICAL):
+        return (df3BlackboxConfig()->axes & 2) != 0;
+#endif
     case CONDITION(ALWAYS):
         return true;
 
@@ -616,7 +624,10 @@ static void writeIntraframe(void)
     blackboxWriteUnsignedVB(blackboxIteration);
     blackboxWriteUnsignedVB(blackboxCurrent->time);
 #ifdef USE_DF3_BLACKBOX
-    blackboxWriteSignedVBArray(blackboxCurrent->df3, DF3_BLACKBOX_FIELD_COUNT);
+    for (unsigned i = 0; i < DF3_BLACKBOX_FIELD_COUNT; ++i) {
+        if (testBlackboxCondition(blackboxMainFields[2 + i].condition))
+            blackboxWriteSignedVB(blackboxCurrent->df3[i]);
+    }
 #endif
 
     if (testBlackboxCondition(CONDITION(PID))) {
@@ -773,12 +784,18 @@ static void writeInterframe(void)
     int32_t deltas[8];
     int32_t setpointDeltas[4];
 #ifdef USE_DF3_BLACKBOX
-    // Groups of unchanged fields cost one tag byte, including between 250 Hz snapshots.
-    STATIC_ASSERT(DF3_BLACKBOX_FIELD_COUNT % 8 == 0, df3_blackbox_groups_of_eight);
-    for (unsigned first = 0; first < DF3_BLACKBOX_FIELD_COUNT; first += 8) {
-        arraySubInt32(deltas, blackboxCurrent->df3 + first, blackboxLast->df3 + first, 8);
-        blackboxWriteTag8_8SVB(deltas, 8);
+    // Pack only the fields declared by this log's frozen condition cache.
+    // A partial final group is valid TAG8_8SVB, just like normal optional fields.
+    unsigned count = 0;
+    for (unsigned i = 0; i < DF3_BLACKBOX_FIELD_COUNT; ++i) {
+        if (!testBlackboxCondition(blackboxMainFields[2 + i].condition)) continue;
+        deltas[count++] = blackboxCurrent->df3[i] - blackboxLast->df3[i];
+        if (count == 8) {
+            blackboxWriteTag8_8SVB(deltas, count);
+            count = 0;
+        }
     }
+    if (count) blackboxWriteTag8_8SVB(deltas, count);
 #endif
 
     if (testBlackboxCondition(CONDITION(PID))) {
@@ -1157,7 +1174,9 @@ static void loadMainState(timeUs_t currentTimeUs)
 
     blackboxCurrent->time = currentTimeUs;
 #ifdef USE_DF3_BLACKBOX
-    df3BetaflightBlackbox(currentTimeUs, blackboxCurrent->df3);
+    if (testBlackboxCondition(CONDITION(DF3_COMMON))) {
+        df3BetaflightBlackbox(currentTimeUs, blackboxCurrent->df3);
+    }
 #endif
 
     for (int i = 0; i < XYZ_AXIS_COUNT; i++) {
@@ -1392,7 +1411,8 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE("Firmware revision", "%s %s (%s) %s",    FC_FIRMWARE_NAME, FC_VERSION_STRING, shortGitRevision, targetName);
         BLACKBOX_PRINT_HEADER_LINE("Firmware date", "%s %s",                buildDate, buildTime);
 #ifdef USE_DF3_BLACKBOX
-        BLACKBOX_PRINT_HEADER_LINE("df3_log_version", "%u", 2);
+        BLACKBOX_PRINT_HEADER_LINE("df3_log_version", "%u", 4);
+        BLACKBOX_PRINT_HEADER_LINE("df3_log_axes", "%u", df3BlackboxConfig()->axes);
         BLACKBOX_PRINT_HEADER_LINE("df3_firmware", "0x%08x", FIRMWARE_VERSION_DF);
         BLACKBOX_PRINT_HEADER_LINE("df3_x_gains_milli", "%u,%u,%u", df3Config()->kp[0], df3Config()->kv[0], df3Config()->ki[0]);
         BLACKBOX_PRINT_HEADER_LINE("df3_y_gains_milli", "%u,%u,%u", df3Config()->kp[1], df3Config()->kv[1], df3Config()->ki[1]);
@@ -2134,6 +2154,19 @@ void blackboxInit(void)
     blackboxIInterval = (uint16_t)(32 * 1000 / targetPidLooptime);
 
     blackboxPInterval = 1 << blackboxConfig()->sample_rate;
+#ifdef USE_DF3_BLACKBOX
+    if (df3BlackboxConfig()->axes) {
+        // DF3 snapshots update at most at 250 Hz. Cap all main log frames,
+        // retaining slower requested rates and the power-of-two decimation.
+        // Align I-frames too: a short final P interval would exceed the cap.
+        while ((uint32_t)blackboxPInterval * targetPidLooptime < 4000) {
+            blackboxPInterval *= 2;
+        }
+        if (blackboxPInterval <= blackboxIInterval) {
+            blackboxIInterval -= blackboxIInterval % blackboxPInterval;
+        }
+    }
+#endif
     if (blackboxPInterval > blackboxIInterval) {
         blackboxPInterval = 0; // log only I frames if logging frequency is too low
     }

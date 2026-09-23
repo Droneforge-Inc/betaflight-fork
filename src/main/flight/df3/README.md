@@ -4,11 +4,19 @@ Enable the current runtime with `OPTIONS=USE_DF3` on a normal Betaflight target
 or board configuration. `mk/df3.mk` owns the defaults and backend selection.
 No library from the simulator repository is needed to build firmware.
 
-The only additional production DF3 option is `USE_DF3_PROFILE`. For example,
+The optional `USE_DF3_PROFILE` flag adds timing diagnostics. For example,
 `OPTIONS="USE_DF3 USE_DF3_PROFILE"` includes the existing timing counters,
 retained failure details and first-sensor automatic profile capture. Without
 it, the runtime and normal state/diagnostic telemetry remain available, but the
 detailed profiler and its service/failure recorder are omitted.
+
+`USE_DF3_BLACKBOX` separately enables detailed onboard controller/fusion logs.
+It is off by default: normal builds omit the DF3 trace collection, fields and
+extra storage, while ordinary Betaflight Blackbox logging remains available.
+Use `OPTIONS="USE_DF3 USE_DF3_BLACKBOX"` when those observations are needed.
+In those builds, `df3_blackbox` selects logging at runtime: 0 off (default),
+1 lateral, 2 vertical, 3 both. Snapshot and fusion-trace collection are disabled
+when disarmed, when this selection is off, or when the Blackbox device is NONE.
 
 The standard runtime uses 30 Hz windowed fusion, resumable deadline-budgeted
 work, and a 250 Hz outer controller. `df3_runtime.h` defines this complete
@@ -39,11 +47,32 @@ validation: smoothing can reduce damping and increase physical jitter.
 
 ## Onboard Blackbox observations
 
-With `USE_DF3 USE_DF3_BLACKBOX` and the target's normal `USE_BLACKBOX`, each main
-log frame includes 136 DF3 fields (schema 2) defined in `df3_blackbox.h`.
-No extra PG, radio packet or debug-mode selection is required. Normal Blackbox enable,
-arming, sample-rate and storage settings still apply. Existing motor, battery,
-gyro and accelerometer fields remain available; retain those for diagnosis.
+With `USE_DF3 USE_DF3_BLACKBOX` and the target's normal `USE_BLACKBOX`, schema 4
+selects a subset of the 147 fields defined in `df3_blackbox.h`: 113 lateral,
+75 vertical, or all 147. Shared fields include attitude, heading, sensor ages,
+range clearance, body forces, biases and validity. The header records
+`df3_log_axes`; the selection stays fixed throughout each recording. Setting
+`df3_blackbox = 0` omits DF3 fields while retaining ordinary Blackbox logging.
+Normal Blackbox arming and storage settings still apply; DF3 main frames are
+capped at 250 Hz, with slower requested P-frame rates retained. Retain
+motor, magnetometer, battery, gyro and accelerometer fields for diagnosis.
+
+On FlashFS builds, MSP2_DF3_BLACKBOX (0x30D4) reads settings/storage and
+MSP2_SET_DF3_BLACKBOX (0x30D5) changes them. Both use a 17-byte envelope:
+version 1, nonzero transaction ID (u32), and expected FC UID (three u32s),
+all little-endian. SET appends one byte: axes 0–3 or action 4 to erase flight
+logs. The 30-byte response echoes the envelope then axes, ready, editable,
+device, sample-rate (five u8s), total bytes and used bytes (two u32s).
+
+Writes require disarmed and stopped logging. Selecting nonzero axes saves the
+selection in its own PG and configures FLASH, NORMAL, and requested 1/16 sampling
+without a reboot. The rate cap is applied when initializing Blackbox, without
+changing the saved sample-rate setting or MSP response. The log's I/P interval
+headers record the effective intervals. Erase requires NORMAL mode, erases only the log partition, and never
+repeats for the last accepted transaction ID. Poll read status until ready;
+firmware and configuration are separate from log storage. Nimbus confirms
+log deletion, holds arming until completion/readback, and does not retry an
+uncertain erase write. Download wanted logs before erasing.
 
 The adapter freezes a snapshot after each 250 Hz controller calculation.
 Reading it for Blackbox does not advance the controller or output observer.
@@ -52,6 +81,48 @@ snapshot's FC time. All other `*AgeUs` values are relative to that snapshot;
 subtract them as well to obtain a measurement's FC timestamp. Unwrap the normal
 Blackbox microsecond clock before subtracting ages. `-1` means no usable time.
 `df3FusionAgeUs` refers to covariance time, not the 15 ms output time constant.
+
+`df3OutputReason` records the latest `df3FusionOutput` result. After the first
+valid output while armed and collecting diagnostics, the first invalid call
+latches `df3OutputFaultReason`, `df3OutputFaultMs`,
+`df3OutputFaultNominalAgeUs` and `df3OutputFaultPhase`. They survive recovery
+and later failures until disarm resets the collector. The timestamp is FC
+uptime in milliseconds modulo 2^30, independent of the later Blackbox sample.
+Nominal age is measured at that failure, before an incomplete projection can
+advance the committed cache; -1 means absent/future. Phase is the worker's
+internal fusion phase, or 0 when idle. `df3OutputFaultCount` counts invalid
+output calls after the first valid call, modulo 2^30, not distinct episodes.
+Startup invalidity updates the current reason but does not occupy the first
+failure latch. These fields are shared by lateral and vertical logs.
+`df3ControlFaultOutputReason` separately retains the output reason consumed
+when the controller first enters FAULT: -1 until that happens, 0 if the output
+was valid (so another controller guard caused the fault). This distinguishes
+the shutdown from earlier invalid polls that did not reach an engaged controller.
+
+| Reason | Meaning |
+| ---: | --- |
+| 0 | Valid output |
+| 1 | Missing argument |
+| 2 | No published estimate |
+| 3 | Estimator failure already latched |
+| 4 | Estimator not initialized |
+| 5 | Current time precedes tick, bootstrap or covariance time |
+| 6 | Committed nominal timestamp is in the future |
+| 7 | Gyro-history interval unavailable (coverage, gap or tail limit) |
+| 8 | Nominal projection failed its finite-state/quaternion checks |
+| 9 | Eight-step output catch-up limit exhausted |
+| 10 | Committed snapshot invalid |
+| 11 | Bootstrap settling interval incomplete |
+| 12 / 13 | Committed IMU timestamp in the future / older than 200 ms |
+| 14 / 15 | Committed attitude timestamp in the future / older than 250 ms |
+| 16 | Output observer failed (time order or nonfinite motion) |
+| 17 | Research-only queued-IMU projection age invalid |
+
+The first failing guard determines the reason. These observations do not alter
+the eight-step limit, estimator validity, controller fault latch or recovery
+policy. Reason 3 identifies a previously failed estimator; it does not identify
+which earlier fusion operation failed. Range-reference validity is separate
+from output validity and remains visible in `df3Flags`.
 
 Unless noted below, floating values are SI values multiplied by 1000 and
 rounded. Position/velocity/acceleration are local NED, so upward is negative Z.
@@ -62,6 +133,7 @@ Validity flags and sequence numbers distinguish initialization from real zeros.
 | --- | --- |
 | `df3RefPz/Vz/Az`, `df3Pz/Vz/Az` | Controller's effective reference (including hold/landing fallback) and the actual estimate it used |
 | `df3ProjectedPz/Vz` | Current-time EKF projection before the output observer |
+| `df3NativeYaw`, `df3YawReference`, `df3Yaw`, `df3YawRate` | Native BF heading, effective yaw target, DF3 heading (degrees ×1000), and commanded native yaw rate (degrees/s ×1000); wrap heading differences before comparing |
 | `df3Qw/Qx/Qy/Qz` | Body-FRD to local-NED quaternion ×1,000,000 |
 | `df3ForceX/Y/Z` | Latest FC-filtered specific force in body FRD, before window reduction; not raw sensor-register data |
 | `df3RangeRaw`, `df3RangeDown`, `df3RangeStrength` | Latest admitted raw slant range in mm, negative tilt-corrected clearance ×1000, and unscaled signal strength |
@@ -91,7 +163,7 @@ Validity flags and sequence numbers distinguish initialization from real zeros.
 | `df3RollRequest`, `df3PitchRequest` | Angle commands sent to Betaflight, degrees ×1000. BF pitch has the opposite sign to quaternion FRD pitch |
 | `df3ImuX/Y`, `df3ImuInnovationX/Y`, `df3ImuRX/RY` | Windowed body-FRD lateral specific force, pre-update residual and actual variance, using the existing `df3ImuSeq/FusionAgeUs/Status` |
 | `df3ImuDvX/Y`, `df3ImuDaX/Y` | Applied local-NED X/Y IMU velocity/acceleration corrections ×1,000,000 |
-| `df3ImuRoughnessXY` | Lateral reducer roughness ×1,000,000; current lateral R adds `1000 * roughness` to both body axes |
+| `df3ImuRoughnessXY` | Lateral reducer roughness ×1,000,000; diagnostic only, not added to X/Y observation variance |
 | `df3FlowSeq/FusionAgeUs/Status` | Consumed flow-observation sequence, acquisition age and fusion result; `-1` means skipped/not yet completed |
 | `df3FlowX/Y`, `df3FlowInnovationX/Y`, `df3FlowRX/RY` | Effective body-FRD COM velocity observation/residual after quantization handling; actual R is (m/s)² ×1,000,000 |
 | `df3FlowDvX/Y`, `df3FlowDaX/Y` | Applied flow corrections to local-NED X/Y velocity/acceleration ×1,000,000; zero on rejection or skip |
@@ -133,23 +205,29 @@ AIR75 II. A successful firmware link proves only that the program fits. Read
 `usedSize`, `freeSize`, buffer space and `Blackbox droppedBytes`. A missing/zero
 FlashFS volume cannot record. Do not infer chip capacity from the MCU model.
 
-Begin around 500 Hz Blackbox sampling for the 250 Hz control snapshots; inspect
-`df3Sample` for gaps and use lower rates only if the needed transients remain
-resolved. The saved `1/4` sample-rate setting is a fraction of the PID rate,
-not a fixed frequency. Logging faster cannot increase DF3's update rate.
-No logging settings or stored flights are changed automatically.
+Ordinary Blackbox uses a fixed PID-loop divisor, not automatic CPU-load
+throttling. With DF3 fields selected, the effective divisor is increased to
+keep main I/P frames at or below 250 Hz for the configured PID period. A
+requested 1/16 becomes 1/32 at 8 kHz and stays 1/16 at 4 kHz; slower P rates
+are preserved. I-frame boundaries are aligned with the P cadence so they
+cannot insert an extra short interval. This limits main-frame production,
+not event/GPS records, flash DMA bursts or total CPU time. Existing I-only
+behavior still applies when the requested P interval exceeds the I interval.
+With `df3_blackbox = 0`, normal Betaflight scheduling is unchanged.
+Inspect `df3Sample` for gaps; logging faster cannot increase DF3's update rate.
+Runtime collection remains off on
+existing aircraft until a nonzero selection is saved; the LUX 1.3.44 setup
+profile selects lateral diagnostics.
 
 Measure a representative short recording and calculate
 `bytesPerSecond = (usedSizeAfter - usedSizeBefore) / recordedSeconds` after the
 normal disarm/flush. Budget `0.75 * freeSize / bytesPerSecond` seconds for the
 next recording, allowing 25% headroom. Include noisy motion in the rate sample:
 variable-length deltas grow with signal activity. For a conservative bound,
-the DF3 addition alone is at most 697 bytes per logged P-frame (680 per I-frame),
-plus the existing Blackbox fields, headers and events. This is a bound, not a
-measured aircraft recording rate. The 72 new fields add nine P-frame tag bytes
-when unchanged, plus their signed deltas when they change and 72–360 bytes per
-I-frame. Measure storage use again after this update; the old recording-duration
-budget is no longer valid.
+the DF3 addition alone is at most 580/385/754 bytes per P-frame for
+lateral/vertical/both (565/375/735 per I-frame), plus existing Blackbox fields,
+headers and events. These are bounds, not measured recording rates. Measure
+storage use after changing the selected axes or sample rate.
 
 DF3 builds use a 2048-byte asynchronous flash ring (2047 usable) to fit the
 larger frames; indices are wide enough to wrap correctly. Full-buffer writes
@@ -183,25 +261,34 @@ These conservative weights need flight validation; simulation cannot establish
 the real camera's delay, vibration sensitivity or complete noise distribution.
 
 The IMU reducer carries a bounded second-difference noise proxy alongside the
-unchanged windowed specific force. The fusion step increases measurement
-variance when that proxy rises. The proxy is tuned for the existing 25 Hz FC
-accelerometer low-pass; bypassing or changing that filter requires retuning.
-Range weighting similarly uses a bounded third-difference noise proxy and a
-positive variance floor. These proxies reject low-order motion; they are tuning
-signals, not calibrated estimates of every sensor's true noise distribution.
+unchanged windowed specific force. This proxy remains diagnostic on all axes:
+high-rate roughness does not measure uncertainty of the window mean. IMU
+observation variance uses its nominal covariance and innovation-based outlier
+weighting. Range weighting uses a bounded third-difference noise proxy and a
+positive variance floor. These proxies reject low-order motion; they are not
+calibrated estimates of every sensor's true noise distribution.
 Range variance is `(0.001 + 5 * measuredNoiseVariance)` m² before the existing
 signal-strength scaling. Raising IMU uncertainty alone can increase acceleration
 corrections from range; validate these weights together.
 
 Nominal IMU variances are 0.324, 0.324 and 1.200 (m/s²)². Jerk process
 intensities are 2.7, 2.7 and 5.4, and accelerometer-bias random-walk intensities
-are 0.1, 0.1 and 1.0. Prediction constants are shared by synchronous and
+are 0.1, 0.1 and 1.0 (m/s²)²/s. Body-Z bias tracking is restored after the
+1.3.35 disable experiment, with initial variance 0.36 (m/s²)². The extra
+roughness-based observation variance is removed on all three axes; measured
+roughness is retained for diagnostics only.
+Prediction constants are shared by synchronous and
 multirate implementations. The existing bias states, covariance update,
 stationary constraints and terrain policy remain responsible for bias learning.
-Persistent, range-anchored body-Z IMU innovation uses a 200 ms signed average.
-Outside a 0.15 m/s² deadband it can add bounded bias covariance; this avoids
-keeping the fast bias response active during ordinary clean motion. Both the
-deadband and covariance bound must be validated together with sensor weighting.
+Do not boost body-Z bias covariance from signed IMU innovation alone: real
+periodic acceleration also produces persistent residuals over each half-cycle.
+The former 200 ms average could add another 9 (m/s²)²/s during unbiased 1 Hz
+motion, making the bias estimate follow motion and delaying velocity feedback.
+Bias learning now uses only the nominal process noise and Kalman updates; there
+is no extra innovation-driven boost, hard bias clamp, or change to controller
+integration. The 1 Hz observation regression checks phase and amplitude as well
+as false bias. This restriction reduces the reproduced error, but does not
+eliminate acceleration lag or establish closed-loop flight stability.
 
 A rejected flow report does not invalidate a previously admitted measurement.
 Only a successful enqueue refreshes its age; sustained loss still expires at

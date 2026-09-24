@@ -262,6 +262,13 @@ rx_crsf_unittest_SRC := \
 		$(USER_DIR)/drivers/serial.c
 
 
+rx_crsf_mlrs_unittest_SRC := $(rx_crsf_unittest_SRC) \
+        $(USER_DIR)/build/atomic.c \
+        $(USER_DIR)/flight/df3/df3_mlrs.c \
+        $(USER_DIR)/flight/df3/df3_reference.c \
+        $(USER_DIR)/telemetry/msp_shared.c
+rx_crsf_mlrs_unittest_DEFINES := USE_DF3= USE_MSP_OVER_TELEMETRY=
+
 rx_ibus_unittest_SRC := \
 		$(USER_DIR)/rx/ibus.c
 

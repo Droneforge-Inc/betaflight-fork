@@ -52,6 +52,10 @@
 #include "telemetry/crsf.h"
 #ifdef USE_DF3
 #include "flight/df3/df3_betaflight.h"
+#ifndef SITL
+#include "build/atomic.h"
+#include "drivers/nvic.h"
+#endif
 #endif
 
 #define CRSF_TIME_NEEDED_PER_FRAME_US   1750 // a maximally sized 64byte payload will take ~1550us, round up to 1750.
@@ -65,6 +69,15 @@
 #define CRSF_LINK_STATUS_UPDATE_TIMEOUT_US  250000 // 250ms, 4 Hz mode 1 telemetry
 
 #define CRSF_FRAME_ERROR_COUNT_THRESHOLD    3
+
+#ifdef USE_DF3
+static uint32_t mlrsNonce, mlrsProbeUs, mlrsControlUs;
+static bool mlrsActive, mlrsAckPending;
+static struct {
+    uint32_t nonce, receivedUs;
+    volatile bool pending;
+} mlrsProbe;
+#endif
 
 STATIC_UNIT_TESTED bool crsfFrameDone = false;
 STATIC_UNIT_TESTED crsfFrame_t crsfFrame;
@@ -393,8 +406,33 @@ STATIC_UNIT_TESTED void crsfDataReceive(uint16_t c, void *data)
 #endif
                 switch (crsfFrame.frame.type) {
 #ifdef USE_DF3
+                case CRSF_FRAMETYPE_DF_MLRS_PROFILE:
+                    if (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER &&
+                        crsfFrame.frame.frameLength == 12 &&
+                        crsfFrame.frame.payload[0] == CRSF_ADDRESS_FLIGHT_CONTROLLER &&
+                        crsfFrame.frame.payload[1] == CRSF_ADDRESS_CRSF_TRANSMITTER) {
+                        const uint8_t *p = crsfFrame.frame.payload + 2;
+                        const uint32_t nonce = (uint32_t)df3ReadU16Le(p + 4) | ((uint32_t)df3ReadU16Le(p + 6) << 16);
+                        if (p[0] == 1 && p[1] == 0 && p[2] == 1 && p[3] == 0 && nonce) {
+                            mlrsProbe.nonce = nonce;
+                            mlrsProbe.receivedUs = currentTimeUs;
+                            mlrsProbe.pending = true;
+                        }
+                    }
+                    break;
+                case CRSF_FRAMETYPE_DF_MLRS_CONTROL:
+                    if (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER &&
+                        crsfFrame.frame.frameLength == 58 &&
+                        crsfFrame.frame.payload[0] == CRSF_ADDRESS_FLIGHT_CONTROLLER &&
+                        crsfFrame.frame.payload[1] == CRSF_ADDRESS_RADIO_TRANSMITTER) {
+                        memcpy(&crsfChannelDataFrame, &crsfFrame, sizeof(crsfFrame));
+                        mlrsControlUs = currentTimeUs;
+                        crsfFrameDone = true;
+                    }
+                    break;
                 case CRSF_FRAMETYPE_DF_REFERENCE:
                     if (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER &&
+                        df3BetaflightMlrsLegacyAllowed() &&
                         crsfFrame.frame.frameLength == DF3_REFERENCE_BYTES + 4 &&
                         crsfFrame.frame.payload[0] == CRSF_ADDRESS_FLIGHT_CONTROLLER &&
                         crsfFrame.frame.payload[1] == CRSF_ADDRESS_RADIO_TRANSMITTER) {
@@ -404,7 +442,11 @@ STATIC_UNIT_TESTED void crsfDataReceive(uint16_t c, void *data)
 #endif
                 case CRSF_FRAMETYPE_RC_CHANNELS_PACKED:
                 case CRSF_FRAMETYPE_SUBSET_RC_CHANNELS_PACKED:
-                    if (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER) {
+                    if (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER
+#ifdef USE_DF3
+                        && df3BetaflightMlrsLegacyAllowed()
+#endif
+                    ) {
                         rxRuntimeState->lastRcFrameTimeUs = currentTimeUs;
                         crsfFrameDone = true;
                         memcpy(&crsfChannelDataFrame, &crsfFrame, sizeof(crsfFrame));
@@ -502,13 +544,44 @@ STATIC_UNIT_TESTED uint8_t crsfFrameStatus(rxRuntimeState_t *rxRuntimeState)
 #if defined(USE_CRSF_LINK_STATISTICS)
     crsfCheckRssi(micros());
 #endif
+#ifdef USE_DF3
+    crsfRxMlrsProfileActive(micros());
+    crsfFrame_t acceptedFrame;
+    uint32_t receivedUs = 0;
+    bool frameDone = false;
+#ifndef SITL
+    ATOMIC_BLOCK(NVIC_PRIO_MAX)
+#endif
+    {
+        if (crsfFrameDone) {
+            acceptedFrame = crsfChannelDataFrame;
+            receivedUs = mlrsControlUs;
+            crsfFrameDone = false;
+            frameDone = true;
+        }
+    }
+    if (frameDone) {
+        if (acceptedFrame.frame.type == CRSF_FRAMETYPE_DF_MLRS_CONTROL) {
+            if (!mlrsActive || !df3BetaflightMlrsControl(acceptedFrame.frame.payload + 24, receivedUs)) {
+                return RX_FRAME_PENDING;
+            }
+            // A single validated frame commits the selector, reference and RC.
+            memmove(acceptedFrame.frame.payload, acceptedFrame.frame.payload + 2, 22);
+            acceptedFrame.frame.type = CRSF_FRAMETYPE_RC_CHANNELS_PACKED;
+            rxRuntimeState->lastRcFrameTimeUs = receivedUs;
+        } else if (!df3BetaflightMlrsLegacyAllowed()) {
+            return RX_FRAME_PENDING;
+        }
+#else
     if (crsfFrameDone) {
         crsfFrameDone = false;
+        const crsfFrame_t acceptedFrame = crsfChannelDataFrame;
+#endif
 
         // unpack the RC channels
-        if (crsfChannelDataFrame.frame.type == CRSF_FRAMETYPE_RC_CHANNELS_PACKED) {
+        if (acceptedFrame.frame.type == CRSF_FRAMETYPE_RC_CHANNELS_PACKED) {
             // use ordinary RC frame structure (0x16)
-            const crsfPayloadRcChannelsPacked_t* const rcChannels = (crsfPayloadRcChannelsPacked_t*)&crsfChannelDataFrame.frame.payload;
+            const crsfPayloadRcChannelsPacked_t* const rcChannels = (crsfPayloadRcChannelsPacked_t*)&acceptedFrame.frame.payload;
             channelScale = CRSF_RC_CHANNEL_SCALE_LEGACY;
             crsfChannelData[0] = rcChannels->chan0;
             crsfChannelData[1] = rcChannels->chan1;
@@ -529,7 +602,7 @@ STATIC_UNIT_TESTED uint8_t crsfFrameStatus(rxRuntimeState_t *rxRuntimeState)
         } else {
             // use subset RC frame structure (0x17)
             uint8_t readByteIndex = 0;
-            const uint8_t *payload = crsfChannelDataFrame.frame.payload;
+            const uint8_t *payload = acceptedFrame.frame.payload;
 
             // get the configuration byte
             uint8_t configByte = payload[readByteIndex++];
@@ -571,7 +644,7 @@ STATIC_UNIT_TESTED uint8_t crsfFrameStatus(rxRuntimeState_t *rxRuntimeState)
             configByte >>= CRSF_SUBSET_RC_RESERVED_CONFIGURATION_BITS;
 
             // calculate the number of channels packed
-            uint8_t numOfChannels = ((crsfChannelDataFrame.frame.frameLength - CRSF_FRAME_LENGTH_TYPE_CRC - 1) * 8) / channelBits;
+            uint8_t numOfChannels = ((acceptedFrame.frame.frameLength - CRSF_FRAME_LENGTH_TYPE_CRC - 1) * 8) / channelBits;
 
             // unpack the channel data
             uint8_t bitsMerged = 0;
@@ -614,6 +687,61 @@ STATIC_UNIT_TESTED float crsfReadRawRC(const rxRuntimeState_t *rxRuntimeState, u
     }
 }
 
+#ifdef USE_DF3
+bool crsfRxMlrsProfileActive(uint32_t now)
+{
+    uint32_t nonce = 0, stamp = 0;
+#ifndef SITL
+    ATOMIC_BLOCK(NVIC_PRIO_MAX)
+#endif
+    {
+        if (mlrsProbe.pending) {
+            nonce = mlrsProbe.nonce;
+            stamp = mlrsProbe.receivedUs;
+            mlrsProbe.pending = false;
+        }
+    }
+    if (nonce && now - stamp <= 1500000) {
+        const bool newSession = nonce != mlrsNonce;
+        mlrsNonce = nonce;
+        mlrsProbeUs = stamp;
+        mlrsActive = mlrsAckPending = true;
+        df3BetaflightMlrsProfile(true, newSession);
+    }
+    if (mlrsActive && now - mlrsProbeUs > 1500000) {
+        mlrsActive = mlrsAckPending = false;
+    }
+    if (!mlrsActive) df3BetaflightMlrsProfile(false, false);
+    return mlrsActive;
+}
+
+bool crsfRxTryWriteTelemetry(const uint8_t *data, unsigned length)
+{
+    if (!serialPort || !length || length > 128) return false;
+#ifdef DFSIM_CRSF_TAP
+    dfsimTraceCrsf(data, length);
+#else
+    // serialWriteBuf can spin; reserve the entire pair before admitting it.
+    if (serialTxBytesFree(serialPort) < length) return false;
+    serialWriteBuf(serialPort, data, length);
+#endif
+    df3BetaflightUartSubmitted(micros(), data[2]);
+    return true;
+}
+
+void crsfRxMlrsProfileReply(void)
+{
+    if (!mlrsAckPending) return;
+    uint8_t frame[14] = {CRSF_ADDRESS_CRSF_TRANSMITTER, 12, CRSF_FRAMETYPE_DF_MLRS_PROFILE,
+                        CRSF_ADDRESS_CRSF_TRANSMITTER, CRSF_ADDRESS_FLIGHT_CONTROLLER, 1, 1, 1, 0};
+    df3WriteU32Le(frame + 9, mlrsNonce);
+    uint8_t crc = 0;
+    for (unsigned i = 2; i < sizeof(frame) - 1; ++i) crc = crc8_dvb_s2(crc, frame[i]);
+    frame[13] = crc;
+    if (crsfRxTryWriteTelemetry(frame, sizeof(frame))) mlrsAckPending = false;
+}
+#endif
+
 void crsfRxWriteTelemetryData(const void *data, int len)
 {
 #ifdef USE_DF3
@@ -629,6 +757,9 @@ void crsfRxSendTelemetryData(void)
     // if there is telemetry data to write
     if (telemetryBufLen > 0) {
         if (serialPort != NULL) {
+#if defined(USE_DF3) && !defined(DFSIM_CRSF_TAP)
+            if (mlrsActive && serialTxBytesFree(serialPort) < telemetryBufLen) return;
+#endif
 #ifdef DFSIM_CRSF_TAP
             // The observer transport replaces the physical UART write. Keeping
             // a second unconsumed TCP TX ring would stall the scheduler.

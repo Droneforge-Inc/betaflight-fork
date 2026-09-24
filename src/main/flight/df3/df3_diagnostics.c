@@ -37,7 +37,7 @@ void df3DiagnosticsUartSubmitted(df3FaultDiagnostics_t *d, uint32_t now, uint8_t
     }
     d->lastUartUs = now;
     d->pending = false;
-    if (type == DF3_OPTRANGE_CRSF_TYPE) {
+    if (type == DF3_OPTRANGE_CRSF_TYPE || type == 0xea) {
         if (d->lastOptrangeUs && late(now, d->lastOptrangeUs, DF3_DIAG_UART_GAP_US)) {
             event(d, DF3_DIAG_OPTRANGE_UART_LATE);
         }

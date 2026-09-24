@@ -100,6 +100,7 @@ COMMON_SRC = \
             flight/df3/df3_estimator.c \
             flight/df3/df3_betaflight.c \
             flight/df3/df3_reference.c \
+            flight/df3/df3_mlrs.c \
             flight/df3/df3_epoch.c \
             flight/df3/df3_state.c \
             flight/df3/df3_diagnostics.c \

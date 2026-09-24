@@ -79,6 +79,26 @@ static lowVoltageCutoff_t lowVoltageCutoff;
 
 static currentMeter_t currentMeter;
 static voltageMeter_t voltageMeter;
+#ifdef USE_DF3
+static uint32_t df3VoltageSampleUs, df3CurrentSampleUs;
+
+uint32_t getBatterySampleAgeUs(uint32_t nowUs)
+{
+    // Only ADC acquisition timestamps are known locally. Do not call a cached
+    // ESC/MSP report fresh merely because the battery task ran again.
+    if (batteryConfig()->voltageMeterSource != VOLTAGE_METER_ADC || !df3VoltageSampleUs) {
+        return UINT32_MAX;
+    }
+    uint32_t age = nowUs - df3VoltageSampleUs;
+    if (batteryConfig()->currentMeterSource != CURRENT_METER_NONE) {
+        if (batteryConfig()->currentMeterSource != CURRENT_METER_ADC || !df3CurrentSampleUs) {
+            return UINT32_MAX;
+        }
+        age = MAX(age, nowUs - df3CurrentSampleUs);
+    }
+    return age;
+}
+#endif
 
 static batteryState_e batteryState;
 static batteryState_e voltageState;
@@ -150,6 +170,9 @@ void batteryUpdateVoltage(timeUs_t currentTimeUs)
         case VOLTAGE_METER_ADC:
             voltageMeterADCRefresh();
             voltageMeterADCRead(VOLTAGE_SENSOR_ADC_VBAT, &voltageMeter);
+#ifdef USE_DF3
+            df3VoltageSampleUs = currentTimeUs;
+#endif
             break;
 
         default:
@@ -452,6 +475,9 @@ void batteryUpdateCurrentMeter(timeUs_t currentTimeUs)
         case CURRENT_METER_ADC:
             currentMeterADCRefresh(lastUpdateAt);
             currentMeterADCRead(&currentMeter);
+#ifdef USE_DF3
+            df3CurrentSampleUs = currentTimeUs;
+#endif
             break;
 
         case CURRENT_METER_VIRTUAL: {

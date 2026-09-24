@@ -1,6 +1,7 @@
 #pragma once
 #include "df3_estimator.h"
 #include "df3_reference.h"
+#include "df3_mlrs.h"
 #include "df3_control.h"
 #include "df3_state.h"
 #include "df3_diagnostics.h"
@@ -31,6 +32,10 @@ bool df3BetaflightReference(df3Reference_t *out);
 bool df3BetaflightAssistSelected(void);
 bool df3BetaflightAssistActive(void);
 const df3ControlOutput_t *df3BetaflightControl(void);
+void df3BetaflightMlrsProfile(bool active, bool newSession);
+bool df3BetaflightMlrsLegacyAllowed(void);
+bool df3BetaflightMlrsControl(const uint8_t payload[DF3_MLRS_REFERENCE_BYTES], uint32_t receivedUs);
+void df3BetaflightMlrsSnapshot(uint8_t payload[DF3_MLRS_SNAPSHOT_BYTES]);
 void df3BetaflightStatePayload(uint8_t payload[DF3_STATE_BYTES]);
 void df3BetaflightDiagnosticsPayload(uint8_t payload[DF3_DIAGNOSTICS_BYTES]);
 void df3BetaflightTelemetryPoll(uint32_t now);

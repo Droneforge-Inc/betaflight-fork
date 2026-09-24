@@ -6,6 +6,7 @@
 #endif
 #include "common/axis.h"
 #include "df3_betaflight.h"
+#include "df3_mlrs.h"
 #include "df3_epoch.h"
 #include "df3_flow.h"
 #include "df3_profile.h"
@@ -110,7 +111,9 @@ static df3ControlConfig_t controlConfig;
 static df3ControlOutput_t controlOutput;
 static uint64_t controlUs;
 static df3FaultDiagnostics_t diagnostics;
-static uint16_t stateEpoch, stateSequence;
+static uint16_t stateEpoch, stateSequence, snapshotSequence;
+static bool mlrsProfile, mlrsControlSeen, mlrsAutonomySelected, mlrsAckValid;
+static uint8_t mlrsPreviousReference[DF3_MLRS_REFERENCE_BYTES];
 static struct {
     uint8_t payload[DF3_REFERENCE_BYTES];
     uint32_t receivedUs;
@@ -120,13 +123,15 @@ static uint32_t referenceGeneration;
 static float lastGyro[3], lastQ[4], lastRange, lastStrength;
 static uint64_t lastImuUs, lastAttitudeUs, lastRangeUs, lastGyroHistoryUs;
 static bool booted, wasArmed, activationQueued;
-static struct {
+typedef struct {
     uint64_t receivedUs, endUs;
     uint32_t generation, intervalUs, previousSourceMs, rangeMm;
     uint8_t sequence;
     bool timingValid, hasPrevious;
-    uint8_t rangeStatus, flowStatus, quality, strength;
-} mtf;
+    uint8_t rangeStatus, flowStatus, quality, strength, precision;
+    int16_t flowX, flowY;
+} df3MtfReport_t;
+static df3MtfReport_t mtf;
 static uint32_t rangeGeneration, flowGeneration, flowAccepted, flowRejected;
 #if defined(USE_DF3_BLACKBOX) && defined(USE_BLACKBOX)
 static df3FusionTrace_t blackboxFusion;
@@ -312,6 +317,8 @@ void df3BetaflightReloadCalibration(void)
 
 bool df3BetaflightAssistMappingReady(void)
 {
+    // An accepted negotiated control selects autonomy explicitly, without AUX.
+    if (mlrsProfile && mlrsControlSeen) return true;
     bool assigned = false;
     for (unsigned i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; ++i) {
         const modeActivationCondition_t *mac = modeActivationConditions(i);
@@ -372,6 +379,12 @@ static void configureAssist(void)
     // Default AUX3 high binding in the new feature only. Preserve every existing
     // slot and stored ID; an explicit configurator binding takes precedence.
     if (!isModeActivationConditionPresent(BOXFLIGHTASSIST)) {
+        // Preserve presets that already use AUX3 high (for example turtle mode).
+        for (unsigned i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; ++i) {
+            const modeActivationCondition_t *mac = modeActivationConditions(i);
+            if (mac->auxChannelIndex == 2 && IS_RANGE_USABLE(&mac->range) &&
+                mac->range.endStep > 32 && mac->range.startStep < 48) return;
+        }
         const modeActivationCondition_t empty = {0};
         for (unsigned i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; ++i) {
             modeActivationCondition_t *mac = modeActivationConditionsMutable(i);
@@ -445,7 +458,9 @@ void df3BetaflightInit(void)
     controlUs = 0;
     configureAssist();
     stateEpoch = df3EpochNext();
-    stateSequence = 0;
+    stateSequence = snapshotSequence = 0;
+    mlrsProfile = mlrsControlSeen = mlrsAutonomySelected = mlrsAckValid = false;
+    memset(mlrsPreviousReference, 0, sizeof(mlrsPreviousReference));
     memset(&referenceMailbox, 0, sizeof(referenceMailbox));
     referenceGeneration = 0;
     memset(&estimate, 0, sizeof(estimate));
@@ -721,6 +736,11 @@ void df3BetaflightMtfFrame(const uint8_t payload[20], uint8_t sequence)
     } else {
         extendedSourceMs += deltaMs;
     }
+    // The sensor oscillator can run slower than the FC. Let the lower offset
+    // envelope rise by at most 1000 ppm (1 us per sensor ms), while still
+    // excluding polling/queue delays. A lifetime minimum accumulates clock
+    // drift until live reports exceed the 100/150 ms freshness limits.
+    if (clockAligned) minimumClockOffset += deltaMs;
     const int64_t observed = (int64_t)mtf.receivedUs - (int64_t)(extendedSourceMs * 1000);
     if (!clockAligned || observed < minimumClockOffset) {
         minimumClockOffset = observed;
@@ -736,6 +756,9 @@ void df3BetaflightMtfFrame(const uint8_t payload[20], uint8_t sequence)
     mtf.flowStatus = payload[17];
     mtf.quality = payload[16];
     mtf.strength = payload[8];
+    mtf.precision = payload[9];
+    mtf.flowX = (int16_t)((uint16_t)payload[12] | ((uint16_t)payload[13] << 8));
+    mtf.flowY = (int16_t)((uint16_t)payload[14] | ((uint16_t)payload[15] << 8));
     ++mtf.generation;
 }
 
@@ -819,7 +842,7 @@ void df3BetaflightFlow(void)
 
 void df3BetaflightReferenceFrame(const uint8_t payload[DF3_REFERENCE_BYTES], uint32_t receivedUs)
 {
-    if (!booted) {
+    if (!booted || mlrsProfile) {
         return;
     }
     // UART ISR only transfers a bounded payload; decode/freshness run in the task.
@@ -844,12 +867,43 @@ static void consumeReference(uint64_t now, bool armed)
             fresh = true;
         }
     }
-    if (fresh) {
+    if (fresh && !mlrsProfile) {
         const uint32_t age = (uint32_t)now - stamp;
         if (age <= 250000 && age <= now) {
             (void)df3ReferenceAccept(&referenceReceiver, payload, now - age, armed);
         }
     }
+}
+
+void df3BetaflightMlrsProfile(bool active, bool newSession)
+{
+    if (active != mlrsProfile || newSession) mlrsAckValid = false;
+    if (newSession && !ARMING_FLAG(ARMED)) {
+        df3ReferenceReset(&referenceReceiver);
+        memset(mlrsPreviousReference, 0, sizeof(mlrsPreviousReference));
+        mlrsControlSeen = mlrsAutonomySelected = false;
+    }
+    mlrsProfile = active;
+    // Armed profile loss must not implicitly return autonomy to manual RC.
+    if (!active && !ARMING_FLAG(ARMED)) mlrsControlSeen = false;
+}
+
+bool df3BetaflightMlrsLegacyAllowed(void)
+{
+    return !mlrsProfile && !(mlrsControlSeen && ARMING_FLAG(ARMED));
+}
+
+bool df3BetaflightMlrsControl(const uint8_t payload[DF3_MLRS_REFERENCE_BYTES], uint32_t receivedUs)
+{
+    const uint64_t now = df3TimeUs();
+    const uint32_t age = (uint32_t)now - receivedUs;
+    if (!booted || !mlrsProfile || age > DF3_REFERENCE_MAX_LEASE_MS * 1000u || age > now ||
+        !df3MlrsReferenceAccept(&referenceReceiver, mlrsPreviousReference, payload, now - age, ARMING_FLAG(ARMED))) {
+        return false;
+    }
+    mlrsControlSeen = mlrsAckValid = true;
+    mlrsAutonomySelected = (payload[1] & DF3_MLRS_AUTONOMY) != 0;
+    return true;
 }
 
 bool df3BetaflightReference(df3Reference_t *out)
@@ -859,7 +913,7 @@ bool df3BetaflightReference(df3Reference_t *out)
 
 bool df3BetaflightAssistSelected(void)
 {
-    return booted && IS_RC_MODE_ACTIVE(BOXFLIGHTASSIST) && !failsafeIsActive() && !FLIGHT_MODE(GPS_RESCUE_MODE) &&
+    return booted && (mlrsControlSeen ? mlrsAutonomySelected : IS_RC_MODE_ACTIVE(BOXFLIGHTASSIST)) && !failsafeIsActive() && !FLIGHT_MODE(GPS_RESCUE_MODE) &&
            !FLIGHT_MODE(HEADFREE_MODE) && !isFlipOverAfterCrashActive() && !isLaunchControlActive();
 }
 
@@ -1163,6 +1217,89 @@ void df3BetaflightStatePayload(uint8_t payload[DF3_STATE_BYTES])
 {
     df3StateEncode(&estimate, stateEpoch, stateSequence++, ARMING_FLAG(ARMED), df3BetaflightAssistActive(), payload);
 }
+void df3BetaflightMlrsSnapshot(uint8_t p[DF3_MLRS_SNAPSHOT_BYTES])
+{
+    // Telemetry can precede the first estimator task or any usable range data.
+    if (!stateEpoch) stateEpoch = df3EpochNext();
+    const uint64_t now = df3TimeUs();
+    uint32_t sourceMs = (uint32_t)(now / 1000);
+    const uint64_t sourceUs = now / 1000 * 1000 - (sourceMs % 10) * 1000;
+    sourceMs -= sourceMs % 10;
+    df3MtfReport_t sensor;
+#ifndef SITL
+    ATOMIC_BLOCK(NVIC_PRIO_MAX)
+#endif
+    {
+        sensor = mtf;
+    }
+    uint8_t state[DF3_STATE_BYTES];
+    df3StateEncode(&estimate, stateEpoch, 0, ARMING_FLAG(ARMED), df3BetaflightAssistActive(), state);
+    memset(p, 0, DF3_MLRS_SNAPSHOT_BYTES);
+    p[0] = 1;
+    p[1] = state[1] | ((mlrsControlSeen ? mlrsAutonomySelected : IS_RC_MODE_ACTIVE(BOXFLIGHTASSIST)) ? 0x10 : 0) |
+           (rcData[THROTTLE] > rxConfig()->mincheck ? 0x20 : 0) | (diagnostics.monitoring ? 0x40 : 0);
+    df3WriteU16Le(p + 2, stateEpoch);
+    df3WriteU16Le(p + 4, snapshotSequence++);
+    df3WriteU32Le(p + 6, sourceMs);
+    p[10] = diagnostics.episode;
+    for (unsigned i = 0; i < 12; ++i) df3WriteU16Le(p + 11 + 2 * i, df3ReadU16Be(state + 10 + 2 * i));
+    const bool stateFresh = estimate.timeUs && now >= estimate.timeUs && now - estimate.timeUs <= 150000 &&
+                            estimate.covarianceTimeUs && now >= estimate.covarianceTimeUs &&
+                            now - estimate.covarianceTimeUs <= 150000;
+    p[58] = df3MlrsAge10ms(sourceUs >= estimate.timeUs ? sourceUs - estimate.timeUs : 0, stateFresh && (state[1] & DF3_STATE_VALID));
+    if (p[58] == UINT8_MAX) {
+        p[1] &= ~(DF3_STATE_VALID | DF3_STATE_VERTICAL_VALID);
+        // Native attitude remains useful before full fusion is ready. Its finite
+        // age validates only the angles; the fused state flags remain clear.
+        if (lastAttitudeUs && now >= lastAttitudeUs && now - lastAttitudeUs <= 150000) {
+            df3Estimate_t nativeAttitude = {.timeUs = lastAttitudeUs, .valid = true};
+            memcpy(nativeAttitude.x + DF3_Q, lastQ, sizeof(lastQ));
+            df3StateEncode(&nativeAttitude, stateEpoch, 0, false, false, state);
+            if (state[1] & DF3_STATE_VALID) {
+                for (unsigned i = 0; i < 3; ++i)
+                    df3WriteU16Le(p + 29 + 2 * i, df3ReadU16Be(state + DF3_WIRE_ANGLES + 2 * i));
+                p[58] = df3MlrsAge10ms(sourceUs >= lastAttitudeUs ? sourceUs - lastAttitudeUs : 0, true);
+            }
+        }
+    }
+
+    // Both raw sensor groups come from the same MTF report and timestamp.
+    const bool sensorFresh = sensor.hasPrevious && sensor.endUs && now >= sensor.endUs && now - sensor.endUs <= 150000;
+    const bool rangeValid = sensorFresh && sensor.rangeStatus && sensor.rangeMm < UINT16_MAX;
+    const bool flowValid = sensorFresh && sensor.timingValid && sensor.flowStatus && sensor.quality;
+    df3WriteU16Le(p + 35, rangeValid ? sensor.rangeMm : UINT16_MAX);
+    p[37] = sensor.strength;
+    p[38] = sensor.precision;
+    df3WriteU16Le(p + 39, sensor.flowX);
+    df3WriteU16Le(p + 41, sensor.flowY);
+    p[43] = sensor.quality;
+    p[44] = sensor.flowStatus;
+    // Report delivery remains fresh even when close-ground range or flow is unusable.
+    // Measurement validity is carried independently in p[57].
+    p[59] = df3MlrsAge10ms(sourceUs >= sensor.endUs ? sourceUs - sensor.endUs : 0, sensorFresh);
+
+    const uint32_t batteryAge = getBatterySampleAgeUs((uint32_t)now);
+    const bool batteryValid = getBatteryCellCount() && batteryAge <= 1000000;
+    df3WriteU16Le(p + 45, getBatteryVoltage());
+    df3WriteU16Le(p + 47, constrain(getAmperage(), 0, UINT16_MAX));
+    const uint32_t mah = constrain(getMAhDrawn(), 0, 0xffffff);
+    df3WriteU16Le(p + 49, mah);
+    p[51] = mah >> 16;
+    p[52] = batteryValid ? calculateBatteryPercentageRemaining() : UINT8_MAX;
+    p[60] = df3MlrsAge10ms(batteryAge > now - sourceUs ? batteryAge - (now - sourceUs) : 0, batteryValid);
+    df3WriteU16Le(p + 53, diagnostics.current);
+    df3WriteU16Le(p + 55, diagnostics.latched);
+    p[57] = (diagnostics.checked == UINT16_MAX ? 1 : 0) |
+            (diagnostics.latchedChecked == UINT16_MAX ? 2 : 0) |
+            (rangeValid ? 4 : 0) | (flowValid ? 8 : 0) | (batteryValid ? 16 : 0);
+    p[65] = controlOutput.mode | (booted && mlrsProfile && mlrsAckValid && df3MlrsReferenceFresh(&referenceReceiver, now) ? DF3_MLRS_PATH_READY : 0);
+    if (mlrsAckValid && referenceReceiver.initialized && mlrsProfile) {
+        p[65] |= DF3_MLRS_ACK_VALID;
+        df3WriteU16Le(p + 61, referenceReceiver.reference.epoch);
+        df3WriteU16Le(p + 63, referenceReceiver.reference.sequence);
+    }
+}
+
 void df3BetaflightDiagnosticsPayload(uint8_t payload[DF3_DIAGNOSTICS_BYTES])
 {
     df3DiagnosticsEncode(&diagnostics, (uint32_t)(df3TimeUs() / 1000), payload);

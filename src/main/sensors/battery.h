@@ -131,3 +131,8 @@ void setMAhDrawn(uint32_t mAhDrawn);
 void batteryUpdateCurrentMeter(timeUs_t currentTimeUs);
 
 const lowVoltageCutoff_t *getLowVoltageCutoff(void);
+
+#ifdef USE_DF3
+// Oldest acquisition age in the voltage/current group; UINT32_MAX if unknown.
+uint32_t getBatterySampleAgeUs(uint32_t nowUs);
+#endif

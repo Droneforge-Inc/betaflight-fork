@@ -89,3 +89,9 @@ void crsfRxUpdateBaudrate(uint32_t baudrate);
 bool crsfRxUseNegotiatedBaud(void);
 bool crsfRxIsActive(void);
 void crsfRxBind(void);
+
+#ifdef USE_DF3
+bool crsfRxMlrsProfileActive(uint32_t now);
+void crsfRxMlrsProfileReply(void);
+bool crsfRxTryWriteTelemetry(const uint8_t *data, unsigned length);
+#endif

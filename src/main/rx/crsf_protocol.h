@@ -70,6 +70,9 @@ typedef enum {
     CRSF_FRAMETYPE_MOTOR_RPM = 0xD2, // motor output and RPM data
     CRSF_FRAMETYPE_OPTRANGE = 0xD3, // opticalflow rangefinder data
     CRSF_FRAMETYPE_KINEMATIC_STATE = 0xD4, // EKF position/velocity + attitude data
+    CRSF_FRAMETYPE_DF_MLRS_PROFILE = 0xE8,
+    CRSF_FRAMETYPE_DF_MLRS_CONTROL = 0xE9,
+    CRSF_FRAMETYPE_DF_MLRS_SNAPSHOT = 0xEA,
     CRSF_FRAMETYPE_DF_REFERENCE = 0xD5, // DF3 atomic p/v/a reference, extended frame
 } crsfFrameType_e;
 

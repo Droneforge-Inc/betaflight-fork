@@ -121,6 +121,7 @@
 #ifdef USE_DF3
 #include "pg/df3.h"
 #include "flight/df3/df3_betaflight.h"
+#include "flight/df3/df3_mlrs.h"
 #endif
 #include "pg/board.h"
 #include "pg/dyn_notch.h"
@@ -2312,6 +2313,12 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
 
     switch (cmdMSP) {
 #ifdef USE_DF3
+    case MSP2_DF3_CAPABILITIES: {
+        uint8_t reply[DF3_MLRS_CAPABILITIES_BYTES];
+        if (!df3MlrsCapabilities(sbufBytesRemaining(src), reply)) return MSP_RESULT_ERROR;
+        sbufWriteData(dst, reply, sizeof(reply));
+        return MSP_RESULT_ACK;
+    }
     case MSP2_DF3_LQR:
     case MSP2_SET_DF3_LQR: {
         const bool setting = cmdMSP == MSP2_SET_DF3_LQR;

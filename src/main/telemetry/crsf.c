@@ -1471,13 +1471,45 @@ void crsfProcessCommand(uint8_t *frameStart) {
 }
 #endif
 
+#ifdef USE_DF3
+static uint8_t mlrsSnapshotFrames[98];
+static uint32_t mlrsSnapshotNextUs;
+static bool mlrsSnapshotPending, mlrsTelemetryActive;
+
+static bool crsfMlrsSnapshotSchedule(uint32_t now)
+{
+    const bool active = crsfRxMlrsProfileActive(now);
+    if (!active) {
+        mlrsTelemetryActive = mlrsSnapshotPending = false;
+        return false;
+    }
+    crsfRxMlrsProfileReply();
+    if (!mlrsTelemetryActive) {
+        mlrsSnapshotNextUs = now;
+        mlrsTelemetryActive = true;
+    }
+    if (df3MlrsSnapshotDue(now, &mlrsSnapshotNextUs)) {
+        uint8_t snapshot[DF3_MLRS_SNAPSHOT_BYTES];
+        df3BetaflightTelemetryPoll(now);
+        df3BetaflightTelemetryQueued(now, mlrsSnapshotPending);
+        df3BetaflightMlrsSnapshot(snapshot);
+        df3MlrsSnapshotFrames(snapshot, mlrsSnapshotFrames);
+        mlrsSnapshotPending = true;
+    }
+    if (mlrsSnapshotPending) {
+        // Reserve all 98 bytes or retry next task invocation. No partial pair,
+        // busy wait, or stale FIFO can hold up the flight/control tasks.
+        mlrsSnapshotPending = !crsfRxTryWriteTelemetry(mlrsSnapshotFrames, sizeof(mlrsSnapshotFrames));
+        return true;
+    }
+    return false;
+}
+#endif
+
 /*
  * Called periodically by the scheduler
  */
 void handleCrsfTelemetry(timeUs_t currentTimeUs) {
-#ifdef USE_DF3
-  df3BetaflightTelemetryPoll(currentTimeUs);
-#endif
   if (!crsfTelemetryEnabled) {
     return;
   }
@@ -1490,6 +1522,12 @@ void handleCrsfTelemetry(timeUs_t currentTimeUs) {
   if (crsfBaudNegotiationInProgress()) {
     return;
   }
+#endif
+
+#ifdef USE_DF3
+  // The mLRS 50 Hz producer owns the deadline before MSP/ad-hoc traffic.
+  if (crsfMlrsSnapshotSchedule(currentTimeUs)) return;
+  if (!mlrsTelemetryActive) df3BetaflightTelemetryPoll(currentTimeUs);
 #endif
 
   // Give the receiver a chance to send any outstanding telemetry data.
@@ -1566,6 +1604,12 @@ void handleCrsfTelemetry(timeUs_t currentTimeUs) {
       return;
     }
   }
+#endif
+
+#ifdef USE_DF3
+  // The complete snapshot already includes state, sensors, battery and faults.
+  // Legacy fragmentation budgets must not govern this negotiated profile.
+  if (mlrsTelemetryActive) return;
 #endif
 
   // Schedule CRSF frames explicitly so each telemetry type keeps a predictable

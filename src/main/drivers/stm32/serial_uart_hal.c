@@ -362,17 +362,18 @@ FAST_IRQ_HANDLER void uartIrqHandler(uartPort_t *s)
         uint8_t rbyte = (uint8_t)(huart->Instance->RDR & (uint8_t) 0xff);
 
         if (s->port.rxCallback) {
+            // RDR already consumed this byte. A new arrival during the callback
+            // must remain pending; flushing afterward can discard the next frame.
             s->port.rxCallback(rbyte, s->port.rxCallbackData);
         } else {
             s->port.rxBuffer[s->port.rxBufferHead] = rbyte;
             s->port.rxBufferHead = (s->port.rxBufferHead + 1) % s->port.rxBufferSize;
+            __HAL_UART_SEND_REQ(huart, UART_RXDATA_FLUSH_REQUEST);
         }
         CLEAR_BIT(huart->Instance->CR1, (USART_CR1_PEIE));
 
         /* Disable the UART Error Interrupt: (Frame error, noise error, overrun error) */
         CLEAR_BIT(huart->Instance->CR3, USART_CR3_EIE);
-
-        __HAL_UART_SEND_REQ(huart, UART_RXDATA_FLUSH_REQUEST);
     }
 
     /* UART parity error interrupt occurred -------------------------------------*/

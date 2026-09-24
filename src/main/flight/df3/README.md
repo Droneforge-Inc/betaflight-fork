@@ -341,3 +341,83 @@ The shared multirate code is used by both production and research builds.
 
 The local `.clang-format` covers C, headers and included C fragments. Kernel
 instructions and arithmetic order must stay unchanged during formatting edits.
+
+## mLRS serial profile
+
+`USE_DF3` supports both the original ELRS frames and negotiated mLRS DF3.
+An E8 profile probe from receiver EE to FC C8 carries
+`01 00 01 00 <nonzero nonce LE32>`; the FC echoes it with operation 1.
+Probes expire after 1500 ms. Negotiation alone does not mean a reference was
+accepted or the RF link is healthy.
+
+E9 (host EA to FC C8) carries 22 CRSF packed-channel bytes plus the 32-byte
+little-endian mLRS reference prefix. Bit 0 means active target; bit 1 selects
+autonomy independently. The RX task accepts the reference and RC atomically.
+Identical repeated references permit fresh RC but do not renew the trajectory
+lease; conflicting duplicates, stale sequence/source times, and armed epoch
+changes are rejected. Manual takeover requires a new command sequence/source
+time. Profile loss while armed preserves the selection and allows native RX
+failsafe rather than silently switching control mode. Legacy RC/reference
+frames cannot override a negotiated mLRS session.
+
+The FC produces a coherent 66-byte snapshot at 50 Hz independently of the
+legacy ELRS fragment schedule. Two EA extended frames, each 49 bytes total,
+carry `[version=1, part, reset LE16, sequence LE16, source_ms LE32, data33]`.
+Both parts are admitted to the UART together only when all 98 bytes fit.
+Unsent snapshots are replaced on the next 20 ms deadline. MSP uses the gaps
+between snapshot deadlines and cannot reset that cadence. Actual RF phase
+alignment and UART/air arrival timing still require bench measurement.
+
+Snapshot ages describe acquisition at the FC snapshot time. Age byte 58 describes
+state/attitude: with STATE_VALID it uses the estimator timestamp; otherwise a
+finite age describes only independently sampled native Betaflight attitude in
+angles 29..34. Native attitude uses FRD radians, quantized to milliradians, and
+expires after 150 ms without an attitude update. Fused-state validity remains
+clear during this fallback. Range/flow use the same mapped MTF report (raw flow
+cm/s at 1 m, sensor Y sign); ADC battery
+age uses the oldest voltage/current acquisition. Unknown cached ESC/MSP battery
+acquisition times are invalid rather than marked fresh by a polling task.
+The range/flow age tracks complete sensor-report delivery independently of
+measurement validity: a fresh report may have both RANGE_VALID and FLOW_VALID
+clear. Unusable range stays 65535; report age becomes 255 after 150 ms without
+a new usable timestamp. Duplicate MTF packets never refresh this age.
+Snapshot source milliseconds are rounded down to 10 ms; ages are relative to
+that rounded source time. Reset ID 0 is allowed before estimator initialization,
+with state validity clear. PATH_READY requires a fresh accepted command, including
+an inactive bootstrap command. The historical ACK alone does not imply readiness.
+Reference ACK reports actual FC acceptance; RF and serial acknowledgments do
+not count. The two snapshot parts share reset ID, sequence and source time;
+receivers must publish only complete matching pairs.
+
+Portable codec/deadline tests (including UBSan):
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined -Isrc/main \
+  src/main/flight/df3/df3_mlrs.c src/main/flight/df3/df3_reference.c \
+  src/test/df3/mlrs_test.c -lm -o /tmp/df3-mlrs-test
+/tmp/df3-mlrs-test
+```
+
+CRSF recovery startup regression (actual telemetry task, captured UART, UBSan):
+
+```sh
+python3 src/test/df3/test_crsf_startup.py
+```
+
+With both `feature -TELEMETRY` and `set crsf_use_negotiated_baud = OFF`,
+startup discovery is silent so an RX already in its ROM loader receives sync
+first. Restore telemetry after flashing for the negotiated mLRS snapshot stream.
+
+
+mLRS session identity is allocated before usable estimator data exists and persisted
+in an RTC backup register on every session advance. Warm FC resets cannot reuse the
+old epoch; estimator initialization also advances the saved value. A cold G4 boot
+seeds a nonzero epoch using the hardware RNG on the existing USB clock (bounded
+poll, timing/UID fallback on unavailable RNG). Other MCUs use the timing/UID fallback.
+The 16-bit wire identity still has finite wrap/collision limits; it is not a security
+nonce. Validity flags alone describe missing sensor data, independently of identity.
+
+Read-only `MSP2_DF3_CAPABILITIES` (0x30D4) requires an empty request and returns
+12 bytes: capability version 1, DF3 protocol version 1, mLRS profile version 1,
+reserved zero, then firmware and hardware DF version integers as little-endian u32.
+These are the same version integers published by legacy CRSF device information.

@@ -707,7 +707,9 @@ void speedNegotiationProcess(timeUs_t currentTimeUs) {
     crsfFinalize(dst);
     crsfRxSendTelemetryData();
 #if defined(USE_CRSF_CMS_TELEMETRY)
-  } else if (crsfLinkType == CRSF_LINK_UNKNOWN) {
+  } else if (crsfLinkType == CRSF_LINK_UNKNOWN &&
+             (featureIsEnabled(FEATURE_TELEMETRY) || crsfRxUseNegotiatedBaud())) {
+    // An RX already in its ROM loader must see SYNC first, not discovery pings.
     static timeUs_t lastPing;
 
     if ((cmpTimeUs(currentTimeUs, lastPing) > CRSF_LINK_TYPE_CHECK_US)) {

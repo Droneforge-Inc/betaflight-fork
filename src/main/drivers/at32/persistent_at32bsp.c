@@ -59,7 +59,10 @@ void persistentObjectInit(void)
 
     wasSoftReset = crm_flag_get(CRM_SW_RESET_FLAG);
 
-    if (!wasSoftReset || (persistentObjectRead(PERSISTENT_OBJECT_MAGIC) != PERSISTENT_OBJECT_MAGIC_VALUE)) {
+    const uint32_t validBackup = persistentObjectRead(PERSISTENT_OBJECT_MAGIC) == PERSISTENT_OBJECT_MAGIC_VALUE;
+    if (!wasSoftReset || !validBackup) {
+        // Keep session identity across soft, watchdog and pin resets.
+        if (!validBackup) persistentObjectWrite(PERSISTENT_OBJECT_DF3_EPOCH, 0);
         for (int i = 1; i < PERSISTENT_OBJECT_COUNT; i++) {
             persistentObjectWrite(i, 0);
         }

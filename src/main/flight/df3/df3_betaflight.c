@@ -6,6 +6,7 @@
 #endif
 #include "common/axis.h"
 #include "df3_betaflight.h"
+#include "df3_epoch.h"
 #include "df3_flow.h"
 #include "df3_profile.h"
 #ifdef USE_DF3_RESUMABLE
@@ -443,7 +444,8 @@ void df3BetaflightInit(void)
     memset(&controlOutput, 0, sizeof(controlOutput));
     controlUs = 0;
     configureAssist();
-    stateEpoch = stateSequence = 0;
+    stateEpoch = df3EpochNext();
+    stateSequence = 0;
     memset(&referenceMailbox, 0, sizeof(referenceMailbox));
     referenceGeneration = 0;
     memset(&estimate, 0, sizeof(estimate));
@@ -1015,9 +1017,7 @@ void df3BetaflightTick(void)
             df3ImuReducerReset(&imuReducer);
             fusionJob.history = &gyroHistory;
 #endif
-            if (++stateEpoch == 0) {
-                ++stateEpoch;
-            }
+            stateEpoch = df3EpochNext();
         }
     }
     if (armed && !activationQueued && rcData[THROTTLE] > rxConfig()->mincheck) {

@@ -43,6 +43,8 @@ typedef enum {
     // On SPRACING H7 firmware use this alternate location for all reset reasons interpreted by this firmware
     PERSISTENT_OBJECT_RESET_REASON,
 #endif
+    // After legacy IDs so existing bootloader/reset slots never move.
+    PERSISTENT_OBJECT_DF3_EPOCH,          // retained whenever backup magic is valid
 } persistentObjectId_e;
 
 // Values for PERSISTENT_OBJECT_RESET_REASON

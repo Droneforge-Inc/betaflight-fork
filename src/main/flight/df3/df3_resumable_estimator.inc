@@ -597,7 +597,7 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
     case FUSION_PUBLISH:
 #ifdef USE_DF3_MULTIRATE
         /* The expensive lag-to-present replay belongs to the budgeted worker.
-     * Its target is frozen: arrivals while paused must not move the goal. */
+         * Each phase advances one history interval toward current service time. */
         fusionSnapshot(&j->projected, e);
         j->projectionTargetUs = j->lastNowUs;
         if (j->projectionTargetUs < j->projected.timeUs) {
@@ -607,6 +607,12 @@ void df3FusionResume(df3FusionJob_t *j, df3Estimator_t *e)
         j->phase = FUSION_PROJECT;
         return;
     case FUSION_PROJECT: {
+        /* Refresh before replay so even a one-phase callback can finish its
+         * current tail. Foreground output may have advanced during the yield;
+         * publish only after reaching this callback's fixed service time. */
+        if (j->projectionTargetUs < j->lastNowUs) {
+            j->projectionTargetUs = j->lastNowUs;
+        }
         const uint64_t cursor = j->projected.timeUs;
         if (cursor < j->projectionTargetUs) {
             float gyro[3];
@@ -708,6 +714,65 @@ static bool fusionOutputResult(df3FusionJob_t *j, uint64_t now, df3OutputReason_
     return reason == DF3_OUTPUT_OK;
 }
 
+static df3OutputReason_e fusionOutputReady(const df3FusionJob_t *j, const df3Estimator_t *e, uint64_t now)
+{
+    if (!j || !e) {
+        return DF3_OUTPUT_ARGUMENT;
+    }
+    if (!j->published) {
+        return DF3_OUTPUT_UNPUBLISHED;
+    }
+    if (e->failed) {
+        return DF3_OUTPUT_ESTIMATOR_FAILED;
+    }
+    if (!e->initialized) {
+        return DF3_OUTPUT_UNINITIALIZED;
+    }
+    if (now < e->lastTickUs || now < e->bootstrapUs || now < j->committed.covarianceTimeUs) {
+        return DF3_OUTPUT_CLOCK_ORDER;
+    }
+    return DF3_OUTPUT_OK;
+}
+
+#ifdef USE_DF3_MULTIRATE
+static df3OutputReason_e fusionAdvanceOutput(df3FusionJob_t *j, uint64_t now, unsigned maxSteps)
+{
+    /* Both sensor service and foreground polling advance the same nominal
+     * cache. A failed or incomplete replay must leave that cache untouched. */
+    df3Estimate_t candidate = j->committed;
+    uint64_t cursor = candidate.timeUs;
+    if (cursor > now) {
+        return DF3_OUTPUT_NOMINAL_FUTURE;
+    }
+    unsigned steps = 0;
+    while (cursor < now && steps++ < maxSteps) {
+        float gyro[3];
+        uint64_t next;
+        if (!df3GyroHistoryIntervalHint(j->history, cursor, now, true, gyro, &next, NULL, &j->outputHistoryHint)) {
+            return DF3_OUTPUT_HISTORY;
+        }
+        if (!df3ProjectNominal(candidate.x, gyro, (float)(next - cursor) * 1e-6f)) {
+            return DF3_OUTPUT_PROJECTION;
+        }
+        cursor = next;
+    }
+    if (cursor != now) {
+        return DF3_OUTPUT_STEP_LIMIT;
+    }
+    candidate.timeUs = now;
+    j->committed = candidate;
+    return DF3_OUTPUT_OK;
+}
+
+df3OutputReason_e df3FusionPredictOutput(df3FusionJob_t *j, const df3Estimator_t *e, uint64_t now)
+{
+    const df3OutputReason_e reason = fusionOutputReady(j, e, now);
+    /* Sensor service consumes at most the newly completed history interval.
+     * Foreground retains catch-up, validity checks, smoothing and fault tracing. */
+    return reason == DF3_OUTPUT_OK ? fusionAdvanceOutput(j, now, 1) : reason;
+}
+#endif
+
 bool df3FusionOutput(df3FusionJob_t *j, const df3Estimator_t *e, uint64_t now, df3Estimate_t *out)
 {
     DF3_PROFILE_SCOPE(DF3_PROF_OUTPUT);
@@ -716,50 +781,18 @@ bool df3FusionOutput(df3FusionJob_t *j, const df3Estimator_t *e, uint64_t now, d
     }
     memset(out, 0, sizeof(*out));
     out->timeUs = now;
-    if (!j || !e) {
-        return fusionOutputResult(j, now, DF3_OUTPUT_ARGUMENT);
-    }
-    if (!j->published) {
-        return fusionOutputResult(j, now, DF3_OUTPUT_UNPUBLISHED);
-    }
-    if (e->failed) {
-        return fusionOutputResult(j, now, DF3_OUTPUT_ESTIMATOR_FAILED);
-    }
-    if (!e->initialized) {
-        return fusionOutputResult(j, now, DF3_OUTPUT_UNINITIALIZED);
-    }
-    if (now < e->lastTickUs || now < e->bootstrapUs || now < j->committed.covarianceTimeUs) {
-        return fusionOutputResult(j, now, DF3_OUTPUT_CLOCK_ORDER);
+    const df3OutputReason_e ready = fusionOutputReady(j, e, now);
+    if (ready != DF3_OUTPUT_OK) {
+        return fusionOutputResult(j, now, ready);
     }
     *out = j->committed;
     out->valid = out->verticalReferenceValid = false;
 #ifdef USE_DF3_MULTIRATE
-    /* Current-output cache is separate from the worker's private replay. Only
-   * the short interval since its last successful output remains in foreground.
-   * Never advance a cache partially or label an old state with a new time. */
-    df3Estimate_t candidate = j->committed;
-    uint64_t cursor = candidate.timeUs;
-    if (cursor > now) {
-        return fusionOutputResult(j, now, DF3_OUTPUT_NOMINAL_FUTURE);
+    const df3OutputReason_e reason = fusionAdvanceOutput(j, now, 8);
+    if (reason != DF3_OUTPUT_OK) {
+        return fusionOutputResult(j, now, reason);
     }
-    unsigned steps = 0;
-    while (cursor < now && steps++ < 8) {
-        float gyro[3];
-        uint64_t next;
-        if (!df3GyroHistoryIntervalHint(j->history, cursor, now, true, gyro, &next, NULL, &j->outputHistoryHint)) {
-            return fusionOutputResult(j, now, DF3_OUTPUT_HISTORY);
-        }
-        if (!df3ProjectNominal(candidate.x, gyro, (float)(next - cursor) * 1e-6f)) {
-            return fusionOutputResult(j, now, DF3_OUTPUT_PROJECTION);
-        }
-        cursor = next;
-    }
-    if (cursor != now) {
-        return fusionOutputResult(j, now, DF3_OUTPUT_STEP_LIMIT);
-    }
-    candidate.timeUs = now;
-    j->committed = candidate;
-    *out = candidate;
+    *out = j->committed;
 #else
     /* Research: project from queued IMU events rather than dedicated gyro history. */
     out->timeUs = now;

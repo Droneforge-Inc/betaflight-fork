@@ -134,6 +134,12 @@ common_filter_unittest_SRC := \
 		$(USER_DIR)/common/filter.c \
 		$(USER_DIR)/common/maths.c
 
+compass_lis2mdl_unittest_SRC := \
+		$(USER_DIR)/drivers/compass/compass_lis2mdl.c
+
+compass_lis2mdl_unittest_DEFINES := \
+                USE_MAG_LIS2MDL=
+
 
 encoding_unittest_SRC := \
 		$(USER_DIR)/common/encoding.c

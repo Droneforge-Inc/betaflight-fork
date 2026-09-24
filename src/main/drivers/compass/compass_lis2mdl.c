@@ -136,7 +136,8 @@ static bool lis2mdlRead(magDev_t * mag, int16_t *magData)
         return false;
     }
 
-    magData[X] = (int16_t)(buf[1] << 8 | buf[0]);
+    // Convert the LIS2MDL/IIS2MDC left-handed frame to the common sensor orientation.
+    magData[X] = -(int16_t)(buf[1] << 8 | buf[0]);
     magData[Y] = (int16_t)(buf[3] << 8 | buf[2]);
     magData[Z] = (int16_t)(buf[5] << 8 | buf[4]);
 

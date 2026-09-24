@@ -103,7 +103,7 @@ typedef struct {
     uint32_t transactions, slices, cancelled;
     bool busy, published;
 #ifdef USE_DF3_MULTIRATE
-    /* Foreground output polling must not evict the worker replay hint. */
+    /* Sensor prediction and foreground polling share a hint separate from replay. */
     uint16_t outputHistoryHint;
     /* Controller-facing translation observer. The committed cache above stays
      * an unmodified EKF projection; this state never feeds back into fusion.
@@ -127,6 +127,10 @@ bool df3FusionStart(df3FusionJob_t *job, df3Estimator_t *e, uint64_t nowUs);
 #ifdef USE_DF3_MULTIRATE
 /* Pure readiness: starting an epoch remains measured, bounded worker work. */
 bool df3FusionDue(const df3FusionJob_t *job, const df3Estimator_t *e, uint64_t nowUs);
+/* After gyro-history acquisition, advance only the nominal cache by at most
+ * one interval. Failure leaves the cache unchanged for foreground catch-up;
+ * fused timestamps, output validity, smoothing and fault traces are untouched. */
+df3OutputReason_e df3FusionPredictOutput(df3FusionJob_t *job, const df3Estimator_t *e, uint64_t nowUs);
 #endif
 /* One phase. A scheduler callback may execute a small fixed phase budget;
  * never drain the complete transaction in an unbounded loop. */

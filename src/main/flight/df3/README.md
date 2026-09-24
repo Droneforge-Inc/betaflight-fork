@@ -27,6 +27,19 @@ this build selection does not replace a board's calibrated profile.
 
 ## Output corrections
 
+Background replay reaches the current worker service time before replacing the
+output cache. Each phase refreshes its target before advancing one gyro-history
+interval under the existing worker budget, so a callback admitted for only one
+phase can still finish its current tail. Each accepted gyro-history sample also
+advances the existing nominal output cache by at most one history interval, so
+short foreground scheduling delays do not accumulate a replay backlog. This
+sensor-side prediction leaves fused timestamps, covariance age, output smoothing
+and fault reporting unchanged. Failed or incomplete prediction retains the
+previous cache for foreground validation and catch-up. The foreground advances
+at most eight gyro-history intervals per call. Publication keeps the corrected state and fused
+sensor timestamps together; sensor freshness limits and fault handling remain
+unchanged when the worker cannot keep up.
+
 The current-time EKF projection remains separate from the position/velocity
 sent to the controller and state telemetry. A small translation observer
 predicts that output using the preceding estimated physical acceleration,

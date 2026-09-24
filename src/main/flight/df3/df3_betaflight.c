@@ -643,7 +643,13 @@ void df3BetaflightAccelerometer(void)
     float gyroFrd[3];
     df3NativeVectorToFrd(nativeGyro, rad, gyroFrd);
     if (now > lastGyroHistoryUs) {
-        (void)df3GyroHistoryPush(&gyroHistory, now, gyroFrd);
+        if (df3GyroHistoryPush(&gyroHistory, now, gyroFrd)) {
+#ifdef USE_DF3_MULTIRATE
+            // Keep prediction current while the slower foreground task yields.
+            // A missed interval is handled by its existing bounded catch-up.
+            (void)df3FusionPredictOutput(&fusionJob, &estimator, now);
+#endif
+        }
         lastGyroHistoryUs = now;
     }
 #ifndef USE_DF3_MULTIRATE

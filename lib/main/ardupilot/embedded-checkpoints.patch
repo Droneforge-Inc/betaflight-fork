@@ -1,0 +1,1401 @@
+--- a/libraries/AP_NavEKF3/AP_NavEKF3.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3.cpp
+@@ -840,7 +840,9 @@
+         }
+ 
+         //try to allocate from CCM RAM, fallback to Normal RAM if not available or full
++        apAutonomyCheckpoint();
+         core = (NavEKF3_core*)dal.malloc_type(sizeof(NavEKF3_core)*num_cores, AP_DAL::MemoryType::FAST);
++        apAutonomyCheckpoint();
+         if (core == nullptr) {
+             _enable.set(0);
+             num_cores = 0;
+@@ -851,16 +853,19 @@
+         // Call constructors on all cores
+         for (uint8_t i = 0; i < num_cores; i++) {
+             new (&core[i]) NavEKF3_core(this, dal);
++            apAutonomyCheckpoint();
+         }
+     }
+ 
+     // Set up any cores that have been created
+     // This specifies the IMU to be used and creates the data buffers
+     // If we are unable to set up a core, return false and try again next time the function is called
++    apAutonomyCheckpoint();
+     bool core_setup_success = true;
+     for (uint8_t core_index=0; core_index<num_cores; core_index++) {
+         if (coreSetupRequired[core_index]) {
+             coreSetupRequired[core_index] = !core[core_index].setup_core(coreImuIndex[core_index], core_index);
++            apAutonomyCheckpoint();
+             if (coreSetupRequired[core_index]) {
+                 core_setup_success = false;
+             }
+@@ -884,7 +889,9 @@
+     // initialise successfully
+     bool ret = true;
+     for (uint8_t i=0; i<num_cores; i++) {
++        apAutonomyCheckpoint();
+         ret &= core[i].InitialiseFilterBootstrap();
++        apAutonomyCheckpoint();
+     }
+ 
+     // set last time the cores were primary to 0
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_Control.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_Control.cpp
+@@ -21,17 +21,21 @@
+ 
+     // Detect if we are in flight on or ground
+     detectFlight();
++    apAutonomyCheckpoint();
+ 
+     // Determine if learning of wind and magnetic field will be enabled and set corresponding indexing limits to
+     // avoid unnecessary operations
+     setWindMagStateLearningMode();
++    apAutonomyCheckpoint();
+ 
+     // Check the alignmnent status of the tilt and yaw attitude
+     // Used during initial bootstrap alignment of the filter
+     checkAttitudeAlignmentStatus();
++    apAutonomyCheckpoint();
+ 
+     // Set the type of inertial navigation aiding used
+     setAidingMode();
++    apAutonomyCheckpoint();
+ 
+ }
+ 
+@@ -267,22 +271,28 @@
+         ResetHeight();
+         // preserve quaternion 4x4 covariances, but zero the other rows and columns
+         for (uint8_t row=0; row<4; row++) {
++            apAutonomyCheckpoint();
+             for (uint8_t col=4; col<24; col++) {
++                apAutonomyCheckpoint();
+                 Pmut[row][col] = 0.0f;
+             }
+         }
+         for (uint8_t col=0; col<4; col++) {
++            apAutonomyCheckpoint();
+             for (uint8_t row=4; row<24; row++) {
++                apAutonomyCheckpoint();
+                 Pmut[row][col] = 0.0f;
+             }
+         }
+         // keep the IMU bias state variances, but zero the covariances
+         ftype oldBiasVariance[6];
+         for (uint8_t row=0; row<6; row++) {
++            apAutonomyCheckpoint();
+             oldBiasVariance[row] = P[row+10][row+10];
+         }
+         zeroStatesVarCov(10, 15);
+         for (uint8_t row=0; row<6; row++) {
++            apAutonomyCheckpoint();
+             Pmut[row+10][row+10] = oldBiasVariance[row];
+         }
+     }
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_MagFusion.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_MagFusion.cpp
+@@ -668,6 +668,7 @@
+     // Calculate the innovation variance for each axis
+     // X axis
+     varInnovMag[0] = (P[19][19] + R_MAG + P[1][19]*SH_MAG[0] - P[2][19]*SH_MAG[1] + P[3][19]*SH_MAG[2] - P[16][19]*(SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6]) + (2.0f*q0*q3 + 2.0f*q1*q2)*(P[19][17] + P[1][17]*SH_MAG[0] - P[2][17]*SH_MAG[1] + P[3][17]*SH_MAG[2] - P[16][17]*(SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6]) + P[17][17]*(2.0f*q0*q3 + 2.0f*q1*q2) - P[18][17]*(2.0f*q0*q2 - 2.0f*q1*q3) + P[0][17]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) - (2.0f*q0*q2 - 2.0f*q1*q3)*(P[19][18] + P[1][18]*SH_MAG[0] - P[2][18]*SH_MAG[1] + P[3][18]*SH_MAG[2] - P[16][18]*(SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6]) + P[17][18]*(2.0f*q0*q3 + 2.0f*q1*q2) - P[18][18]*(2.0f*q0*q2 - 2.0f*q1*q3) + P[0][18]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + (SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)*(P[19][0] + P[1][0]*SH_MAG[0] - P[2][0]*SH_MAG[1] + P[3][0]*SH_MAG[2] - P[16][0]*(SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6]) + P[17][0]*(2.0f*q0*q3 + 2.0f*q1*q2) - P[18][0]*(2.0f*q0*q2 - 2.0f*q1*q3) + P[0][0]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + P[17][19]*(2.0f*q0*q3 + 2.0f*q1*q2) - P[18][19]*(2.0f*q0*q2 - 2.0f*q1*q3) + SH_MAG[0]*(P[19][1] + P[1][1]*SH_MAG[0] - P[2][1]*SH_MAG[1] + P[3][1]*SH_MAG[2] - P[16][1]*(SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6]) + P[17][1]*(2.0f*q0*q3 + 2.0f*q1*q2) - P[18][1]*(2.0f*q0*q2 - 2.0f*q1*q3) + P[0][1]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) - SH_MAG[1]*(P[19][2] + P[1][2]*SH_MAG[0] - P[2][2]*SH_MAG[1] + P[3][2]*SH_MAG[2] - P[16][2]*(SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6]) + P[17][2]*(2.0f*q0*q3 + 2.0f*q1*q2) - P[18][2]*(2.0f*q0*q2 - 2.0f*q1*q3) + P[0][2]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + SH_MAG[2]*(P[19][3] + P[1][3]*SH_MAG[0] - P[2][3]*SH_MAG[1] + P[3][3]*SH_MAG[2] - P[16][3]*(SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6]) + P[17][3]*(2.0f*q0*q3 + 2.0f*q1*q2) - P[18][3]*(2.0f*q0*q2 - 2.0f*q1*q3) + P[0][3]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) - (SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6])*(P[19][16] + P[1][16]*SH_MAG[0] - P[2][16]*SH_MAG[1] + P[3][16]*SH_MAG[2] - P[16][16]*(SH_MAG[3] + SH_MAG[4] - SH_MAG[5] - SH_MAG[6]) + P[17][16]*(2.0f*q0*q3 + 2.0f*q1*q2) - P[18][16]*(2.0f*q0*q2 - 2.0f*q1*q3) + P[0][16]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + P[0][19]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2));
++    apAutonomyCheckpoint();
+     if (varInnovMag[0] >= R_MAG) {
+         faultStatus.bad_xmag = false;
+     } else {
+@@ -680,6 +681,7 @@
+ 
+     // Y axis
+     varInnovMag[1] = (P[20][20] + R_MAG + P[0][20]*SH_MAG[2] + P[1][20]*SH_MAG[1] + P[2][20]*SH_MAG[0] - P[17][20]*(SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6]) - (2.0f*q0*q3 - 2.0f*q1*q2)*(P[20][16] + P[0][16]*SH_MAG[2] + P[1][16]*SH_MAG[1] + P[2][16]*SH_MAG[0] - P[17][16]*(SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6]) - P[16][16]*(2.0f*q0*q3 - 2.0f*q1*q2) + P[18][16]*(2.0f*q0*q1 + 2.0f*q2*q3) - P[3][16]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + (2.0f*q0*q1 + 2.0f*q2*q3)*(P[20][18] + P[0][18]*SH_MAG[2] + P[1][18]*SH_MAG[1] + P[2][18]*SH_MAG[0] - P[17][18]*(SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6]) - P[16][18]*(2.0f*q0*q3 - 2.0f*q1*q2) + P[18][18]*(2.0f*q0*q1 + 2.0f*q2*q3) - P[3][18]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) - (SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)*(P[20][3] + P[0][3]*SH_MAG[2] + P[1][3]*SH_MAG[1] + P[2][3]*SH_MAG[0] - P[17][3]*(SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6]) - P[16][3]*(2.0f*q0*q3 - 2.0f*q1*q2) + P[18][3]*(2.0f*q0*q1 + 2.0f*q2*q3) - P[3][3]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) - P[16][20]*(2.0f*q0*q3 - 2.0f*q1*q2) + P[18][20]*(2.0f*q0*q1 + 2.0f*q2*q3) + SH_MAG[2]*(P[20][0] + P[0][0]*SH_MAG[2] + P[1][0]*SH_MAG[1] + P[2][0]*SH_MAG[0] - P[17][0]*(SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6]) - P[16][0]*(2.0f*q0*q3 - 2.0f*q1*q2) + P[18][0]*(2.0f*q0*q1 + 2.0f*q2*q3) - P[3][0]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + SH_MAG[1]*(P[20][1] + P[0][1]*SH_MAG[2] + P[1][1]*SH_MAG[1] + P[2][1]*SH_MAG[0] - P[17][1]*(SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6]) - P[16][1]*(2.0f*q0*q3 - 2.0f*q1*q2) + P[18][1]*(2.0f*q0*q1 + 2.0f*q2*q3) - P[3][1]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + SH_MAG[0]*(P[20][2] + P[0][2]*SH_MAG[2] + P[1][2]*SH_MAG[1] + P[2][2]*SH_MAG[0] - P[17][2]*(SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6]) - P[16][2]*(2.0f*q0*q3 - 2.0f*q1*q2) + P[18][2]*(2.0f*q0*q1 + 2.0f*q2*q3) - P[3][2]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) - (SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6])*(P[20][17] + P[0][17]*SH_MAG[2] + P[1][17]*SH_MAG[1] + P[2][17]*SH_MAG[0] - P[17][17]*(SH_MAG[3] - SH_MAG[4] + SH_MAG[5] - SH_MAG[6]) - P[16][17]*(2.0f*q0*q3 - 2.0f*q1*q2) + P[18][17]*(2.0f*q0*q1 + 2.0f*q2*q3) - P[3][17]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) - P[3][20]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2));
++    apAutonomyCheckpoint();
+     if (varInnovMag[1] >= R_MAG) {
+         faultStatus.bad_ymag = false;
+     } else {
+@@ -692,6 +694,7 @@
+ 
+     // Z axis
+     varInnovMag[2] = (P[21][21] + R_MAG + P[0][21]*SH_MAG[1] - P[1][21]*SH_MAG[2] + P[3][21]*SH_MAG[0] + P[18][21]*(SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6]) + (2.0f*q0*q2 + 2.0f*q1*q3)*(P[21][16] + P[0][16]*SH_MAG[1] - P[1][16]*SH_MAG[2] + P[3][16]*SH_MAG[0] + P[18][16]*(SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6]) + P[16][16]*(2.0f*q0*q2 + 2.0f*q1*q3) - P[17][16]*(2.0f*q0*q1 - 2.0f*q2*q3) + P[2][16]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) - (2.0f*q0*q1 - 2.0f*q2*q3)*(P[21][17] + P[0][17]*SH_MAG[1] - P[1][17]*SH_MAG[2] + P[3][17]*SH_MAG[0] + P[18][17]*(SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6]) + P[16][17]*(2.0f*q0*q2 + 2.0f*q1*q3) - P[17][17]*(2.0f*q0*q1 - 2.0f*q2*q3) + P[2][17]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + (SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)*(P[21][2] + P[0][2]*SH_MAG[1] - P[1][2]*SH_MAG[2] + P[3][2]*SH_MAG[0] + P[18][2]*(SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6]) + P[16][2]*(2.0f*q0*q2 + 2.0f*q1*q3) - P[17][2]*(2.0f*q0*q1 - 2.0f*q2*q3) + P[2][2]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + P[16][21]*(2.0f*q0*q2 + 2.0f*q1*q3) - P[17][21]*(2.0f*q0*q1 - 2.0f*q2*q3) + SH_MAG[1]*(P[21][0] + P[0][0]*SH_MAG[1] - P[1][0]*SH_MAG[2] + P[3][0]*SH_MAG[0] + P[18][0]*(SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6]) + P[16][0]*(2.0f*q0*q2 + 2.0f*q1*q3) - P[17][0]*(2.0f*q0*q1 - 2.0f*q2*q3) + P[2][0]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) - SH_MAG[2]*(P[21][1] + P[0][1]*SH_MAG[1] - P[1][1]*SH_MAG[2] + P[3][1]*SH_MAG[0] + P[18][1]*(SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6]) + P[16][1]*(2.0f*q0*q2 + 2.0f*q1*q3) - P[17][1]*(2.0f*q0*q1 - 2.0f*q2*q3) + P[2][1]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + SH_MAG[0]*(P[21][3] + P[0][3]*SH_MAG[1] - P[1][3]*SH_MAG[2] + P[3][3]*SH_MAG[0] + P[18][3]*(SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6]) + P[16][3]*(2.0f*q0*q2 + 2.0f*q1*q3) - P[17][3]*(2.0f*q0*q1 - 2.0f*q2*q3) + P[2][3]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + (SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6])*(P[21][18] + P[0][18]*SH_MAG[1] - P[1][18]*SH_MAG[2] + P[3][18]*SH_MAG[0] + P[18][18]*(SH_MAG[3] - SH_MAG[4] - SH_MAG[5] + SH_MAG[6]) + P[16][18]*(2.0f*q0*q2 + 2.0f*q1*q3) - P[17][18]*(2.0f*q0*q1 - 2.0f*q2*q3) + P[2][18]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2)) + P[2][21]*(SH_MAG[7] + SH_MAG[8] - 2.0f*magD*q2));
++    apAutonomyCheckpoint();
+     if (varInnovMag[2] >= R_MAG) {
+         faultStatus.bad_zmag = false;
+     } else {
+@@ -719,6 +722,7 @@
+     // index of H_MAG which is exactly 1, for more efficient computation below
+     int H_MAG_unit_index;
+     for (uint8_t obsIndex = 0; obsIndex <= 2; obsIndex++) {
++        apAutonomyCheckpoint();
+ 
+         if (obsIndex == 0) {
+ 
+@@ -907,6 +911,7 @@
+         // correct the covariance P = (I - K*H)*P = P - K*H*P. take advantage of
+         // the zero elements of H to reduce the number of operations.
+         for (unsigned i = 0; i<=stateIndexLim; i++) {
++            apAutonomyCheckpoint();
+             // j as the inner loop allows the compiler to hoist the KH product
+             // to save computation, and do the inner indexing more efficiently.
+             for (unsigned j = 0; j<=stateIndexLim; j++) {
+@@ -1068,6 +1073,7 @@
+             const ftype SB5 = 1.0F/SB5_inv;
+             const ftype SB6 = 1.0F/(SB2);
+             const ftype SB7 = SB3*SB4;
++            apAutonomyCheckpoint();
+             const ftype SB8 = 2*SB7;
+             const ftype SB9 = 2*SB6;
+ 
+@@ -1124,6 +1130,7 @@
+             H_YAW[3] = SA5*(SA0*SA7 + SA9*q0);
+         } else if (canUseB && (!canUseA || fabsF(SB5_inv) > fabsF(SA5_inv))) {
+             const ftype SB5 = 1.0F/SB5_inv;
++            apAutonomyCheckpoint();
+             const ftype SB6 = 1.0F/(SB2);
+             const ftype SB7 = SB3*SB4;
+             const ftype SB8 = 2*SB7;
+@@ -1187,6 +1194,7 @@
+     ftype PH[4];
+     ftype varInnov = R_YAW;
+     for (uint8_t rowIndex=0; rowIndex<=3; rowIndex++) {
++        apAutonomyCheckpoint();
+         PH[rowIndex] = 0.0f;
+         for (uint8_t colIndex=0; colIndex<=3; colIndex++) {
+             PH[rowIndex] += P[rowIndex][colIndex]*H_YAW[colIndex];
+@@ -1209,6 +1217,7 @@
+ 
+     // calculate Kalman gain
+     for (uint8_t rowIndex=0; rowIndex<=stateIndexLim; rowIndex++) {
++        apAutonomyCheckpoint();
+         Kfusion[rowIndex] = 0.0f;
+         for (uint8_t colIndex=0; colIndex<=3; colIndex++) {
+             Kfusion[rowIndex] += P[rowIndex][colIndex]*H_YAW[colIndex];
+@@ -1234,6 +1243,7 @@
+     // correct the covariance P = (I - K*H)*P = P - K*H*P. take advantage of
+     // the zero elements of H to reduce the number of operations.
+     for (unsigned i = 0; i<=stateIndexLim; i++) {
++        apAutonomyCheckpoint();
+         // j as the inner loop allows the compiler to hoist the KH product
+         // to save computation, and do the inner indexing more efficiently.
+         for (unsigned j = 0; j<=stateIndexLim; j++) {
+@@ -1342,6 +1352,7 @@
+     // correct the covariance P = (I - K*H)*P = P - K*H*P. take advantage of
+     // the zero elements of H to reduce the number of operations.
+     for (unsigned i = 0; i<=stateIndexLim; i++) {
++        apAutonomyCheckpoint();
+         // j as the inner loop allows the compiler to hoist the KH product
+         // to save computation, and do the inner indexing more efficiently.
+         for (unsigned j = 0; j<=stateIndexLim; j++) {
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_OptFlowFusion.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_OptFlowFusion.cpp
+@@ -347,6 +347,7 @@
+ 
+     // Fuse X and Y axis measurements sequentially assuming observation errors are uncorrelated
+     for (uint8_t obsIndex=0; obsIndex<=1; obsIndex++) { // fuse X axis data first
++        apAutonomyCheckpoint();
+ 
+         // calculate relative velocity in sensor frame including the relative motion due to rotation
+         const Vector3F relVelSensor = (prevTnb * stateStruct.velocity) + (ofDataDelayed.bodyRadXYZ % posOffsetBody);
+@@ -372,6 +373,7 @@
+             ftype t3 = q1*vd*2.0f;
+             ftype t4 = q0*ve*2.0f;
+             ftype t11 = q3*vn*2.0f;
++            apAutonomyCheckpoint();
+             ftype t5 = t3+t4-t11;
+             ftype t6 = q0*q3*2.0f;
+             ftype t29 = q1*q2*2.0f;
+@@ -388,6 +390,7 @@
+             ftype t17 = q2*ve*2.0f;
+             ftype t18 = q1*vn*2.0f;
+             ftype t19 = t16+t17+t18;
++            apAutonomyCheckpoint();
+             ftype t20 = q3*ve*2.0f;
+             ftype t21 = q0*vn*2.0f;
+             ftype t30 = q2*vd*2.0f;
+@@ -404,6 +407,7 @@
+             ftype t35 = P[5][0]*t2*t27;
+             ftype t79 = P[4][0]*t2*t7;
+             ftype t80 = P[3][0]*t2*t22;
++            apAutonomyCheckpoint();
+             ftype t36 = t12+t32+t33+t34+t35-t79-t80;
+             ftype t37 = t2*t5*t36;
+             ftype t38 = P[6][1]*t2*t10;
+@@ -420,6 +424,7 @@
+             ftype t47 = P[2][2]*t2*t19;
+             ftype t48 = P[5][2]*t2*t27;
+             ftype t83 = P[4][2]*t2*t7;
++            apAutonomyCheckpoint();
+             ftype t84 = P[3][2]*t2*t22;
+             ftype t49 = t44+t45+t46+t47+t48-t83-t84;
+             ftype t50 = t2*t19*t49;
+@@ -436,6 +441,7 @@
+             ftype t59 = P[1][5]*t2*t15;
+             ftype t60 = P[2][5]*t2*t19;
+             ftype t61 = P[5][5]*t2*t27;
++            apAutonomyCheckpoint();
+             ftype t88 = P[4][5]*t2*t7;
+             ftype t89 = P[3][5]*t2*t22;
+             ftype t62 = t57+t58+t59+t60+t61-t88-t89;
+@@ -452,6 +458,7 @@
+             ftype t71 = P[0][6]*t2*t5;
+             ftype t72 = P[1][6]*t2*t15;
+             ftype t73 = P[2][6]*t2*t19;
++            apAutonomyCheckpoint();
+             ftype t74 = P[5][6]*t2*t27;
+             ftype t93 = P[4][6]*t2*t7;
+             ftype t94 = P[3][6]*t2*t22;
+@@ -541,6 +548,7 @@
+             ftype t6 = q0*q3*2.0f;
+             ftype t7 = q1*q2*2.0f;
+             ftype t8 = t6+t7;
++            apAutonomyCheckpoint();
+             ftype t9 = q0*q2*2.0f;
+             ftype t28 = q1*q3*2.0f;
+             ftype t10 = t9-t28;
+@@ -557,6 +565,7 @@
+             ftype t21 = q0*ve*2.0f;
+             ftype t30 = q3*vn*2.0f;
+             ftype t22 = t20+t21-t30;
++            apAutonomyCheckpoint();
+             ftype t23 = q0*q0;
+             ftype t24 = q1*q1;
+             ftype t25 = q2*q2;
+@@ -573,6 +582,7 @@
+             ftype t37 = t2*t5*t36;
+             ftype t38 = P[5][1]*t2*t8;
+             ftype t39 = P[0][1]*t2*t5;
++            apAutonomyCheckpoint();
+             ftype t40 = P[3][1]*t2*t22;
+             ftype t41 = P[4][1]*t2*t27;
+             ftype t82 = P[6][1]*t2*t10;
+@@ -589,6 +599,7 @@
+             ftype t49 = t44+t45+t46+t47+t48-t79-t84;
+             ftype t50 = P[5][3]*t2*t8;
+             ftype t51 = P[0][3]*t2*t5;
++            apAutonomyCheckpoint();
+             ftype t52 = P[1][3]*t2*t16;
+             ftype t53 = P[3][3]*t2*t22;
+             ftype t54 = P[4][3]*t2*t27;
+@@ -605,6 +616,7 @@
+             ftype t89 = P[2][4]*t2*t19;
+             ftype t62 = t57+t58+t59+t60+t61-t88-t89;
+             ftype t63 = t2*t27*t62;
++            apAutonomyCheckpoint();
+             ftype t64 = P[5][5]*t2*t8;
+             ftype t65 = P[0][5]*t2*t5;
+             ftype t66 = P[1][5]*t2*t16;
+@@ -621,6 +633,7 @@
+             ftype t75 = P[4][6]*t2*t27;
+             ftype t92 = P[6][6]*t2*t10;
+             ftype t93 = P[2][6]*t2*t19;
++            apAutonomyCheckpoint();
+             ftype t76 = t71+t72+t73+t74+t75-t92-t93;
+             ftype t85 = t2*t19*t49;
+             ftype t94 = t2*t10*t76;
+@@ -704,6 +717,7 @@
+             // correct the covariance P = (I - K*H)*P = P - K*H*P. take advantage of
+             // the zero elements of H to reduce the number of operations.
+             for (unsigned i = 0; i<=stateIndexLim; i++) {
++                apAutonomyCheckpoint();
+                 // j as the inner loop allows the compiler to hoist the KH product
+                 // to save computation, and do the inner indexing more efficiently.
+                 for (unsigned j = 0; j<=stateIndexLim; j++) {
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_PosVelFusion.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_PosVelFusion.cpp
+@@ -71,6 +71,7 @@
+         lastVelPassTime_ms = imuSampleTime_ms;
+     }
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i].velocity.x = stateStruct.velocity.x;
+         storedOutput[i].velocity.y = stateStruct.velocity.y;
+     }
+@@ -154,6 +155,7 @@
+         }
+     }
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i].position.x = stateStruct.position.x;
+         storedOutput[i].position.y = stateStruct.position.y;
+     }
+@@ -232,6 +234,7 @@
+ 
+     // Add the offset to the output observer states
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i].position.x += posResetNE.x;
+         storedOutput[i].position.y += posResetNE.y;
+     }
+@@ -263,6 +266,7 @@
+     vertCompFiltState.pos = outputDataNew.position.z;
+     outputDataDelayed.position.z += posResetD;
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i].position.z += posResetD;
+     }
+ 
+@@ -289,6 +293,7 @@
+         terrainState = MAX(stateStruct.position.z + rngOnGnd , terrainState);
+     }
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i].position.z = stateStruct.position.z;
+     }
+     vertCompFiltState.pos = stateStruct.position.z;
+@@ -324,6 +329,7 @@
+         stateStruct.velocity.z = 0.0f;
+     }
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i].velocity.z = stateStruct.velocity.z;
+     }
+     outputDataNew.velocity.z = stateStruct.velocity.z;
+@@ -367,6 +373,7 @@
+     stateStruct.position.z = 0.0f;
+     stateStruct.velocity.z = 0.0f;
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i].position.z = stateStruct.position.z;
+         storedOutput[i].velocity.z = stateStruct.velocity.z;
+     }
+@@ -1087,6 +1094,7 @@
+ 
+         // fuse measurements sequentially
+         for (obsIndex=0; obsIndex<=5; obsIndex++) {
++            apAutonomyCheckpoint();
+             if (fuseData[obsIndex]) {
+                 stateIndex = 4 + obsIndex;
+                 // calculate the measurement innovation, using states from a different time coordinate if fusing height data
+@@ -1185,6 +1193,7 @@
+                 // correct the covariance P = (I - K*H)*P = P - K*H*P. take advantage of
+                 // the zero elements of H to reduce the number of operations.
+                 for (unsigned i = 0; i<=stateIndexLim; i++) {
++                    apAutonomyCheckpoint();
+                     // j as the inner loop allows the compiler to hoist the KH product
+                     // to save computation, and do the inner indexing more efficiently.
+                     for (unsigned j = 0; j<=stateIndexLim; j++) {
+@@ -1485,6 +1494,7 @@
+ 
+     // Fuse X, Y and Z axis measurements sequentially assuming observation errors are uncorrelated
+     for (uint8_t obsIndex=0; obsIndex<=2; obsIndex++) {
++        apAutonomyCheckpoint();
+ 
+         // calculate relative velocity in sensor frame including the relative motion due to rotation
+         bodyVelPred = (prevTnb * stateStruct.velocity);
+@@ -1525,6 +1535,7 @@
+             ftype t10 = q0*q2*2.0f;
+             ftype t25 = q1*q3*2.0f;
+             ftype t11 = t10-t25;
++            apAutonomyCheckpoint();
+             ftype t12 = q3*ve*2.0f;
+             ftype t13 = q0*vn*2.0f;
+             ftype t26 = q2*vd*2.0f;
+@@ -1541,6 +1552,7 @@
+             ftype t23 = q0*ve*2.0f;
+             ftype t28 = q3*vn*2.0f;
+             ftype t24 = t22+t23-t28;
++            apAutonomyCheckpoint();
+             ftype t29 = P[0][0]*t14;
+             ftype t30 = P[1][1]*t18;
+             ftype t31 = P[4][5]*t9;
+@@ -1557,6 +1569,7 @@
+             ftype t40 = P[0][6]*t14;
+             ftype t41 = P[1][6]*t18;
+             ftype t42 = P[3][6]*t24;
++            apAutonomyCheckpoint();
+             ftype t81 = P[6][6]*t11;
+             ftype t82 = P[2][6]*t21;
+             ftype t43 = t38+t39+t40+t41+t42-t81-t82;
+@@ -1573,6 +1586,7 @@
+             ftype t52 = P[0][1]*t14;
+             ftype t53 = P[3][1]*t24;
+             ftype t86 = P[6][1]*t11;
++            apAutonomyCheckpoint();
+             ftype t87 = P[2][1]*t21;
+             ftype t54 = t30+t50+t51+t52+t53-t86-t87;
+             ftype t55 = t18*t54;
+@@ -1589,6 +1603,7 @@
+             ftype t64 = P[0][3]*t14;
+             ftype t65 = P[1][3]*t18;
+             ftype t66 = P[3][3]*t24;
++            apAutonomyCheckpoint();
+             ftype t90 = P[6][3]*t11;
+             ftype t91 = P[2][3]*t21;
+             ftype t67 = t62+t63+t64+t65+t66-t90-t91;
+@@ -1605,6 +1620,7 @@
+             ftype t83 = t11*t43;
+             ftype t89 = t21*t61;
+             ftype t76 = R_VEL+t37+t49+t55+t68+t75-t83-t89;
++            apAutonomyCheckpoint();
+             ftype t77;
+ 
+             // calculate innovation variance for X axis observation and protect against a badly conditioned calculation
+@@ -1693,6 +1709,7 @@
+             ftype t26 = q3*vn*2.0f;
+             ftype t15 = t13+t14-t26;
+             ftype t16 = q0*vd*2.0f;
++            apAutonomyCheckpoint();
+             ftype t17 = q2*vn*2.0f;
+             ftype t27 = q1*ve*2.0f;
+             ftype t18 = t16+t17-t27;
+@@ -1709,6 +1726,7 @@
+             ftype t31 = P[5][4]*t8;
+             ftype t32 = P[6][4]*t12;
+             ftype t33 = P[0][4]*t15;
++            apAutonomyCheckpoint();
+             ftype t34 = P[1][4]*t18;
+             ftype t35 = P[2][4]*t22;
+             ftype t78 = P[4][4]*t3;
+@@ -1725,6 +1743,7 @@
+             ftype t43 = t12*t42;
+             ftype t44 = P[5][0]*t8;
+             ftype t45 = P[6][0]*t12;
++            apAutonomyCheckpoint();
+             ftype t46 = P[1][0]*t18;
+             ftype t47 = P[2][0]*t22;
+             ftype t83 = P[4][0]*t3;
+@@ -1741,6 +1760,7 @@
+             ftype t55 = t18*t54;
+             ftype t56 = P[5][2]*t8;
+             ftype t57 = P[6][2]*t12;
++            apAutonomyCheckpoint();
+             ftype t58 = P[0][2]*t15;
+             ftype t59 = P[1][2]*t18;
+             ftype t60 = P[2][2]*t22;
+@@ -1757,6 +1777,7 @@
+             ftype t90 = P[3][3]*t25;
+             ftype t68 = t63+t64+t65+t66+t67-t89-t90;
+             ftype t69 = P[5][5]*t8;
++            apAutonomyCheckpoint();
+             ftype t70 = P[6][5]*t12;
+             ftype t71 = P[0][5]*t15;
+             ftype t72 = P[1][5]*t18;
+@@ -1845,6 +1866,7 @@
+             ftype t4 = t2+t3;
+             ftype t5 = q0*q0;
+             ftype t6 = q1*q1;
++            apAutonomyCheckpoint();
+             ftype t7 = q2*q2;
+             ftype t8 = q3*q3;
+             ftype t9 = t5-t6-t7+t8;
+@@ -1861,6 +1883,7 @@
+             ftype t17 = t15+t16-t27;
+             ftype t18 = q3*ve*2.0f;
+             ftype t19 = q0*vn*2.0f;
++            apAutonomyCheckpoint();
+             ftype t28 = q2*vd*2.0f;
+             ftype t20 = t18+t19-t28;
+             ftype t21 = q3*vd*2.0f;
+@@ -1877,6 +1900,7 @@
+             ftype t79 = P[1][4]*t17;
+             ftype t35 = t30+t31+t32+t33+t34-t78-t79;
+             ftype t36 = t4*t35;
++            apAutonomyCheckpoint();
+             ftype t37 = P[6][5]*t9;
+             ftype t38 = P[4][5]*t4;
+             ftype t39 = P[0][5]*t14;
+@@ -1893,6 +1917,7 @@
+             ftype t84 = P[1][0]*t17;
+             ftype t47 = t29+t43+t44+t45+t46-t83-t84;
+             ftype t48 = t14*t47;
++            apAutonomyCheckpoint();
+             ftype t49 = P[6][1]*t9;
+             ftype t50 = P[4][1]*t4;
+             ftype t51 = P[0][1]*t14;
+@@ -1909,6 +1934,7 @@
+             ftype t88 = P[5][2]*t11;
+             ftype t89 = P[1][2]*t17;
+             ftype t60 = t55+t56+t57+t58+t59-t88-t89;
++            apAutonomyCheckpoint();
+             ftype t61 = t20*t60;
+             ftype t62 = P[6][3]*t9;
+             ftype t63 = P[4][3]*t4;
+@@ -1925,6 +1951,7 @@
+             ftype t72 = P[2][6]*t20;
+             ftype t73 = P[3][6]*t24;
+             ftype t92 = P[5][6]*t11;
++            apAutonomyCheckpoint();
+             ftype t93 = P[1][6]*t17;
+             ftype t74 = t69+t70+t71+t72+t73-t92-t93;
+             ftype t75 = t9*t74;
+@@ -2010,6 +2037,7 @@
+             // correct the covariance P = (I - K*H)*P = P - K*H*P. take advantage of
+             // the zero elements of H to reduce the number of operations.
+             for (unsigned i = 0; i<=stateIndexLim; i++) {
++                apAutonomyCheckpoint();
+                 // j as the inner loop allows the compiler to hoist the KH product
+                 // to save computation, and do the inner indexing more efficiently.
+                 for (unsigned j = 0; j<=stateIndexLim; j++) {
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_core.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_core.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "AP_NavEKF3.h"
+ #include "AP_NavEKF3_core.h"
++#include "profile.h"
+ #include <GCS_MAVLink/GCS.h>
+ #include <AP_VisualOdom/AP_VisualOdom.h>
+ #include <AP_Logger/AP_Logger.h>
+@@ -115,6 +116,7 @@
+     if(!storedMag.init(obs_buffer_length)) {
+         return false;
+     }
++    apAutonomyCheckpoint();
+     if(!storedBaro.init(obs_buffer_length)) {
+         return false;
+     }
+@@ -124,6 +126,7 @@
+     if(dal.opticalflow_enabled() && !storedOF.init(flow_buffer_length)) {
+         return false;
+     }
++    apAutonomyCheckpoint();
+ #if EK3_FEATURE_BODY_ODOM
+     if(frontend->sources.ext_nav_enabled() && !storedBodyOdm.init(obs_buffer_length)) {
+         return false;
+@@ -142,6 +145,7 @@
+         return false;
+     }
+ #endif
++    apAutonomyCheckpoint();
+     // Note: range beacon data is read one beacon at a time and can arrive at a high rate
+ #if EK3_FEATURE_BEACON_FUSION
+     if(dal.beacon() && !rngBcn.storedRange.init(imu_buffer_length+1)) {
+@@ -159,12 +163,14 @@
+         return false;
+     }
+ #endif // EK3_FEATURE_EXTERNAL_NAV
++    apAutonomyCheckpoint();
+     if(!storedIMU.init(imu_buffer_length)) {
+         return false;
+     }
+     if(!storedOutput.init(imu_buffer_length)) {
+         return false;
+     }
++    apAutonomyCheckpoint();
+ #if EK3_FEATURE_DRAG_FUSION
+     if (!storedDrag.init(obs_buffer_length)) {
+         return false;
+@@ -248,7 +254,9 @@
+     lastKnownPositionD = 0;
+     prevTnb.zero();
+     memset(&Pmut[0][0], 0, sizeof(Pmut));
++    apAutonomyCheckpoint();
+     memset(&KHP[0][0], 0, sizeof(KHP));
++    apAutonomyCheckpoint();
+     flowDataValid = false;
+     rangeDataToFuse  = false;
+ #if EK3_FEATURE_OPTFLOW_FUSION
+@@ -333,6 +341,7 @@
+     gpsHorizVelFilt = 0.0f;
+     ZERO_FARRAY(statesArray);
+     memset(&vertCompFiltState, 0, sizeof(vertCompFiltState));
++    apAutonomyCheckpoint();
+     posVelFusionDelayed = false;
+ #if EK3_FEATURE_OPTFLOW_FUSION
+     optFlowFusionDelayed = false;
+@@ -407,14 +416,17 @@
+ #endif
+ 
+     // zero data buffers
++    apAutonomyCheckpoint();
+     storedIMU.reset();
+     storedGPS.reset();
++    apAutonomyCheckpoint();
+     storedBaro.reset();
+     storedTAS.reset();
+ #if EK3_FEATURE_RANGEFINDER_MEASUREMENTS
+     storedRange.reset();
+ #endif
+     storedOutput.reset();
++    apAutonomyCheckpoint();
+ #if EK3_FEATURE_BEACON_FUSION
+     rngBcn.storedRange.reset();
+ #endif
+@@ -426,6 +438,8 @@
+     storedExtNav.reset();
+     storedExtNavVel.reset();
+ #endif
++
++    apAutonomyCheckpoint();
+ 
+     // initialise pre-arm message
+     dal.snprintf(prearm_fail_string, sizeof(prearm_fail_string), "EKF3 still initialising");
+@@ -484,6 +498,7 @@
+ {
+     // update sensor selection (for affinity)
+     update_sensor_selection();
++    apAutonomyCheckpoint();
+ 
+     // If we are a plane and don't have GPS lock then don't initialise
+     if (assume_zero_sideslip() && dal.gps().status(preferred_gps) < AP_GPS_FixType::FIX_3D) {
+@@ -496,10 +511,15 @@
+ 
+     // read all the sensors required to start the EKF the states
+     readIMUData(false);  // don't allow prediction
++    apAutonomyCheckpoint();
+     readMagData();
++    apAutonomyCheckpoint();
+     readGpsData();
++    apAutonomyCheckpoint();
+     readGpsYawData();
++    apAutonomyCheckpoint();
+     readBaroData();
++    apAutonomyCheckpoint();
+ 
+     if (statesInitialised) {
+         // we are initialised, but we don't return true until the IMU
+@@ -518,6 +538,7 @@
+ 
+     // set re-used variables to zero
+     InitialiseVariables();
++    apAutonomyCheckpoint();
+ 
+     // acceleration vector in XYZ body axes measured by the IMU (m/s^2)
+     Vector3F initAccVec;
+@@ -539,6 +560,7 @@
+ 
+     // calculate initial roll and pitch orientation
+     stateStruct.quat.from_euler(roll, pitch, 0.0f);
++    apAutonomyCheckpoint();
+ 
+     // initialise dynamic states
+     stateStruct.velocity.zero();
+@@ -553,8 +575,11 @@
+ 
+     // set the position, velocity and height
+     ResetVelocity(resetDataSource::DEFAULT);
++    apAutonomyCheckpoint();
+     ResetPosition(resetDataSource::DEFAULT);
++    apAutonomyCheckpoint();
+     ResetHeight();
++    apAutonomyCheckpoint();
+ 
+     // initialise sources
+     posxy_source_last = frontend->sources.getPosXYSource(core_index);
+@@ -565,9 +590,11 @@
+ 
+     // initialise the covariance matrix
+     CovarianceInit();
++    apAutonomyCheckpoint();
+ 
+     // reset the output predictor states
+     StoreOutputReset();
++    apAutonomyCheckpoint();
+ 
+     // set to true now that states have be initialised
+     statesInitialised = true;
+@@ -650,65 +677,87 @@
+     }
+ 
+     fill_scratch_variables();
++    apAutonomyCheckpoint();
+ 
+     // update sensor selection (for affinity)
+     update_sensor_selection();
++    apAutonomyCheckpoint();
+ 
+     // TODO - in-flight restart method
+ 
+     // Check arm status and perform required checks and mode changes
+     controlFilterModes();
++    apAutonomyCheckpoint();
+ 
+     // read IMU data as delta angles and velocities
+     readIMUData(predict);
++    apAutonomyCheckpoint();
+ 
+     // Run the EKF equations to estimate at the fusion time horizon if new IMU data is available in the buffer
+     if (runUpdates) {
+         // Predict states using IMU data from the delayed time horizon
+         UpdateStrapdownEquationsNED();
++        apAutonomyCheckpoint();
+ 
+         // Predict the covariance growth
++        const uint32_t covarianceStarted = apProfileBegin(AP_PROF_EKF_COVARIANCE);
+         CovariancePrediction(nullptr);
++        apProfileEnd(AP_PROF_EKF_COVARIANCE, covarianceStarted);
++        apAutonomyCheckpoint();
+ 
+         // Run the IMU prediction step for the GSF yaw estimator algorithm
+         // using IMU and optionally true airspeed data.
+         // Must be run before SelectMagFusion() to provide an up to date yaw estimate
+         runYawEstimatorPrediction();
++        apAutonomyCheckpoint();
+ 
+         // Update states using  magnetometer or external yaw sensor data
+         SelectMagFusion();
++        apAutonomyCheckpoint();
+ 
+         // Update states using GPS and altimeter data
++        const uint32_t posVelStarted = apProfileBegin(AP_PROF_EKF_POSVEL);
+         SelectVelPosFusion();
++        apProfileEnd(AP_PROF_EKF_POSVEL, posVelStarted);
++        apAutonomyCheckpoint();
+ 
+         // Run the GPS velocity correction step for the GSF yaw estimator algorithm
+         // and use the yaw estimate to reset the main EKF yaw if requested
+         // Muat be run after SelectVelPosFusion() so that fresh GPS data is available
+         runYawEstimatorCorrection();
++        apAutonomyCheckpoint();
+ 
+ #if EK3_FEATURE_BEACON_FUSION
+         // Update states using range beacon data
+         SelectRngBcnFusion();
++        apAutonomyCheckpoint();
+ #endif
+ 
+ #if EK3_FEATURE_OPTFLOW_FUSION
+         // Update states using optical flow data
++        const uint32_t optFlowStarted = apProfileBegin(AP_PROF_EKF_OPTFLOW);
+         SelectFlowFusion();
++        apProfileEnd(AP_PROF_EKF_OPTFLOW, optFlowStarted);
++        apAutonomyCheckpoint();
+ #endif
+ 
+ #if EK3_FEATURE_BODY_ODOM
+         // Update states using body frame odometry data
+         SelectBodyOdomFusion();
++        apAutonomyCheckpoint();
+ #endif
+ 
+         // Update states using airspeed data
+         SelectTasFusion();
++        apAutonomyCheckpoint();
+ 
+         // Update states using sideslip constraint assumption for fly-forward vehicles or body drag for multicopters
+         SelectBetaDragFusion();
++        apAutonomyCheckpoint();
+ 
+         // Update the filter status
+         updateFilterStatus();
++        apAutonomyCheckpoint();
+ 
+         if (imuSampleTime_ms - last_oneHz_ms >= 1000) {
+             // 1Hz tasks
+@@ -720,6 +769,7 @@
+ 
+     // Wind output forward from the fusion to output time horizon
+     calcOutputStates();
++    apAutonomyCheckpoint();
+ 
+     /*
+       this is a check to cope with a vehicle sitting idle on the
+@@ -1000,6 +1050,7 @@
+         // to be used
+         output_elements outputStates;
+         for (unsigned index=0; index < imu_buffer_length; index++) {
++            apAutonomyCheckpoint();
+             outputStates = storedOutput[index];
+ 
+             // a constant  velocity correction is applied
+@@ -1209,6 +1260,11 @@
+     // calculate the predicted covariance due to inertial sensor error propagation
+     // we calculate the lower diagonal and copy to take advantage of symmetry
+ 
++    // Keep the generated equations intact; the private worker stack retains
++    // intermediates while a checkpoint gives the gyro/PID scheduler time.
++    // The adapter freezes DAL inputs and publishes only completed updates.
++    apAutonomyCheckpoint();
++
+     // intermediate calculations
+     const ftype PS0 = sq(q1);
+     const ftype PS1 = 0.25F*daxVar;
+@@ -1226,6 +1282,7 @@
+     const ftype PS13 = 0.5F*daz - 0.5F*daz_b;
+     const ftype PS14 = PS10 - PS11*P[1][10] - PS12*P[2][10] - PS13*P[3][10] + PS6*P[10][10] + PS8 + P[0][10];
+     const ftype PS15 = PS6*P[10][11];
++    apAutonomyCheckpoint();
+     const ftype PS16 = PS9*P[11][12];
+     const ftype PS17 = -PS11*P[1][11] - PS12*P[2][11] - PS13*P[3][11] + PS15 + PS16 + PS7*P[11][11] + P[0][11];
+     const ftype PS18 = PS6*P[10][12];
+@@ -1242,6 +1299,7 @@
+     const ftype PS29 = -PS13*P[3][3] - PS27 + PS28 + PS6*P[3][10] + PS7*P[3][11] + PS9*P[3][12] + P[0][3];
+     const ftype PS30 = PS11*P[0][1];
+     const ftype PS31 = PS12*P[0][2];
++    apAutonomyCheckpoint();
+     const ftype PS32 = PS13*P[0][3];
+     const ftype PS33 = -PS30 - PS31 - PS32 + PS6*P[0][10] + PS7*P[0][11] + PS9*P[0][12] + P[0][0];
+     const ftype PS34 = 0.5F*q0;
+@@ -1258,6 +1316,7 @@
+     const ftype PS45 = PS37 + PS38;
+     const ftype PS46 = -PS11*P[1][15] - PS12*P[2][15] - PS13*P[3][15] + PS6*P[10][15] + PS7*P[11][15] + PS9*P[12][15] + P[0][15];
+     const ftype PS47 = 2*PS46;
++    apAutonomyCheckpoint();
+     const ftype PS48 = dvy - dvy_b;
+     const ftype PS49 = PS48*q0;
+     const ftype PS50 = dvz - dvz_b;
+@@ -1274,6 +1333,7 @@
+     const ftype PS61 = PS59 + PS60;
+     const ftype PS62 = 2*PS23;
+     const ftype PS63 = PS50*q2;
++    apAutonomyCheckpoint();
+     const ftype PS64 = PS48*q3;
+     const ftype PS65 = -PS64;
+     const ftype PS66 = PS63 + PS65;
+@@ -1290,6 +1350,7 @@
+     const ftype PS77 = 2*PS44;
+     const ftype PS78 = PS51 - PS53;
+     const ftype PS79 = -PS70;
++    apAutonomyCheckpoint();
+     const ftype PS80 = PS68 + 2*PS69 + PS79;
+     const ftype PS81 = -PS35 + PS36;
+     const ftype PS82 = PS52*q1;
+@@ -1306,6 +1367,7 @@
+     const ftype PS93 = PS49 - 2*PS51 + PS53;
+     const ftype PS94 = -PS11*P[1][6] - PS12*P[2][6] - PS13*P[3][6] + PS6*P[6][10] + PS7*P[6][11] + PS9*P[6][12] + P[0][6];
+     const ftype PS95 = sq(q0);
++    apAutonomyCheckpoint();
+     const ftype PS96 = -PS34*P[10][11];
+     const ftype PS97 = PS11*P[0][11] - PS12*P[3][11] + PS13*P[2][11] - PS19 + PS9*P[11][11] + PS96 + P[1][11];
+     const ftype PS98 = PS13*P[0][2];
+@@ -1322,6 +1384,7 @@
+     const ftype PS109 = PS108 - PS12*P[3][3] + PS25 - PS34*P[3][10] - PS7*P[3][12] + PS9*P[3][11] + P[1][3];
+     const ftype PS110 = PS13*P[1][2];
+     const ftype PS111 = PS12*P[1][3];
++    apAutonomyCheckpoint();
+     const ftype PS112 = PS110 - PS111 + PS30 - PS34*P[1][10] - PS7*P[1][12] + PS9*P[1][11] + P[1][1];
+     const ftype PS113 = PS11*P[0][13] - PS12*P[3][13] + PS13*P[2][13] - PS34*P[10][13] - PS7*P[12][13] + PS9*P[11][13] + P[1][13];
+     const ftype PS114 = PS11*P[0][15] - PS12*P[3][15] + PS13*P[2][15] - PS34*P[10][15] - PS7*P[12][15] + PS9*P[11][15] + P[1][15];
+@@ -1338,6 +1401,7 @@
+     const ftype PS125 = PS11*P[0][6] - PS12*P[3][6] + PS13*P[2][6] - PS34*P[6][10] - PS7*P[6][12] + PS9*P[6][11] + P[1][6];
+     const ftype PS126 = -PS34*P[11][12];
+     const ftype PS127 = -PS10 + PS11*P[3][12] + PS12*P[0][12] + PS126 - PS13*P[1][12] + PS6*P[12][12] + P[2][12];
++    apAutonomyCheckpoint();
+     const ftype PS128 = PS11*P[3][3] + PS22 - PS34*P[3][11] + PS6*P[3][12] - PS9*P[3][10] + PS99 + P[2][3];
+     const ftype PS129 = PS13*P[0][1];
+     const ftype PS130 = PS108 + PS12*P[0][0] - PS129 - PS34*P[0][11] + PS6*P[0][12] - PS9*P[0][10] + P[0][2];
+@@ -1354,6 +1418,7 @@
+     const ftype PS141 = 2*PS128;
+     const ftype PS142 = PS11*P[3][14] + PS12*P[0][14] - PS13*P[1][14] - PS34*P[11][14] + PS6*P[12][14] - PS9*P[10][14] + P[2][14];
+     const ftype PS143 = 2*PS142;
++    apAutonomyCheckpoint();
+     const ftype PS144 = 2*PS135;
+     const ftype PS145 = 2*PS130;
+     const ftype PS146 = 2*PS137;
+@@ -1370,6 +1435,7 @@
+     const ftype PS157 = PS111 - PS136 + PS32 - PS34*P[3][12] - PS6*P[3][11] + PS7*P[3][10] + P[3][3];
+     const ftype PS158 = -PS11*P[2][13] + PS12*P[1][13] + PS13*P[0][13] - PS34*P[12][13] - PS6*P[11][13] + PS7*P[10][13] + P[3][13];
+     const ftype PS159 = -PS11*P[2][15] + PS12*P[1][15] + PS13*P[0][15] - PS34*P[12][15] - PS6*P[11][15] + PS7*P[10][15] + P[3][15];
++    apAutonomyCheckpoint();
+     const ftype PS160 = 2*PS159;
+     const ftype PS161 = 2*PS157;
+     const ftype PS162 = -PS11*P[2][14] + PS12*P[1][14] + PS13*P[0][14] - PS34*P[12][14] - PS6*P[11][14] + PS7*P[10][14] + P[3][14];
+@@ -1386,6 +1452,7 @@
+     const ftype PS173 = 2*PS61;
+     const ftype PS174 = 2*PS66;
+     const ftype PS175 = 2*PS71;
++    apAutonomyCheckpoint();
+     const ftype PS176 = 2*PS54;
+     const ftype PS177 = -PS171*P[13][15] + PS172*P[13][14] + PS173*P[1][13] + PS174*P[0][13] + PS175*P[2][13] - PS176*P[3][13] + PS43*P[13][13] + P[4][13];
+     const ftype PS178 = -PS171*P[15][15] + PS172*P[14][15] + PS173*P[1][15] + PS174*P[0][15] + PS175*P[2][15] - PS176*P[3][15] + PS43*P[13][15] + P[4][15];
+@@ -1402,6 +1469,7 @@
+     const ftype PS189 = 2*PS181;
+     const ftype PS190 = 2*PS81;
+     const ftype PS191 = 2*PS183;
++    apAutonomyCheckpoint();
+     const ftype PS192 = 2*PS179;
+     const ftype PS193 = 2*PS76;
+     const ftype PS194 = PS43*dvxVar;
+@@ -1418,6 +1486,7 @@
+     const ftype PS205 = PS190*P[14][15] - PS193*P[13][14] + PS201*P[2][14] - PS202*P[0][14] + PS203*P[3][14] - PS204*P[1][14] + PS75*P[14][14] + P[5][14];
+     const ftype PS206 = PS190*P[13][15] - PS193*P[13][13] + PS201*P[2][13] - PS202*P[0][13] + PS203*P[3][13] - PS204*P[1][13] + PS75*P[13][14] + P[5][13];
+     const ftype PS207 = PS190*P[0][15] - PS193*P[0][13] + PS201*P[0][2] - PS202*P[0][0] + PS203*P[0][3] - PS204*P[0][1] + PS75*P[0][14] + P[0][5];
++    apAutonomyCheckpoint();
+     const ftype PS208 = PS190*P[1][15] - PS193*P[1][13] + PS201*P[1][2] - PS202*P[0][1] + PS203*P[1][3] - PS204*P[1][1] + PS75*P[1][14] + P[1][5];
+     const ftype PS209 = PS190*P[15][15] - PS193*P[13][15] + PS201*P[2][15] - PS202*P[0][15] + PS203*P[3][15] - PS204*P[1][15] + PS75*P[14][15] + P[5][15];
+     const ftype PS210 = PS190*P[2][15] - PS193*P[2][13] + PS201*P[2][2] - PS202*P[0][2] + PS203*P[2][3] - PS204*P[1][2] + PS75*P[2][14] + P[2][5];
+@@ -1434,12 +1503,16 @@
+     const ftype PS221 = -PS197*P[13][14] + PS199*P[13][13] - PS214*P[2][13] + PS215*P[3][13] + PS216*P[0][13] + PS217*P[1][13] + PS87*P[13][15] + P[6][13];
+     const ftype PS222 = -PS197*P[6][14] + PS199*P[6][13] - PS214*P[2][6] + PS215*P[3][6] + PS216*P[0][6] + PS217*P[1][6] + PS87*P[6][15] + P[6][6];
+ 
++    apAutonomyCheckpoint();
+     nextP[0][0] = PS0*PS1 - PS11*PS23 - PS12*PS26 - PS13*PS29 + PS14*PS6 + PS17*PS7 + PS2*PS3 + PS20*PS9 + PS33 + PS4*PS5;
++    apAutonomyCheckpoint();
+     nextP[0][1] = -PS1*PS36 + PS11*PS33 - PS12*PS29 + PS13*PS26 - PS14*PS34 + PS17*PS9 - PS20*PS7 + PS23 + PS3*PS35 - PS35*PS5;
+     nextP[1][1] = PS1*PS95 + PS100*PS11 + PS102*PS13 - PS105*PS34 - PS107*PS7 - PS109*PS12 + PS112 + PS2*PS5 + PS3*PS4 + PS9*PS97;
++    apAutonomyCheckpoint();
+     nextP[0][2] = -PS1*PS37 + PS11*PS29 + PS12*PS33 - PS13*PS23 - PS14*PS9 - PS17*PS34 + PS20*PS6 + PS26 - PS3*PS38 + PS37*PS5;
+     nextP[1][2] = PS1*PS40 + PS100*PS12 + PS102 - PS105*PS9 + PS107*PS6 + PS109*PS11 - PS112*PS13 - PS3*PS40 - PS34*PS97 - PS39*PS5;
+     nextP[2][2] = PS0*PS5 + PS1*PS4 + PS11*PS128 + PS12*PS130 + PS127*PS6 - PS13*PS135 - PS132*PS34 - PS133*PS9 + PS137 + PS3*PS95;
++    apAutonomyCheckpoint();
+     nextP[0][3] = PS1*PS39 - PS11*PS26 + PS12*PS23 + PS13*PS33 + PS14*PS7 - PS17*PS6 - PS20*PS34 + PS29 - PS3*PS39 - PS40*PS5;
+     nextP[1][3] = -PS1*PS38 + PS100*PS13 - PS102*PS11 + PS105*PS7 - PS107*PS34 + PS109 + PS112*PS12 - PS3*PS37 + PS38*PS5 - PS6*PS97;
+     nextP[2][3] = -PS1*PS35 - PS11*PS137 + PS12*PS135 - PS127*PS34 + PS128 + PS13*PS130 - PS132*PS6 + PS133*PS7 + PS3*PS36 - PS36*PS5;
+@@ -1449,6 +1522,7 @@
+         // covariance matrix is symmetrical, so copy diagonals and copy lower half in nextP
+         // to lower and upper half in P
+         for (uint8_t row = 0; row <= 3; row++) {
++            apAutonomyCheckpoint();
+             // copy diagonals
+             Pmut[row][row] = constrain_ftype(nextP[row][row], 0.0f, 1.0f);
+             // copy off diagonals
+@@ -1460,17 +1534,20 @@
+         return;
+     }
+ 
++    apAutonomyCheckpoint();
+     nextP[0][4] = PS43*PS44 - PS45*PS47 - PS54*PS55 + PS56*PS58 + PS61*PS62 + PS66*PS67 + PS71*PS72 + PS73;
+     nextP[1][4] = PS113*PS43 - PS115*PS45 - PS116*PS54 + PS118*PS56 + PS119*PS61 + PS120*PS66 + PS121*PS71 + PS122;
+     nextP[2][4] = PS138*PS43 - PS140*PS45 - PS141*PS54 + PS143*PS56 + PS144*PS61 + PS145*PS66 + PS146*PS71 + PS147;
+     nextP[3][4] = PS158*PS43 - PS160*PS45 - PS161*PS54 + PS163*PS56 + PS164*PS61 + PS165*PS66 + PS166*PS71 + PS167;
+     nextP[4][4] = -PS171*PS178 + PS172*PS180 + PS173*PS181 + PS174*PS182 + PS175*PS183 - PS176*PS179 + PS177*PS43 + PS184*sq(PS56) + PS185*sq(PS45) + PS186 + sq(PS43)*dvxVar;
++    apAutonomyCheckpoint();
+     nextP[0][5] = PS47*PS81 + PS55*PS85 + PS57*PS75 - PS62*PS80 - PS67*PS78 + PS72*PS83 - PS76*PS77 + PS86;
+     nextP[1][5] = PS115*PS81 + PS116*PS85 + PS117*PS75 - PS119*PS80 - PS120*PS78 + PS121*PS83 - PS123*PS76 + PS124;
+     nextP[2][5] = PS140*PS81 + PS141*PS85 + PS142*PS75 - PS144*PS80 - PS145*PS78 + PS146*PS83 - PS148*PS76 + PS149;
+     nextP[3][5] = PS160*PS81 + PS161*PS85 + PS162*PS75 - PS164*PS80 - PS165*PS78 + PS166*PS83 - PS168*PS76 + PS169;
+     nextP[4][5] = PS172*PS195 + PS178*PS190 + PS180*PS75 - PS185*PS45*PS81 - PS187*PS76 - PS188*PS78 - PS189*PS80 + PS191*PS83 + PS192*PS85 - PS193*PS194 + PS196;
+     nextP[5][5] = PS185*sq(PS81) + PS190*PS209 - PS193*PS206 + PS201*PS210 - PS202*PS207 + PS203*PS211 - PS204*PS208 + PS205*PS75 + PS212*sq(PS76) + PS213 + sq(PS75)*dvyVar;
++    apAutonomyCheckpoint();
+     nextP[0][6] = PS46*PS87 + PS55*PS91 - PS58*PS88 + PS62*PS93 + PS67*PS92 - PS72*PS89 + PS77*PS90 + PS94;
+     nextP[1][6] = PS114*PS87 + PS116*PS91 - PS118*PS88 + PS119*PS93 + PS120*PS92 - PS121*PS89 + PS123*PS90 + PS125;
+     nextP[2][6] = PS139*PS87 + PS141*PS91 - PS143*PS88 + PS144*PS93 + PS145*PS92 - PS146*PS89 + PS148*PS90 + PS150;
+@@ -1478,6 +1555,8 @@
+     nextP[4][6] = -PS171*PS198 + PS178*PS87 - PS180*PS197 - PS184*PS56*PS88 + PS187*PS90 + PS188*PS92 + PS189*PS93 - PS191*PS89 + PS192*PS91 + PS194*PS199 + PS200;
+     nextP[5][6] = PS190*PS198 - PS195*PS197 - PS197*PS205 + PS199*PS206 + PS207*PS216 + PS208*PS217 + PS209*PS87 - PS210*PS214 + PS211*PS215 - PS212*PS76*PS90 + PS218;
+     nextP[6][6] = PS184*sq(PS88) - PS197*PS220 + PS199*PS221 + PS212*sq(PS90) - PS214*(-PS197*P[2][14] + PS199*P[2][13] - PS214*P[2][2] + PS215*P[2][3] + PS216*P[0][2] + PS217*P[1][2] + PS87*P[2][15] + P[2][6]) + PS215*(-PS197*P[3][14] + PS199*P[3][13] - PS214*P[2][3] + PS215*P[3][3] + PS216*P[0][3] + PS217*P[1][3] + PS87*P[3][15] + P[3][6]) + PS216*(-PS197*P[0][14] + PS199*P[0][13] - PS214*P[0][2] + PS215*P[0][3] + PS216*P[0][0] + PS217*P[0][1] + PS87*P[0][15] + P[0][6]) + PS217*(-PS197*P[1][14] + PS199*P[1][13] - PS214*P[1][2] + PS215*P[1][3] + PS216*P[0][1] + PS217*P[1][1] + PS87*P[1][15] + P[1][6]) + PS219*PS87 + PS222 + sq(PS87)*dvzVar;
++    apAutonomyCheckpoint();
++    apAutonomyCheckpoint();
+     nextP[0][7] = -PS11*P[1][7] - PS12*P[2][7] - PS13*P[3][7] + PS6*P[7][10] + PS7*P[7][11] + PS73*dt + PS9*P[7][12] + P[0][7];
+     nextP[1][7] = PS11*P[0][7] - PS12*P[3][7] + PS122*dt + PS13*P[2][7] - PS34*P[7][10] - PS7*P[7][12] + PS9*P[7][11] + P[1][7];
+     nextP[2][7] = PS11*P[3][7] + PS12*P[0][7] - PS13*P[1][7] + PS147*dt - PS34*P[7][11] + PS6*P[7][12] - PS9*P[7][10] + P[2][7];
+@@ -1486,6 +1565,7 @@
+     nextP[5][7] = PS190*P[7][15] - PS193*P[7][13] + PS201*P[2][7] - PS202*P[0][7] + PS203*P[3][7] - PS204*P[1][7] + PS75*P[7][14] + P[5][7] + dt*(PS190*P[4][15] - PS193*P[4][13] + PS201*P[2][4] - PS202*P[0][4] + PS203*P[3][4] - PS204*P[1][4] + PS75*P[4][14] + P[4][5]);
+     nextP[6][7] = -PS197*P[7][14] + PS199*P[7][13] - PS214*P[2][7] + PS215*P[3][7] + PS216*P[0][7] + PS217*P[1][7] + PS87*P[7][15] + P[6][7] + dt*(-PS197*P[4][14] + PS199*P[4][13] - PS214*P[2][4] + PS215*P[3][4] + PS216*P[0][4] + PS217*P[1][4] + PS87*P[4][15] + P[4][6]);
+     nextP[7][7] = P[4][7]*dt + P[7][7] + dt*(P[4][4]*dt + P[4][7]);
++    apAutonomyCheckpoint();
+     nextP[0][8] = -PS11*P[1][8] - PS12*P[2][8] - PS13*P[3][8] + PS6*P[8][10] + PS7*P[8][11] + PS86*dt + PS9*P[8][12] + P[0][8];
+     nextP[1][8] = PS11*P[0][8] - PS12*P[3][8] + PS124*dt + PS13*P[2][8] - PS34*P[8][10] - PS7*P[8][12] + PS9*P[8][11] + P[1][8];
+     nextP[2][8] = PS11*P[3][8] + PS12*P[0][8] - PS13*P[1][8] + PS149*dt - PS34*P[8][11] + PS6*P[8][12] - PS9*P[8][10] + P[2][8];
+@@ -1495,6 +1575,7 @@
+     nextP[6][8] = -PS197*P[8][14] + PS199*P[8][13] - PS214*P[2][8] + PS215*P[3][8] + PS216*P[0][8] + PS217*P[1][8] + PS87*P[8][15] + P[6][8] + dt*(-PS197*P[5][14] + PS199*P[5][13] - PS214*P[2][5] + PS215*P[3][5] + PS216*P[0][5] + PS217*P[1][5] + PS87*P[5][15] + P[5][6]);
+     nextP[7][8] = P[4][8]*dt + P[7][8] + dt*(P[4][5]*dt + P[5][7]);
+     nextP[8][8] = P[5][8]*dt + P[8][8] + dt*(P[5][5]*dt + P[5][8]);
++    apAutonomyCheckpoint();
+     nextP[0][9] = -PS11*P[1][9] - PS12*P[2][9] - PS13*P[3][9] + PS6*P[9][10] + PS7*P[9][11] + PS9*P[9][12] + PS94*dt + P[0][9];
+     nextP[1][9] = PS11*P[0][9] - PS12*P[3][9] + PS125*dt + PS13*P[2][9] - PS34*P[9][10] - PS7*P[9][12] + PS9*P[9][11] + P[1][9];
+     nextP[2][9] = PS11*P[3][9] + PS12*P[0][9] - PS13*P[1][9] + PS150*dt - PS34*P[9][11] + PS6*P[9][12] - PS9*P[9][10] + P[2][9];
+@@ -1507,6 +1588,7 @@
+     nextP[9][9] = P[6][9]*dt + P[9][9] + dt*(P[6][6]*dt + P[6][9]);
+ 
+     if (stateIndexLim > 9) {
++        apAutonomyCheckpoint();
+         nextP[0][10] = PS14;
+         nextP[1][10] = PS105;
+         nextP[2][10] = PS133;
+@@ -1518,6 +1600,7 @@
+         nextP[8][10] = P[5][10]*dt + P[8][10];
+         nextP[9][10] = P[6][10]*dt + P[9][10];
+         nextP[10][10] = P[10][10];
++        apAutonomyCheckpoint();
+         nextP[0][11] = PS17;
+         nextP[1][11] = PS97;
+         nextP[2][11] = PS132;
+@@ -1530,6 +1613,7 @@
+         nextP[9][11] = P[6][11]*dt + P[9][11];
+         nextP[10][11] = P[10][11];
+         nextP[11][11] = P[11][11];
++        apAutonomyCheckpoint();
+         nextP[0][12] = PS20;
+         nextP[1][12] = PS107;
+         nextP[2][12] = PS127;
+@@ -1545,6 +1629,7 @@
+         nextP[12][12] = P[12][12];
+ 
+         if (stateIndexLim > 12) {
++            apAutonomyCheckpoint();
+             nextP[0][13] = PS44;
+             nextP[1][13] = PS113;
+             nextP[2][13] = PS138;
+@@ -1559,6 +1644,7 @@
+             nextP[11][13] = P[11][13];
+             nextP[12][13] = P[12][13];
+             nextP[13][13] = P[13][13];
++            apAutonomyCheckpoint();
+             nextP[0][14] = PS57;
+             nextP[1][14] = PS117;
+             nextP[2][14] = PS142;
+@@ -1574,6 +1660,7 @@
+             nextP[12][14] = P[12][14];
+             nextP[13][14] = P[13][14];
+             nextP[14][14] = P[14][14];
++            apAutonomyCheckpoint();
+             nextP[0][15] = PS46;
+             nextP[1][15] = PS114;
+             nextP[2][15] = PS139;
+@@ -1592,6 +1679,7 @@
+             nextP[15][15] = P[15][15];
+ 
+             if (stateIndexLim > 15) {
++                apAutonomyCheckpoint();
+                 nextP[0][16] = -PS11*P[1][16] - PS12*P[2][16] - PS13*P[3][16] + PS6*P[10][16] + PS7*P[11][16] + PS9*P[12][16] + P[0][16];
+                 nextP[1][16] = PS11*P[0][16] - PS12*P[3][16] + PS13*P[2][16] - PS34*P[10][16] - PS7*P[12][16] + PS9*P[11][16] + P[1][16];
+                 nextP[2][16] = PS11*P[3][16] + PS12*P[0][16] - PS13*P[1][16] - PS34*P[11][16] + PS6*P[12][16] - PS9*P[10][16] + P[2][16];
+@@ -1609,6 +1697,7 @@
+                 nextP[14][16] = P[14][16];
+                 nextP[15][16] = P[15][16];
+                 nextP[16][16] = P[16][16];
++                apAutonomyCheckpoint();
+                 nextP[0][17] = -PS11*P[1][17] - PS12*P[2][17] - PS13*P[3][17] + PS6*P[10][17] + PS7*P[11][17] + PS9*P[12][17] + P[0][17];
+                 nextP[1][17] = PS11*P[0][17] - PS12*P[3][17] + PS13*P[2][17] - PS34*P[10][17] - PS7*P[12][17] + PS9*P[11][17] + P[1][17];
+                 nextP[2][17] = PS11*P[3][17] + PS12*P[0][17] - PS13*P[1][17] - PS34*P[11][17] + PS6*P[12][17] - PS9*P[10][17] + P[2][17];
+@@ -1627,6 +1716,7 @@
+                 nextP[15][17] = P[15][17];
+                 nextP[16][17] = P[16][17];
+                 nextP[17][17] = P[17][17];
++                apAutonomyCheckpoint();
+                 nextP[0][18] = -PS11*P[1][18] - PS12*P[2][18] - PS13*P[3][18] + PS6*P[10][18] + PS7*P[11][18] + PS9*P[12][18] + P[0][18];
+                 nextP[1][18] = PS11*P[0][18] - PS12*P[3][18] + PS13*P[2][18] - PS34*P[10][18] - PS7*P[12][18] + PS9*P[11][18] + P[1][18];
+                 nextP[2][18] = PS11*P[3][18] + PS12*P[0][18] - PS13*P[1][18] - PS34*P[11][18] + PS6*P[12][18] - PS9*P[10][18] + P[2][18];
+@@ -1646,6 +1736,7 @@
+                 nextP[16][18] = P[16][18];
+                 nextP[17][18] = P[17][18];
+                 nextP[18][18] = P[18][18];
++                apAutonomyCheckpoint();
+                 nextP[0][19] = -PS11*P[1][19] - PS12*P[2][19] - PS13*P[3][19] + PS6*P[10][19] + PS7*P[11][19] + PS9*P[12][19] + P[0][19];
+                 nextP[1][19] = PS11*P[0][19] - PS12*P[3][19] + PS13*P[2][19] - PS34*P[10][19] - PS7*P[12][19] + PS9*P[11][19] + P[1][19];
+                 nextP[2][19] = PS11*P[3][19] + PS12*P[0][19] - PS13*P[1][19] - PS34*P[11][19] + PS6*P[12][19] - PS9*P[10][19] + P[2][19];
+@@ -1666,6 +1757,7 @@
+                 nextP[17][19] = P[17][19];
+                 nextP[18][19] = P[18][19];
+                 nextP[19][19] = P[19][19];
++                apAutonomyCheckpoint();
+                 nextP[0][20] = -PS11*P[1][20] - PS12*P[2][20] - PS13*P[3][20] + PS6*P[10][20] + PS7*P[11][20] + PS9*P[12][20] + P[0][20];
+                 nextP[1][20] = PS11*P[0][20] - PS12*P[3][20] + PS13*P[2][20] - PS34*P[10][20] - PS7*P[12][20] + PS9*P[11][20] + P[1][20];
+                 nextP[2][20] = PS11*P[3][20] + PS12*P[0][20] - PS13*P[1][20] - PS34*P[11][20] + PS6*P[12][20] - PS9*P[10][20] + P[2][20];
+@@ -1687,6 +1779,7 @@
+                 nextP[18][20] = P[18][20];
+                 nextP[19][20] = P[19][20];
+                 nextP[20][20] = P[20][20];
++                apAutonomyCheckpoint();
+                 nextP[0][21] = -PS11*P[1][21] - PS12*P[2][21] - PS13*P[3][21] + PS6*P[10][21] + PS7*P[11][21] + PS9*P[12][21] + P[0][21];
+                 nextP[1][21] = PS11*P[0][21] - PS12*P[3][21] + PS13*P[2][21] - PS34*P[10][21] - PS7*P[12][21] + PS9*P[11][21] + P[1][21];
+                 nextP[2][21] = PS11*P[3][21] + PS12*P[0][21] - PS13*P[1][21] - PS34*P[11][21] + PS6*P[12][21] - PS9*P[10][21] + P[2][21];
+@@ -1711,6 +1804,7 @@
+                 nextP[21][21] = P[21][21];
+ 
+                 if (stateIndexLim > 21) {
++                    apAutonomyCheckpoint();
+                     nextP[0][22] = -PS11*P[1][22] - PS12*P[2][22] - PS13*P[3][22] + PS6*P[10][22] + PS7*P[11][22] + PS9*P[12][22] + P[0][22];
+                     nextP[1][22] = PS11*P[0][22] - PS12*P[3][22] + PS13*P[2][22] - PS34*P[10][22] - PS7*P[12][22] + PS9*P[11][22] + P[1][22];
+                     nextP[2][22] = PS11*P[3][22] + PS12*P[0][22] - PS13*P[1][22] - PS34*P[11][22] + PS6*P[12][22] - PS9*P[10][22] + P[2][22];
+@@ -1734,6 +1828,7 @@
+                     nextP[20][22] = P[20][22];
+                     nextP[21][22] = P[21][22];
+                     nextP[22][22] = P[22][22];
++                    apAutonomyCheckpoint();
+                     nextP[0][23] = -PS11*P[1][23] - PS12*P[2][23] - PS13*P[3][23] + PS6*P[10][23] + PS7*P[11][23] + PS9*P[12][23] + P[0][23];
+                     nextP[1][23] = PS11*P[0][23] - PS12*P[3][23] + PS13*P[2][23] - PS34*P[10][23] - PS7*P[12][23] + PS9*P[11][23] + P[1][23];
+                     nextP[2][23] = PS11*P[3][23] + PS12*P[0][23] - PS13*P[1][23] - PS34*P[11][23] + PS6*P[12][23] - PS9*P[10][23] + P[2][23];
+@@ -1788,6 +1883,7 @@
+     // covariance matrix is symmetrical, so copy diagonals and copy lower half in nextP
+     // to lower and upper half in P
+     for (uint8_t row = 0; row <= stateIndexLim; row++) {
++        apAutonomyCheckpoint();
+         // copy diagonals
+         Pmut[row][row] = nextP[row][row];
+         // copy off diagonals
+@@ -1810,6 +1906,7 @@
+ 
+     // constrain values to prevent ill-conditioning
+     ConstrainVariances();
++    apAutonomyCheckpoint();
+ 
+     if (vertVelVarClipCounter > 0) {
+         vertVelVarClipCounter--;
+@@ -1828,11 +1925,13 @@
+     uint8_t row;
+     for (row=first; row<=last; row++)
+     {
++        apAutonomyCheckpoint();
+         zero_range(&Pmut[row][0], 0, 23);
+     }
+ 
+     for (row=0; row<=23; row++)
+     {
++        apAutonomyCheckpoint();
+         zero_range(&Pmut[row][0], first, last);
+     }
+ }
+@@ -1845,6 +1944,7 @@
+     outputDataNew.position = stateStruct.position;
+     // write current measurement to entire table
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i] = outputDataNew;
+     }
+     outputDataDelayed = outputDataNew;
+@@ -1859,6 +1959,7 @@
+     outputDataNew.quat = stateStruct.quat;
+     // write current measurement to entire table
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i].quat = outputDataNew.quat;
+     }
+     outputDataDelayed.quat = outputDataNew.quat;
+@@ -1870,6 +1971,7 @@
+     outputDataNew.quat = outputDataNew.quat*deltaQuat;
+     // write current measurement to entire table
+     for (uint8_t i=0; i<imu_buffer_length; i++) {
++        apAutonomyCheckpoint();
+         storedOutput[i].quat = storedOutput[i].quat*deltaQuat;
+     }
+     outputDataDelayed.quat = outputDataDelayed.quat*deltaQuat;
+@@ -2015,6 +2117,7 @@
+ 
+     // update the covariance matrix as P = P - KHP (KHP was filled by caller)
+     for (auto r=0; r<=stateIndexLim; r++) {
++        apAutonomyCheckpoint();
+         for (auto c=0; c<=r; c++) {
+             // P must end up symmetric, so average the upper and lower
+             // differences, then store that result in both positions. it would
+@@ -2119,6 +2222,7 @@
+ 
+     // read the magnetometer data
+     readMagData();
++    apAutonomyCheckpoint();
+ 
+     // use best of either 312 or 321 rotation sequence when calculating yaw
+     rotationOrder order;
+@@ -2185,6 +2289,7 @@
+     // equations generated by quaternion_error_propagation(): in derivation/generate_2.py
+     // only diagonals have been used
+     const ftype PS0 = q0*q1 + q2*q3;
++    apAutonomyCheckpoint();
+     const ftype PS1 = PS0*q1;
+     const ftype PS2 = sq(q0) - sq(q1) - sq(q2) + sq(q3);
+     const ftype PS3 = PS2*q0;
+@@ -2291,6 +2396,7 @@
+     outputDataDelayed.position.xy() += diffNE;
+ 
+     for (unsigned index=0; index < imu_buffer_length; index++) {
++        apAutonomyCheckpoint();
+         storedOutput[index].position.xy() += diffNE;
+     }
+ }
+--- a/libraries/AP_NavEKF/EKFGSF_yaw.cpp
++++ b/libraries/AP_NavEKF/EKFGSF_yaw.cpp
+@@ -93,6 +93,7 @@
+ 
+     // Always run the AHRS prediction cycle for each model
+     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++        apAutonomyCheckpoint();
+         predict(mdl_idx);
+     }
+ 
+@@ -105,6 +106,7 @@
+     // equal to the weighting value before it is summed.
+     Vector2F yaw_vector;
+     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++        apAutonomyCheckpoint();
+         yaw_vector[0] += GSF.weights[mdl_idx] * cosF(EKF[mdl_idx].X[2]);
+         yaw_vector[1] += GSF.weights[mdl_idx] * sinF(EKF[mdl_idx].X[2]);
+     }
+@@ -128,6 +130,7 @@
+ 
+     GSF.yaw_variance = 0.0f;
+     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++        apAutonomyCheckpoint();
+         ftype yawDelta = wrap_PI(EKF[mdl_idx].X[2] - GSF.yaw);
+         GSF.yaw_variance +=  GSF.weights[mdl_idx] * (EKF[mdl_idx].P[2][2] + sq(yawDelta));
+     }
+@@ -144,6 +147,7 @@
+             // Perform in-flight alignment
+             resetEKFGSF();
+             for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++                apAutonomyCheckpoint();
+                 // Use the firstGPS  measurement to set the velocities and corresponding variances
+                 EKF[mdl_idx].X[0] = vel[0];
+                 EKF[mdl_idx].X[1] = vel[1];
+@@ -157,6 +161,7 @@
+             ftype newWeight[(uint8_t)N_MODELS_EKFGSF];
+             bool state_update_failed = false;
+             for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++                apAutonomyCheckpoint();
+                 // Update states and covariances using GPS NE velocity measurements fused as direct state observations
+                 if (!correct(mdl_idx, vel, velObsVar)) {
+                     state_update_failed = true;
+@@ -168,6 +173,7 @@
+                 const ftype min_weight = 1e-5f;
+                 n_clips = 0;
+                 for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++                    apAutonomyCheckpoint();
+                     newWeight[mdl_idx] = gaussianDensity(mdl_idx) * GSF.weights[mdl_idx];
+                     if (newWeight[mdl_idx] < min_weight) {
+                         n_clips++;
+@@ -181,6 +187,7 @@
+                 if (vel_fuse_running && n_clips < N_MODELS_EKFGSF) {
+                     ftype total_w_inv = 1.0f / total_w;
+                     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++                        apAutonomyCheckpoint();
+                         GSF.weights[mdl_idx]  = newWeight[mdl_idx] * total_w_inv;
+                     }
+                 } else {
+@@ -282,6 +289,7 @@
+ 
+     // record alignment
+     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++        apAutonomyCheckpoint();
+         AHRS[mdl_idx].R = R;
+         AHRS[mdl_idx].aligned = true;
+     }
+@@ -291,6 +299,7 @@
+ {
+     // Align yaw angle for each model
+     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++        apAutonomyCheckpoint();
+         if (fabsF(AHRS[mdl_idx].R[2][0]) < fabsF(AHRS[mdl_idx].R[2][1])) {
+             // get the roll, pitch, yaw estimates from the rotation matrix using a  321 Tait-Bryan rotation sequence
+             ftype roll,pitch,yaw;
+@@ -319,6 +328,7 @@
+ {
+     // generate an attitude reference using IMU data
+     predictAHRS(mdl_idx);
++    apAutonomyCheckpoint();
+ 
+     // we don't start running the EKF part of the algorithm until there are regular velocity observations
+     if (!vel_fuse_running) {
+@@ -409,6 +419,7 @@
+     const ftype P11 = EKF[mdl_idx].P[1][1];
+     const ftype P12 = EKF[mdl_idx].P[1][2];
+     const ftype P20 = EKF[mdl_idx].P[2][0];
++    apAutonomyCheckpoint();
+     const ftype P21 = EKF[mdl_idx].P[2][1];
+     const ftype P22 = EKF[mdl_idx].P[2][2];
+ 
+@@ -445,6 +456,7 @@
+     // autocode from https://github.com/priseborough/3_state_filter/blob/flightLogReplay-wip/calcK.txt
+     // and https://github.com/priseborough/3_state_filter/blob/flightLogReplay-wip/calcPmat.txt
+     const ftype t2 = P00*velObsVar;
++    apAutonomyCheckpoint();
+     const ftype t3 = P11*velObsVar;
+     const ftype t4 = velObsVar*velObsVar;
+     const ftype t5 = P00*P11;
+@@ -477,6 +489,7 @@
+     const ftype t17 = t8*t12;
+     const ftype t18 = P01*t14;
+     const ftype t19 = t17+t18;
++    apAutonomyCheckpoint();
+     const ftype t20 = t10*t14;
+     const ftype t21 = P10*t12;
+     const ftype t22 = t20+t21;
+@@ -493,6 +506,7 @@
+     const ftype t33 = t31+t32;
+     const ftype t34 = P01*P20*t7;
+     const ftype t38 = P21*t7*t10;
++    apAutonomyCheckpoint();
+     const ftype t35 = t34-t38;
+     const ftype t36 = P10*P21*t7;
+     const ftype t39 = P20*t7*t8;
+@@ -521,8 +535,10 @@
+     // Apply state corrections and capture change in yaw angle
+     const ftype yaw_prev = EKF[mdl_idx].X[2];
+     for (uint8_t obs_index = 0; obs_index < 2; obs_index++) {
++        apAutonomyCheckpoint();
+         // apply the state corrections including the compression scale factor
+         for (unsigned row = 0; row < 3; row++) {
++            apAutonomyCheckpoint();
+             EKF[mdl_idx].X[row] -= K[row][obs_index] * EKF[mdl_idx].innov[obs_index] * innov_comp_scale_factor;
+         }
+     }
+@@ -552,6 +568,7 @@
+     memset(&EKF, 0, sizeof(EKF));
+     const ftype yaw_increment = M_2PI / (ftype)N_MODELS_EKFGSF;
+     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++        apAutonomyCheckpoint();
+         // evenly space initial yaw estimates in the region between +-Pi
+         EKF[mdl_idx].X[2] = -M_PI + (0.5f * yaw_increment) + ((ftype)mdl_idx * yaw_increment);
+ 
+@@ -620,6 +637,7 @@
+     // Renormalise rows
+     ftype rowLengthSq;
+     for (uint8_t r = 0; r < 3; r++) {
++        apAutonomyCheckpoint();
+         rowLengthSq = ret[r][0] * ret[r][0] + ret[r][1] * ret[r][1] + ret[r][2] * ret[r][2];
+         if (is_positive(rowLengthSq)) {
+             // Use linear approximation for inverse sqrt taking advantage of the row length being close to 1.0
+@@ -655,6 +673,7 @@
+     }
+     velInnovLength = 0.0f;
+     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++        apAutonomyCheckpoint();
+         velInnovLength += GSF.weights[mdl_idx] * sqrtF((sq(EKF[mdl_idx].innov[0]) + sq(EKF[mdl_idx].innov[1])));
+     }
+     return true;
+@@ -663,6 +682,7 @@
+ void EKFGSF_yaw::setGyroBias(Vector3f &gyroBias)
+ {
+     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
++        apAutonomyCheckpoint();
+         AHRS[mdl_idx].gyro_bias = gyroBias.toftype();
+     }
+ }
+--- a/libraries/AC_AttitudeControl/AC_AttitudeControl.cpp
++++ b/libraries/AC_AttitudeControl/AC_AttitudeControl.cpp
+@@ -897,6 +897,7 @@
+ 
+     // Convert thrust vector and heading into a desired attitude quaternion.
+     const Quaternion desired_attitude_quat = attitude_from_thrust_vector(thrust_vector, heading_angle_rad);
++    apAutonomyCheckpoint();
+ 
+     if (_rate_bf_ff_enabled) {
+         // Compute attitude error required to move from the current target attitude to the desired attitude.
+@@ -905,6 +906,7 @@
+         Quaternion thrust_vec_correction_quat;
+         float returned_thrust_vector_angle;
+         thrust_vector_rotation_angles(desired_attitude_quat, _attitude_target, thrust_vec_correction_quat, attitude_error, returned_thrust_vector_angle, thrust_vector_diff_angle);
++        apAutonomyCheckpoint();
+ 
+         // Shape attitude error and heading rate into body-frame angular velocity/acceleration targets,
+         // applying configured rate/acceleration limits and time constants (roll/pitch use _input_tc, yaw uses _rate_y_tc).
+@@ -920,9 +922,11 @@
+         _ang_vel_target_rads.zero();
+         _ang_accel_target_rads.zero();
+     }
++    apAutonomyCheckpoint();
+ 
+     // Convert body-frame angular velocity into euler angle derivative of desired attitude
+     body_to_euler_derivative(_attitude_target, _ang_vel_target_rads, _euler_rate_target_rads);
++    apAutonomyCheckpoint();
+ 
+     // Call quaternion attitude controller
+     attitude_controller_run_quat();
+@@ -995,6 +999,7 @@
+     // This vector represents the angular error to rotate the thrust vector using x and y and heading using z
+     Vector3f attitude_error;
+     thrust_heading_rotation_angles(_attitude_target, attitude_body, attitude_error, _thrust_angle_rad, _thrust_error_angle_rad);
++    apAutonomyCheckpoint();
+ 
+     // Compute the angular velocity corrections in the body frame from the attitude error
+     Vector3f ang_vel_body_rads = update_ang_vel_target_from_att_error(attitude_error);
+--- a/libraries/AC_AttitudeControl/AC_PosControl.cpp
++++ b/libraries/AC_AttitudeControl/AC_PosControl.cpp
+@@ -716,6 +716,7 @@
+ 
+     // Update lateral position, velocity, and acceleration offsets using path shaping
+     NE_update_offsets();
++    apAutonomyCheckpoint();
+ 
+     // Position Controller
+ 
+@@ -748,6 +749,7 @@
+ 
+     // Run velocity PID controller and scale result for control authority
+     Vector2f accel_target_ne_mss = _pid_vel_ne_m.update_all(_vel_target_ned_ms.xy(), comb_vel_ne_ms, _dt_s, _limit_vector_ned.xy());
++    apAutonomyCheckpoint();
+ 
+     // Acceleration Controller
+     
+@@ -1094,6 +1096,7 @@
+     // Update vertical offset targets and terrain estimate
+     D_update_offsets();
+     update_terrain();
++    apAutonomyCheckpoint();
+ 
+     // Position Controller
+ 
+@@ -1138,6 +1141,7 @@
+         thrust_d_norm += _pid_accel_d_m.get_ff();
+     }
+     thrust_d_norm -= _motors.get_throttle_hover();
++    apAutonomyCheckpoint();
+ 
+     // Actuator commands
+ 

@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Extract the dependency closure of DF_Sim's tested AP estimator/controller."""
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import shlex
+import subprocess
+import tempfile
+
+
+FORK = Path(__file__).resolve().parents[3]
+DESTINATION = FORK / "lib/main/ardupilot"
+
+
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def git(repository, *args):
+    return subprocess.check_output(["git", "-C", str(repository), *args])
+
+
+def dependency_files(dependency, directory):
+    # Only the first rule contains prerequisites; -MP adds empty rules after it.
+    rule = dependency.read_text().replace("\\\n", " ").splitlines()[0]
+    return [(directory / name).resolve() for name in shlex.split(rule.split(":", 1)[1])]
+
+
+def collect(source_root, extra_files):
+    upstream = source_root / "ardupilot"
+    generated = source_root / "autopilot/ekf/build/generated"
+    files = {}
+    sources = set()
+    for component in ("ekf", "control"):
+        directory = source_root / "autopilot" / component
+        names = subprocess.check_output([
+            "make", "-s", "--no-print-directory",
+            "--eval", "vendor-sources:;@echo $(AP_SOURCES)", "vendor-sources",
+        ], cwd=directory, text=True)
+        dependencies = []
+        for name in shlex.split(names):
+            relative = (directory / name).resolve().relative_to(upstream / "libraries")
+            sources.add(relative.as_posix())
+            dependencies.append(directory / "build/upstream" / relative.with_suffix(".d"))
+        dependencies += [directory / "build" / f"{name}.d"
+                         for name in ("platform", f"ap_{component}")]
+        for dependency in dependencies:
+            if not dependency.is_file():
+                raise SystemExit(f"Missing {dependency}; build autopilot/{component} first")
+            for path in dependency_files(dependency, directory):
+                if path.is_relative_to(upstream / "libraries"):
+                    files[path.relative_to(upstream).as_posix()] = path
+                elif path.is_relative_to(generated):
+                    files[(Path("generated") / path.relative_to(generated)).as_posix()] = path
+    for name in extra_files:
+        path = (upstream / name).resolve()
+        if not path.is_relative_to(upstream / "libraries") or not path.is_file():
+            raise SystemExit(f"Extra file must exist beneath ardupilot/libraries: {name}")
+        files[path.relative_to(upstream).as_posix()] = path
+        if path.suffix == ".cpp":
+            sources.add(path.relative_to(upstream / "libraries").as_posix())
+    files["COPYING.txt"] = upstream / "COPYING.txt"
+    files["MAVLINK_COPYING.txt"] = upstream / "modules/mavlink/COPYING"
+    files["PYMAVLINK_COPYING.txt"] = upstream / "modules/mavlink/pymavlink/COPYING"
+    return files, sorted(sources)
+
+
+def verify():
+    manifest = json.loads((DESTINATION / "manifest.json").read_text())
+    failures = []
+    for name, record in manifest["files"].items():
+        path = DESTINATION / name
+        if not path.is_file() or sha256(path.read_bytes()) != record["sha256"]:
+            failures.append(name)
+    if failures:
+        raise SystemExit("Vendored files differ from manifest: " + ", ".join(failures))
+    print(f"Verified {len(manifest['files'])} vendored files")
+
+
+def extract(source_root, extra_files):
+    upstream = source_root / "ardupilot"
+    files, sources = collect(source_root, extra_files)
+    contents = {name: path.read_bytes() for name, path in files.items()}
+    # Keep integration-only scheduling changes reproducible when refreshing the
+    # upstream snapshot. Refuse a changed context instead of silently losing them.
+    integration_patches = [DESTINATION / name for name in
+                           ("embedded-checkpoints.patch", "indoor-terrain.patch")
+                           if (DESTINATION / name).exists()]
+    if integration_patches:
+        with tempfile.TemporaryDirectory(prefix="ap-vendor-") as temporary:
+            checkout = Path(temporary)
+            for name, data in contents.items():
+                path = checkout / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            for integration_patch in integration_patches:
+                subprocess.run(["patch", "--batch", "--fuzz=0", "-p1", "-i",
+                                str(integration_patch)], cwd=checkout, check=True)
+            contents = {name: (checkout / name).read_bytes() for name in contents}
+        for integration_patch in integration_patches:
+            contents[integration_patch.name] = integration_patch.read_bytes()
+    local_diff = git(upstream, "diff", "HEAD", "--", *[
+        name for name in files if name.startswith("libraries/")])
+    contents["local-changes.patch"] = local_diff
+    contents["sources.mk"] = (
+        "# Generated by lib/main/ardupilot/vendor.py; common translation units occur once.\n"
+        "AP_VENDOR_SOURCES := $(addprefix $(AP_VENDOR_ROOT)/libraries/, \\\n"
+        + " \\\n".join("    " + name for name in sources) + ")\n"
+    ).encode()
+
+    # Refresh only files owned by a previous extraction, preserving manual work.
+    previous_path = DESTINATION / "manifest.json"
+    previous = json.loads(previous_path.read_text())["files"] if previous_path.exists() else {}
+    for name, data in contents.items():
+        path = DESTINATION / name
+        if path.exists() and path.read_bytes() != data:
+            if name not in previous or sha256(path.read_bytes()) != previous[name]["sha256"]:
+                raise SystemExit(f"Refusing to overwrite locally edited vendor file: {path}")
+    for name in previous.keys() - contents.keys():
+        path = DESTINATION / name
+        if path.exists() and sha256(path.read_bytes()) != previous[name]["sha256"]:
+            raise SystemExit(f"Refusing to remove locally edited vendor file: {path}")
+
+    manifest = {
+        "schema": 1,
+        "upstream": {
+            "url": "https://github.com/ArduPilot/ardupilot.git",
+            "commit": git(upstream, "rev-parse", "HEAD").decode().strip(),
+            "local_changes": "local-changes.patch",
+        },
+        "mavlink_commit": git(upstream / "modules/mavlink", "rev-parse", "HEAD").decode().strip(),
+        "pymavlink_commit": git(upstream / "modules/mavlink/pymavlink", "rev-parse", "HEAD").decode().strip(),
+        "selection": "Current autopilot/{ekf,control}/Makefile AP_SOURCES and their compiler .d prerequisites",
+        "integration_patches": [patch.name for patch in integration_patches],
+        "extra_files": sorted(extra_files),
+        "sources": sources,
+        "files": {name: {"sha256": sha256(data), "bytes": len(data)}
+                  for name, data in sorted(contents.items())},
+    }
+    for name, data in contents.items():
+        path = DESTINATION / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    for name in previous.keys() - contents.keys():
+        (DESTINATION / name).unlink(missing_ok=True)
+    previous_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"Extracted {len(sources)} translation units, {len(contents)} files, "
+          f"{sum(map(len, contents.values()))} bytes into {DESTINATION}")
+    verify()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-root", type=Path, default=FORK.parent)
+    parser.add_argument("--extra-file", action="append",
+                        help="Additional ardupilot-relative library dependency for an embedded configuration")
+    parser.add_argument("--verify", action="store_true", help="Verify the snapshot without the source checkout")
+    args = parser.parse_args()
+    if args.verify:
+        verify()
+    else:
+        extra_files = args.extra_file
+        if extra_files is None:
+            manifest = DESTINATION / "manifest.json"
+            extra_files = json.loads(manifest.read_text()).get("extra_files", []) if manifest.exists() else []
+        extract(args.source_root.resolve(), extra_files)
+
+
+if __name__ == "__main__":
+    main()

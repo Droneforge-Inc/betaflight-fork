@@ -1,0 +1,132 @@
+diff --git a/libraries/AP_NavEKF3/AP_NavEKF3.cpp b/libraries/AP_NavEKF3/AP_NavEKF3.cpp
+index f3333d308a..df13efaab6 100644
+--- a/libraries/AP_NavEKF3/AP_NavEKF3.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3.cpp
+@@ -1298,6 +1298,11 @@ float NavEKF3::getPosDownDerivative() const
+     return 0.0f;
+ }
+ 
++bool NavEKF3::getHeightInnovation(float &innovation, float &test_ratio, uint32_t &acceptance_age_ms) const
++{
++    return core && core[primary].getHeightInnovation(innovation, test_ratio, acceptance_age_ms);
++}
++
+ // return body axis gyro bias estimates in rad/sec
+ void NavEKF3::getGyroBias(int8_t instance, Vector3f &gyroBias) const
+ {
+diff --git a/libraries/AP_NavEKF3/AP_NavEKF3.h b/libraries/AP_NavEKF3/AP_NavEKF3.h
+index 70c4d80698..8e8781bf83 100644
+--- a/libraries/AP_NavEKF3/AP_NavEKF3.h
++++ b/libraries/AP_NavEKF3/AP_NavEKF3.h
+@@ -92,6 +92,10 @@ public:
+     // but will always be kinematically consistent with the z component of the EKF position state
+     float getPosDownDerivative() const;
+ 
++    // Height innovation (down, m), squared gate ratio (>1 rejects), and age
++    // of the last statistical acceptance or height reset. False before either.
++    bool getHeightInnovation(float &innovation, float &test_ratio, uint32_t &acceptance_age_ms) const;
++
+     // return body axis gyro bias estimates in rad/sec for the specified instance
+     // An out of range instance (eg -1) returns data for the primary instance
+     void getGyroBias(int8_t instance, Vector3f &gyroBias) const;
+diff --git a/libraries/AP_NavEKF3/AP_NavEKF3_MagFusion.cpp b/libraries/AP_NavEKF3/AP_NavEKF3_MagFusion.cpp
+index 8a8f35e517..9a007a5ef1 100644
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_MagFusion.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_MagFusion.cpp
+@@ -316,6 +316,15 @@ void NavEKF3_core::alignYawAngle(const yaw_elements &yawAngData)
+     // update quaternion states and covariances
+     resetQuatStateYawOnly(yawAngData.yawAng, sq(MAX(yawAngData.yawAngErr, 1.0e-2)), yawAngData.order);
+ 
++#if EK3_FEATURE_LOCAL_YAW_BOOTSTRAP
++    if (yaw_source_last == AP_NavEKF_Source::SourceYaw::EXTNAV) {
++        // A local bootstrap can arrive while already stationary. Without this
++        // seed, switching to NONE would pull yaw toward an old static heading.
++        yawAngDataStatic = yawAngData;
++        yawAngDataStatic.yawAngErr = MAX(frontend->_yawNoise, 0.05f);
++    }
++#endif
++
+     // send yaw alignment information to console
+     GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u yaw aligned",(unsigned)imu_index);
+ }
+diff --git a/libraries/AP_NavEKF3/AP_NavEKF3_Measurements.cpp b/libraries/AP_NavEKF3/AP_NavEKF3_Measurements.cpp
+index 3eb33b4b85..5338631196 100644
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_Measurements.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_Measurements.cpp
+@@ -230,8 +230,14 @@ void NavEKF3_core::writeOptFlowMeas(const uint8_t rawFlowQuality, const Vector2f
+         ofDataNew.flowRadXYcomp.y = ofDataNew.flowRadXY.y + ofDataNew.bodyRadXYZ.y;
+         // record time last observation was received so we can detect loss of data elsewhere
+         flowValidMeaTime_ms = imuSampleTime_ms;
++        // Timestamped integrations supply the midpoint of the sensor averaging
++        // window; this already accounts for sensor averaging and transport delay.
++#if EK3_FEATURE_OPTFLOW_SAMPLE_TIMESTAMP
++        ofDataNew.time_ms = msecFlowMeas;
++#else
+         // estimate sample time of the measurement
+         ofDataNew.time_ms = imuSampleTime_ms - frontend->_flowDelay_ms - frontend->flowTimeDeltaAvg_ms/2;
++#endif
+         // Correct for the average intersampling delay due to the filter updaterate
+         ofDataNew.time_ms -= localFilterTimeStep_ms/2;
+         // Prevent time delay exceeding age of oldest IMU data in the buffer
+diff --git a/libraries/AP_NavEKF3/AP_NavEKF3_Outputs.cpp b/libraries/AP_NavEKF3/AP_NavEKF3_Outputs.cpp
+index 925499ed94..b5df6fd810 100644
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_Outputs.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_Outputs.cpp
+@@ -222,6 +222,14 @@ float NavEKF3_core::getPosDownDerivative(void) const
+     return vertCompFiltState.vel + velOffsetNED.z;
+ }
+ 
++bool NavEKF3_core::getHeightInnovation(float &innovation, float &test_ratio, uint32_t &acceptance_age_ms) const
++{
++    innovation = innovVelPos[5];
++    test_ratio = hgtTestRatio;
++    acceptance_age_ms = lastHgtPassTime_ms ? imuSampleTime_ms - lastHgtPassTime_ms : UINT32_MAX;
++    return statesInitialised && lastHgtPassTime_ms != 0;
++}
++
+ // Write the last estimated NE position of the body frame origin relative to the reference point (m).
+ // Return true if the estimate is valid
+ bool NavEKF3_core::getPosNE(Vector2p &posNE) const
+diff --git a/libraries/AP_NavEKF3/AP_NavEKF3_core.h b/libraries/AP_NavEKF3/AP_NavEKF3_core.h
+index 018e187226..bd5d6f9c59 100644
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_core.h
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_core.h
+@@ -177,6 +177,8 @@ public:
+     // but will always be kinematically consistent with the z component of the EKF position state
+     float getPosDownDerivative(void) const;
+ 
++    bool getHeightInnovation(float &innovation, float &test_ratio, uint32_t &acceptance_age_ms) const;
++
+     // return body axis gyro bias estimates in rad/sec
+     void getGyroBias(Vector3f &gyroBias) const;
+ 
+diff --git a/libraries/AP_NavEKF3/AP_NavEKF3_feature.h b/libraries/AP_NavEKF3/AP_NavEKF3_feature.h
+index 11833c8987..4301fe32cd 100644
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_feature.h
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_feature.h
+@@ -4,6 +4,12 @@
+ 
+ #pragma once
+ 
++// Preserve a one-shot local heading as the initial static-yaw reference when
++// the host subsequently selects no yaw sensor. Normal vehicle builds opt out.
++#ifndef EK3_FEATURE_LOCAL_YAW_BOOTSTRAP
++#define EK3_FEATURE_LOCAL_YAW_BOOTSTRAP 0
++#endif
++
+ #include <AP_Vehicle/AP_Vehicle_Type.h>
+ #include <AP_HAL/AP_HAL_Boards.h>
+ #include <AP_Beacon/AP_Beacon_config.h>
+@@ -48,6 +54,12 @@
+ #define EK3_FEATURE_OPTFLOW_FUSION HAL_NAVEKF3_AVAILABLE && AP_OPTICALFLOW_ENABLED
+ #endif
+ 
++// Use the supplied optical-flow acquisition-window midpoint when the caller
++// provides sensor timestamps rather than the legacy receipt-time estimate.
++#ifndef EK3_FEATURE_OPTFLOW_SAMPLE_TIMESTAMP
++#define EK3_FEATURE_OPTFLOW_SAMPLE_TIMESTAMP 0
++#endif
++
+ // Optical flow using SRTM terrain data
+ #ifndef EK3_FEATURE_OPTFLOW_SRTM
+ #define EK3_FEATURE_OPTFLOW_SRTM EK3_FEATURE_OPTFLOW_FUSION

@@ -1,0 +1,780 @@
+--- a/libraries/AP_NavEKF3/AP_NavEKF3.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3.cpp
+@@ -1296,6 +1296,24 @@
+ }
+ 
+ // Return the rate of change of vertical position in the down direction (dPosD/dt) in m/s
++#if EK3_FEATURE_DF_DIAGNOSTICS
++void NavEKF3::setVerticalDiagnosticsEnabled(bool enabled)
++{
++    if (verticalDiagnosticsEnabled == enabled) {
++        return;
++    }
++    verticalDiagnosticsEnabled = enabled;
++    for (uint8_t i = 0; i < num_cores; ++i) {
++        core[i].resetVerticalDiagnostics();
++    }
++}
++
++const NavEKF3_vertical_diagnostics *NavEKF3::getVerticalDiagnostics() const
++{
++    return core && primary >= 0 ? core[primary].getVerticalDiagnostics() : nullptr;
++}
++#endif
++
+ float NavEKF3::getPosDownDerivative() const
+ {
+     // return the value calculated from a complementary filter applied to the EKF height and vertical acceleration
+@@ -1309,6 +1327,17 @@
+ {
+     return core && core[primary].getHeightInnovation(innovation, test_ratio, acceptance_age_ms);
+ }
++
++#if EK3_FEATURE_DF_TERRAIN
++void NavEKF3::getTerrainPolicy(float &offset_down_m, ap_terrain_result_t &policy) const
++{
++    offset_down_m = 0;
++    policy = {};
++    if (core) {
++        core[primary].getTerrainPolicy(offset_down_m, policy);
++    }
++}
++#endif
+ 
+ // return body axis gyro bias estimates in rad/sec
+ void NavEKF3::getGyroBias(int8_t instance, Vector3f &gyroBias) const
+--- a/libraries/AP_NavEKF3/AP_NavEKF3.h
++++ b/libraries/AP_NavEKF3/AP_NavEKF3.h
+@@ -18,6 +18,8 @@
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  */
+ #pragma once
++
++#include "AP_NavEKF3_feature.h"
+ 
+ #include <AP_Common/Location.h>
+ #include <AP_Math/AP_Math.h>
+@@ -25,8 +27,45 @@
+ #include <AP_NavEKF/AP_Nav_Common.h>
+ #include <AP_NavEKF/AP_NavEKF_Source.h>
+ 
++#if EK3_FEATURE_DF_DIAGNOSTICS
++// The height event is retained; observer fields and low status bits are per update.
++enum {
++    EKF3_DIAG_ENABLED = 1u << 0,
++    EKF3_DIAG_CORE_UPDATED = 1u << 1,
++    EKF3_DIAG_HEIGHT_ATTEMPT = 1u << 2,
++    EKF3_DIAG_HEIGHT_FUSED = 1u << 3,
++    EKF3_DIAG_HEIGHT_EVENT = 1u << 4,
++    EKF3_DIAG_BAD_IMU = 1u << 5,
++    EKF3_DIAG_BIAS_INHIBITED = 1u << 6,
++    EKF3_DIAG_BIAS_Z_INHIBITED = 1u << 7,
++    EKF3_DIAG_TERRAIN = 1u << 8,
++    EKF3_DIAG_PREDICTED = 1u << 9,
++    EKF3_DIAG_HEIGHT_SAMPLE = 1u << 10,
++    EKF3_DIAG_HEIGHT_RANGE = 1u << 11,
++    EKF3_DIAG_EVENT_BAD_IMU = 1u << 16,
++    EKF3_DIAG_EVENT_BIAS_INHIBITED = 1u << 17,
++    EKF3_DIAG_EVENT_BIAS_Z_INHIBITED = 1u << 18,
++    EKF3_DIAG_EVENT_TERRAIN = 1u << 19,
++};
++
++struct NavEKF3_vertical_diagnostics {
++    uint32_t fusion_time_ms;
++    uint32_t height_sample_time_ms;
++    uint32_t height_fusion_sequence;
++    uint32_t flags;
++    float height_observation_down_m;
++    float height_variance_m2;
++    float output_position_delta_down_m;
++    float output_velocity_delta_down_mps;
++    float output_delta_velocity_down_mps;
++    float complementary_accel_correction_mps2;
++};
++#endif
++
+ class NavEKF3_core;
+ class EKFGSF_yaw;
++
++struct ap_terrain_result_t;
+ 
+ class NavEKF3 {
+     friend class NavEKF3_core;
+@@ -95,6 +134,14 @@
+     // Height innovation (down, m), squared gate ratio (>1 rejects), and age
+     // of the last statistical acceptance or height reset. False before either.
+     bool getHeightInnovation(float &innovation, float &test_ratio, uint32_t &acceptance_age_ms) const;
++#if EK3_FEATURE_DF_TERRAIN
++    void getTerrainPolicy(float &offset_down_m, ap_terrain_result_t &policy) const;
++#endif
++
++#if EK3_FEATURE_DF_DIAGNOSTICS
++    void setVerticalDiagnosticsEnabled(bool enabled);
++    const NavEKF3_vertical_diagnostics *getVerticalDiagnostics() const;
++#endif
+ 
+     // return body axis gyro bias estimates in rad/sec for the specified instance
+     // An out of range instance (eg -1) returns data for the primary instance
+@@ -385,6 +432,9 @@
+     bool InitialiseFilterBootstrap();
+ 
+ private:
++#if EK3_FEATURE_DF_DIAGNOSTICS
++    bool verticalDiagnosticsEnabled{};
++#endif
+     class AP_DAL &dal;
+ 
+     uint8_t num_cores; // number of allocated cores
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_Control.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_Control.cpp
+@@ -662,7 +662,7 @@
+     if (last_mag_yaw_fuse_ms != 0 && imuSampleTime_ms - last_mag_yaw_fuse_ms < 5000) {
+         return true;
+     }
+-#if EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_YAW
+     if (last_extnav_yaw_fuse_ms != 0 && imuSampleTime_ms - last_extnav_yaw_fuse_ms < 5000) {
+         return true;
+     }
+@@ -673,7 +673,7 @@
+ // are we using (aka fusing) a non-compass yaw?
+ bool NavEKF3_core::using_noncompass_for_yaw(void) const
+ {
+-#if EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_YAW
+     if (yaw_source_last == AP_NavEKF_Source::SourceYaw::EXTNAV) {
+         return ((imuSampleTime_ms - last_extnav_yaw_fusion_ms < 5000) || (imuSampleTime_ms - lastSynthYawTime_ms < 5000));
+     }
+@@ -688,7 +688,7 @@
+ // are we using (aka fusing) external nav for yaw?
+ bool NavEKF3_core::using_extnav_for_yaw() const
+ {
+-#if EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_YAW
+     if (yaw_source_last == AP_NavEKF_Source::SourceYaw::EXTNAV) {
+         return ((imuSampleTime_ms - last_extnav_yaw_fusion_ms < 5000) || (imuSampleTime_ms - lastSynthYawTime_ms < 5000));
+     }
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_MagFusion.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_MagFusion.cpp
+@@ -486,7 +486,7 @@
+         // fall through to magnetometer fusion
+     }
+ 
+-#if EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_YAW
+     // Handle case where we are using an external nav for yaw
+     const bool extNavYawDataToFuse = storedExtNavYawAng.recall(extNavYawAngDataDelayed, imuDataDelayed.time_ms);
+     if (yaw_source_last == AP_NavEKF_Source::SourceYaw::EXTNAV) {
+@@ -517,7 +517,7 @@
+             }
+         }
+     }
+-#endif // EK3_FEATURE_EXTERNAL_NAV
++#endif // EK3_FEATURE_EXTERNAL_YAW
+ 
+     // If we are using the compass and the magnetometer has been unhealthy for too long we declare a timeout
+     if (magHealth) {
+@@ -1003,7 +1003,7 @@
+         R_YAW = sq(frontend->_yawNoise);
+         break;
+ 
+-#if EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_YAW
+     case yawFusionMethod::EXTNAV:
+         R_YAW = sq(MAX(extNavYawAngDataDelayed.yawAngErr, 0.05f));
+         break;
+@@ -1029,7 +1029,7 @@
+         order = (fabsF(prevTnb[0][2]) < fabsF(prevTnb[1][2])) ? rotationOrder::TAIT_BRYAN_321 : rotationOrder::TAIT_BRYAN_312;
+         break;
+ 
+-#if EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_YAW
+     case yawFusionMethod::EXTNAV:
+         order = extNavYawAngDataDelayed.order;
+         break;
+@@ -1192,7 +1192,7 @@
+         innovYaw = 0.0f;
+         break;
+ 
+-#if EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_YAW
+     case yawFusionMethod::EXTNAV:
+         innovYaw = wrap_PI(yawAngPredicted - extNavYawAngDataDelayed.yawAng);
+         break;
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_Measurements.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_Measurements.cpp
+@@ -1097,7 +1097,7 @@
+ 
+ void NavEKF3_core::writeExtNavData(const Vector3f &pos, const Quaternion &quat, float posErr, float angErr, uint32_t timeStamp_ms, uint16_t delay_ms, uint32_t resetTime_ms)
+ {
+-#if EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_NAV || EK3_FEATURE_EXTERNAL_YAW
+     // protect against NaN
+     if (pos.is_nan() || isnan(posErr)) {
+         return;
+@@ -1111,6 +1111,7 @@
+         extNavMeasTime_ms = timeStamp_ms;
+     }
+ 
++#if EK3_FEATURE_EXTERNAL_NAV
+     ext_nav_elements extNavDataNew {};
+ 
+     if (resetTime_ms != extNavLastPosResetTime_ms) {
+@@ -1122,6 +1123,7 @@
+ 
+     extNavDataNew.pos = pos.toftype();
+     extNavDataNew.posErr = posErr;
++#endif
+ 
+     // calculate timestamp
+     timeStamp_ms = timeStamp_ms - delay_ms;
+@@ -1129,11 +1131,14 @@
+     timeStamp_ms -= localFilterTimeStep_ms/2;
+     // Prevent time delay exceeding age of oldest IMU data in the buffer
+     timeStamp_ms = MAX(timeStamp_ms, imuDataDelayed.time_ms);
++#if EK3_FEATURE_EXTERNAL_NAV
+     extNavDataNew.time_ms = timeStamp_ms;
+ 
+     // store position data to buffer
+     storedExtNav.push(extNavDataNew);
+-
++#endif
++
++#if EK3_FEATURE_EXTERNAL_YAW
+     // protect against attitude or angle being NaN
+     if (!quat.is_nan() && !isnan(angErr)) {
+         // extract yaw from the attitude
+@@ -1146,7 +1151,8 @@
+         extNavYawAngDataNew.time_ms = timeStamp_ms;
+         storedExtNavYawAng.push(extNavYawAngDataNew);
+     }
+-#endif // EK3_FEATURE_EXTERNAL_NAV
++#endif // EK3_FEATURE_EXTERNAL_YAW
++#endif // External position or yaw
+ }
+ 
+ void NavEKF3_core::writeExtNavVelData(const Vector3f &vel, float err, uint32_t timeStamp_ms, uint16_t delay_ms)
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_Outputs.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_Outputs.cpp
+@@ -222,6 +222,32 @@
+     return vertCompFiltState.vel + velOffsetNED.z;
+ }
+ 
++#if EK3_FEATURE_DF_DIAGNOSTICS
++void NavEKF3_core::resetVerticalDiagnostics()
++{
++    verticalDiagnostics = {};
++}
++
++const NavEKF3_vertical_diagnostics *NavEKF3_core::getVerticalDiagnostics() const
++{
++    return frontend->verticalDiagnosticsEnabled &&
++           (verticalDiagnostics.flags & EKF3_DIAG_CORE_UPDATED) ? &verticalDiagnostics : nullptr;
++}
++
++uint32_t NavEKF3_core::verticalDiagnosticsStatus() const
++{
++    uint32_t flags = (badIMUdata ? EKF3_DIAG_BAD_IMU : 0) |
++                     (inhibitDelVelBiasStates ? EKF3_DIAG_BIAS_INHIBITED : 0) |
++                     (dvelBiasAxisInhibit[2] ? EKF3_DIAG_BIAS_Z_INHIBITED : 0);
++#if EK3_FEATURE_DF_TERRAIN
++    if (rangePolicy.result.transition || rangePolicy.result.expired) {
++        flags |= EKF3_DIAG_TERRAIN;
++    }
++#endif
++    return flags;
++}
++#endif
++
+ bool NavEKF3_core::getHeightInnovation(float &innovation, float &test_ratio, uint32_t &acceptance_age_ms) const
+ {
+     innovation = innovVelPos[5];
+@@ -229,6 +255,14 @@
+     acceptance_age_ms = lastHgtPassTime_ms ? imuSampleTime_ms - lastHgtPassTime_ms : UINT32_MAX;
+     return statesInitialised && lastHgtPassTime_ms != 0;
+ }
++
++#if EK3_FEATURE_DF_TERRAIN
++void NavEKF3_core::getTerrainPolicy(float &offset_down_m, ap_terrain_result_t &policy) const
++{
++    offset_down_m = terrainState;
++    policy = rangePolicy.result;
++}
++#endif
+ 
+ // Write the last estimated NE position of the body frame origin relative to the reference point (m).
+ // Return true if the estimate is valid
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_PosVelFusion.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_PosVelFusion.cpp
+@@ -271,6 +271,10 @@
+     }
+ 
+     posDResetCount++;
++#if EK3_FEATURE_DF_TERRAIN
++    ap_terrain_reset(rangePolicy);
++    terrainMotionInitialized = false;
++#endif
+ }
+ 
+ // reset the vertical position state using the last height measurement
+@@ -302,6 +306,10 @@
+     posResetD = stateStruct.position.z - posResetD;
+ 
+     posDResetCount++;
++#if EK3_FEATURE_DF_TERRAIN
++    ap_terrain_reset(rangePolicy);
++    terrainMotionInitialized = false;
++#endif
+ 
+     // clear the timeout flags and counters
+     hgtTimeout = false;
+@@ -1024,6 +1032,11 @@
+ 
+         // Test height measurements
+         if (fuseHgtData) {
++#if EK3_FEATURE_DF_DIAGNOSTICS
++            if (frontend->verticalDiagnosticsEnabled) {
++                verticalDiagnostics.flags |= EKF3_DIAG_HEIGHT_ATTEMPT;
++            }
++#endif
+             // Calculate height innovations
+             innovVelPos[5] = stateStruct.position.z - velPosObs[5];
+             varInnovVelPos[5] = P[9][9] + R_OBS_DATA_CHECKS[5];
+@@ -1204,7 +1217,48 @@
+                 }
+ 
+                 // finish fusion from KHP and Kfusion
++#if EK3_FEATURE_DF_DIAGNOSTICS
++                const bool recordHeight = frontend->verticalDiagnosticsEnabled && obsIndex == 5;
++#endif
+                 const bool fault = FinishFusion(innovVelPos[obsIndex]);
++#if EK3_FEATURE_DF_DIAGNOSTICS
++                if (recordHeight && !fault) {
++                    auto &event = verticalDiagnostics;
++                    event.fusion_time_ms = imuDataDelayed.time_ms;
++                    event.height_sample_time_ms = 0;
++                    ++event.height_fusion_sequence;
++                    event.height_observation_down_m = velPosObs[5];
++                    event.height_variance_m2 = R_OBS[5];
++                    event.flags &= ~(EKF3_DIAG_HEIGHT_SAMPLE | EKF3_DIAG_HEIGHT_RANGE |
++                        EKF3_DIAG_EVENT_BAD_IMU | EKF3_DIAG_EVENT_BIAS_INHIBITED |
++                        EKF3_DIAG_EVENT_BIAS_Z_INHIBITED | EKF3_DIAG_EVENT_TERRAIN);
++                    event.flags |= EKF3_DIAG_HEIGHT_FUSED | EKF3_DIAG_HEIGHT_EVENT |
++                        ((verticalDiagnosticsStatus() & ~EKF3_DIAG_BIAS_INHIBITED) << 11) |
++                        ((kalman_mask & (1 << 15)) ? 0 : EKF3_DIAG_EVENT_BIAS_INHIBITED);
++                    switch (activeHgtSource) {
++                    case AP_NavEKF_Source::SourceZ::RANGEFINDER:
++                        event.height_sample_time_ms = rangeDataDelayed.time_ms;
++                        event.flags |= EKF3_DIAG_HEIGHT_SAMPLE | EKF3_DIAG_HEIGHT_RANGE;
++                        break;
++                    case AP_NavEKF_Source::SourceZ::GPS:
++                        event.height_sample_time_ms = gpsDataDelayed.time_ms;
++                        event.flags |= EKF3_DIAG_HEIGHT_SAMPLE;
++                        break;
++                    case AP_NavEKF_Source::SourceZ::BARO:
++                        event.height_sample_time_ms = baroDataDelayed.time_ms;
++                        event.flags |= EKF3_DIAG_HEIGHT_SAMPLE;
++                        break;
++#if EK3_FEATURE_EXTERNAL_NAV
++                    case AP_NavEKF_Source::SourceZ::EXTNAV:
++                        event.height_sample_time_ms = extNavDataDelayed.time_ms;
++                        event.flags |= EKF3_DIAG_HEIGHT_SAMPLE;
++                        break;
++#endif
++                    default:
++                        break;
++                    }
++                }
++#endif
+                 // record health status
+                 if (obsIndex == 0) {
+                     faultStatus.bad_nvel = fault;
+@@ -1399,6 +1453,34 @@
+             velPosObs[5] = -hgtMea;
+             // enable fusion
+             fuseHgtData = true;
++#if EK3_FEATURE_DF_TERRAIN
++            // Classify at the delayed fusion horizon, with NED-down signs.
++            // Raw slant range remains untouched for optical flow and clearance.
++            const float rangeDown = -MAX(rangeDataDelayed.rng * prevTnb.c.z, rngOnGnd);
++            ap_terrain_input_t sample{rangeDataDelayed.time_ms, rangeDown,
++                float(stateStruct.velocity.xy().length()), float(P[6][6]), motorsArmed};
++            float motionVelocity;
++            const bool alignedMotion = getTerrainMotion(sample.time_ms, sample.motion_position_down_m,
++                                                         motionVelocity);
++            fuseHgtData = false;
++            if (alignedMotion || !motorsArmed) {
++                const auto &terrain = ap_terrain_observe(rangePolicy, sample);
++                fuseHgtData = terrain.fuse_height;
++                terrainState += terrain.terrain_delta_down_m;
++                if (terrain.fresh && terrain.reanchor_motion) {
++                    reanchorTerrainMotion(terrain.reanchor_time_ms, terrain.reanchor_velocity_down_mps);
++                    // Reanchoring changes the comparison trajectory after its
++                    // older rate timestamp. Keep the cached displacement in
++                    // that same coordinate so it cannot become a false step.
++                    getTerrainMotion(sample.time_ms, rangePolicy.previous_motion,
++                                     motionVelocity);
++                }
++            }
++            // A terrain observation must never also update vehicle height, even
++            // through EKF bad-IMU/timeout overrides later in the fusion pipeline.
++            hgtMea = -rangeDown - terrainState;
++            velPosObs[5] = -hgtMea;
++#endif
+             // set the observation noise
+             posDownObsNoise = sq(constrain_ftype(frontend->_rngNoise, 0.1f, 10.0f));
+             // add uncertainty created by terrain gradient and vehicle tilt
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_core.cpp
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_core.cpp
+@@ -105,8 +105,8 @@
+     // calculate buffer size for optical flow data
+     const uint8_t flow_buffer_length = MIN((ekf_delay_ms / frontend->flowIntervalMin_ms) + 1, imu_buffer_length);
+ 
+-#if EK3_FEATURE_EXTERNAL_NAV
+-    // calculate buffer size for external nav data
++#if EK3_FEATURE_EXTERNAL_NAV || EK3_FEATURE_EXTERNAL_YAW
++    // calculate buffer size for external position or yaw data
+     const uint8_t extnav_buffer_length = MIN((ekf_delay_ms / frontend->extNavIntervalMin_ms) + 1, imu_buffer_length);
+ #endif // EK3_FEATURE_EXTERNAL_NAV
+ 
+@@ -159,10 +159,12 @@
+     if (frontend->sources.ext_nav_enabled() && !storedExtNavVel.init(extnav_buffer_length)) {
+         return false;
+     }
++#endif // EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_YAW
+     if(frontend->sources.ext_nav_enabled() && !storedExtNavYawAng.init(extnav_buffer_length)) {
+         return false;
+     }
+-#endif // EK3_FEATURE_EXTERNAL_NAV
++#endif // EK3_FEATURE_EXTERNAL_YAW
+     apAutonomyCheckpoint();
+     if(!storedIMU.init(imu_buffer_length)) {
+         return false;
+@@ -203,6 +205,9 @@
+ // Use a function call rather than a constructor to initialise variables because it enables the filter to be re-started in flight if necessary.
+ void NavEKF3_core::InitialiseVariables()
+ {
++#if EK3_FEATURE_DF_DIAGNOSTICS
++    resetVerticalDiagnostics();
++#endif
+     // calculate the nominal filter update rate
+     const auto &ins = dal.ins();
+     localFilterTimeStep_ms = (uint8_t)(1000*ins.get_loop_delta_t());
+@@ -216,6 +221,10 @@
+     lastVelPassTime_ms = 0;
+     lastGpsPosPassTime_ms = 0;
+     lastHgtPassTime_ms = 0;
++#if EK3_FEATURE_DF_TERRAIN
++    ap_terrain_reset(rangePolicy);
++    terrainMotionInitialized = false;
++#endif
+     lastTasPassTime_ms = 0;
+     lastSynthYawTime_ms = 0;
+     lastTimeGpsReceived_ms = 0;
+@@ -405,7 +414,6 @@
+ #if EK3_FEATURE_EXTERNAL_NAV
+     // external nav data fusion
+     extNavDataDelayed = {};
+-    extNavMeasTime_ms = 0;
+     extNavLastPosResetTime_ms = 0;
+     extNavDataToFuse = false;
+     extNavUsedForPos = false;
+@@ -413,6 +421,10 @@
+     extNavVelToFuse = false;
+     useExtNavVel = false;
+     extNavVelMeasTime_ms = 0;
++#endif
++
++#if EK3_FEATURE_EXTERNAL_NAV || EK3_FEATURE_EXTERNAL_YAW
++    extNavMeasTime_ms = 0;
+ #endif
+ 
+     // zero data buffers
+@@ -478,7 +490,7 @@
+     magFieldLearned = false;
+     storedMag.reset();
+     storedYawAng.reset();
+-#if EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_YAW
+     storedExtNavYawAng.reset();
+ #endif
+     needMagBodyVarReset = false;
+@@ -671,6 +683,19 @@
+ // Update Filter States - this should be called whenever new IMU data is available
+ void NavEKF3_core::UpdateFilter(bool predict)
+ {
++#if EK3_FEATURE_DF_DIAGNOSTICS
++    if (frontend->verticalDiagnosticsEnabled) {
++        // Keep only the last successful height event across updates.
++        verticalDiagnostics.flags &= EKF3_DIAG_HEIGHT_EVENT | EKF3_DIAG_HEIGHT_SAMPLE |
++            EKF3_DIAG_HEIGHT_RANGE | EKF3_DIAG_EVENT_BAD_IMU | EKF3_DIAG_EVENT_BIAS_INHIBITED |
++            EKF3_DIAG_EVENT_BIAS_Z_INHIBITED | EKF3_DIAG_EVENT_TERRAIN;
++        verticalDiagnostics.flags |= EKF3_DIAG_ENABLED;
++        verticalDiagnostics.output_position_delta_down_m = 0;
++        verticalDiagnostics.output_velocity_delta_down_mps = 0;
++        verticalDiagnostics.output_delta_velocity_down_mps = 0;
++        verticalDiagnostics.complementary_accel_correction_mps2 = 0;
++    }
++#endif
+     // don't run filter updates if states have not been initialised
+     if (!statesInitialised) {
+         return;
+@@ -769,6 +794,12 @@
+ 
+     // Wind output forward from the fusion to output time horizon
+     calcOutputStates();
++#if EK3_FEATURE_DF_DIAGNOSTICS
++    if (frontend->verticalDiagnosticsEnabled) {
++        verticalDiagnostics.flags |= EKF3_DIAG_CORE_UPDATED | verticalDiagnosticsStatus() |
++                                     (runUpdates ? EKF3_DIAG_PREDICTED : 0);
++    }
++#endif
+     apAutonomyCheckpoint();
+ 
+     /*
+@@ -803,6 +834,50 @@
+     delVel -= inactiveBias[accel_index].accel_bias * (delVelDT / dtEkfAvg);
+ }
+ 
++#if EK3_FEATURE_DF_TERRAIN
++bool NavEKF3_core::getTerrainMotion(uint32_t time_ms, float &position, float &velocity) const
++{
++    TerrainMotion newer = terrainMotion;
++    if (!terrainMotionInitialized || int32_t(time_ms - newer.time_ms) > 0) {
++        return false;
++    }
++    for (unsigned i = 0; i < terrainMotionCount; ++i) {
++        const unsigned index = (terrainMotionNext + TERRAIN_MOTION_HISTORY - 1 - i) % TERRAIN_MOTION_HISTORY;
++        const TerrainMotion &older = terrainMotionHistory[index];
++        if (int32_t(time_ms - older.time_ms) >= 0) {
++            const uint32_t span = newer.time_ms - older.time_ms;
++            const float fraction = span ? float(time_ms - older.time_ms) / span : 0;
++            position = older.position + fraction * (newer.position - older.position);
++            velocity = older.velocity + fraction * (newer.velocity - older.velocity);
++            return true;
++        }
++        newer = older;
++    }
++    return false;
++}
++
++void NavEKF3_core::reanchorTerrainMotion(uint32_t time_ms, float velocity)
++{
++    float position, oldVelocity;
++    if (!getTerrainMotion(time_ms, position, oldVelocity)) {
++        return;
++    }
++    const float correction = velocity - oldVelocity;
++    // Anchor at the range's acquisition time, preserving position continuity
++    // there. Correct only the comparison history after that instant.
++    for (unsigned i = 0; i < terrainMotionCount; ++i) {
++        TerrainMotion &sample = terrainMotionHistory[i];
++        if (int32_t(sample.time_ms - time_ms) >= 0) {
++            sample.position += correction * float(sample.time_ms - time_ms) * .001f;
++            sample.velocity += correction;
++        }
++    }
++    terrainMotion.position += correction * float(terrainMotion.time_ms - time_ms) * .001f;
++    terrainMotion.velocity += correction;
++    terrainMotionBias = inactiveBias[imuDataDelayed.accel_index].accel_bias / dtEkfAvg;
++}
++#endif
++
+ /*
+  * Update the quaternion, velocity and position states using delayed IMU measurements
+  * because the EKF is running on a delayed time horizon. Note that the quaternion is
+@@ -827,6 +902,41 @@
+     Vector3F delVelNav;  // delta velocity vector in earth axes
+     delVelNav  = prevTnb.mul_transpose(delVelCorrected);
+     delVelNav.z += GRAVITY_MSS*imuDataDelayed.delVelDT;
++
++#if EK3_FEATURE_DF_TERRAIN
++    if (frontend->sources.getPosZSource(core_index) == AP_NavEKF_Source::SourceZ::RANGEFINDER) {
++        if (!terrainMotionInitialized || terrainMotionImu != imuDataDelayed.accel_index) {
++            terrainMotion = {imuDataDelayed.time_ms, 0, float(stateStruct.velocity.z)};
++            terrainMotionBias = inactiveBias[imuDataDelayed.accel_index].accel_bias / dtEkfAvg;
++            terrainMotionCount = terrainMotionNext = 0;
++            terrainMotionImu = imuDataDelayed.accel_index;
++            terrainMotionInitialized = true;
++        }
++        const float dt = imuDataDelayed.delVelDT;
++        if (motorsArmed) {
++            // Live height-fusion velocity and bias corrections must not teach
++            // this reference that a terrain slope is vehicle vertical motion.
++            const Vector3F delta = imuDataDelayed.delVel - terrainMotionBias * dt;
++            const float dv = prevTnb.mul_transpose(delta).z + GRAVITY_MSS * dt;
++            terrainMotion.position += (terrainMotion.velocity + .5f * dv) * dt;
++            terrainMotion.velocity += dv;
++        } else {
++            terrainMotion.velocity = 0;
++            terrainMotionBias = inactiveBias[imuDataDelayed.accel_index].accel_bias / dtEkfAvg;
++        }
++        terrainMotion.time_ms = imuDataDelayed.time_ms;
++        const unsigned last = (terrainMotionNext + TERRAIN_MOTION_HISTORY - 1) % TERRAIN_MOTION_HISTORY;
++        // 8 ms spacing covers the range median and quiet-window midpoint;
++        // interpolate between actual integrated samples, never extrapolate.
++        if (!terrainMotionCount || terrainMotion.time_ms - terrainMotionHistory[last].time_ms >= 8) {
++            terrainMotionHistory[terrainMotionNext] = terrainMotion;
++            terrainMotionNext = (terrainMotionNext + 1) % TERRAIN_MOTION_HISTORY;
++            if (terrainMotionCount < TERRAIN_MOTION_HISTORY) {
++                ++terrainMotionCount;
++            }
++        }
++    }
++#endif
+ 
+     // calculate the nav to body cosine matrix
+     stateStruct.quat.inverse().rotation_matrix(prevTnb);
+@@ -934,6 +1044,15 @@
+     ftype integ1_input = pos_err * omega2 * CompFiltOmega * imuDataNew.delVelDT;
+     vertCompFiltState.acc += integ1_input;
+     ftype integ2_input = delVelNav.z + (vertCompFiltState.acc + pos_err * omega2 * 3.0f) * imuDataNew.delVelDT;
++#if EK3_FEATURE_DF_DIAGNOSTICS
++    if (frontend->verticalDiagnosticsEnabled) {
++        verticalDiagnostics.output_delta_velocity_down_mps = delVelNav.z;
++        // This is the full feedback acceleration added to the IMU increment,
++        // including both the integrated and proportional position-error terms.
++        verticalDiagnostics.complementary_accel_correction_mps2 =
++            vertCompFiltState.acc + pos_err * omega2 * 3.0f;
++    }
++#endif
+     vertCompFiltState.vel += integ2_input;
+     ftype integ3_input = (vertCompFiltState.vel + pos_err * CompFiltOmega * 3.0f) * imuDataNew.delVelDT;
+     vertCompFiltState.pos += integ3_input; 
+@@ -1043,6 +1162,13 @@
+         } else {
+             velCorrection.z = velErr.z * velPosGain + velErrintegral.z * sq(velPosGain) * 0.1F;
+         }
++
++#if EK3_FEATURE_DF_DIAGNOSTICS
++        if (frontend->verticalDiagnosticsEnabled) {
++            verticalDiagnostics.output_position_delta_down_m = posCorrection.z;
++            verticalDiagnostics.output_velocity_delta_down_mps = velCorrection.z;
++        }
++#endif
+ 
+         // loop through the output filter state history and apply the corrections to the velocity and position states
+         // this method is too expensive to use for the attitude states due to the quaternion operations required
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_core.h
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_core.h
+@@ -25,6 +25,12 @@
+ #endif
+ 
+ #include "AP_NavEKF3_feature.h"
++#if EK3_FEATURE_DF_DIAGNOSTICS
++#include "AP_NavEKF3.h"
++#endif
++#if EK3_FEATURE_DF_TERRAIN
++#include "ap_terrain.h"
++#endif
+ #include <AP_Common/Location.h>
+ #include <AP_Math/AP_Math.h>
+ #include <AP_Math/vectorN.h>
+@@ -140,6 +146,10 @@
+     // Update Filter States - this should be called whenever new IMU data is available
+     // The predict flag is set true when a new prediction cycle can be started
+     void UpdateFilter(bool predict);
++#if EK3_FEATURE_DF_DIAGNOSTICS
++    void resetVerticalDiagnostics();
++    const NavEKF3_vertical_diagnostics *getVerticalDiagnostics() const;
++#endif
+ 
+     // Check basic filter health metrics and return a consolidated health status
+     bool healthy(void) const;
+@@ -178,6 +188,9 @@
+     float getPosDownDerivative(void) const;
+ 
+     bool getHeightInnovation(float &innovation, float &test_ratio, uint32_t &acceptance_age_ms) const;
++#if EK3_FEATURE_DF_TERRAIN
++    void getTerrainPolicy(float &offset_down_m, ap_terrain_result_t &policy) const;
++#endif
+ 
+     // return body axis gyro bias estimates in rad/sec
+     void getGyroBias(Vector3f &gyroBias) const;
+@@ -494,6 +507,10 @@
+     bool isStatesInitialised(void) const { return statesInitialised; }
+ 
+ private:
++#if EK3_FEATURE_DF_DIAGNOSTICS
++    NavEKF3_vertical_diagnostics verticalDiagnostics{};
++    uint32_t verticalDiagnosticsStatus() const;
++#endif
+     EKFGSF_yaw *yawEstimator;
+     AP_DAL &dal;
+ 
+@@ -1223,6 +1240,18 @@
+     baro_elements baroDataDelayed;  // Baro data at the fusion time horizon
+     range_elements rangeDataNew;    // Range finder data at the current time horizon
+     range_elements rangeDataDelayed;// Range finder data at the fusion time horizon
++#if EK3_FEATURE_DF_TERRAIN
++    ap_terrain_t rangePolicy{};
++    // Classification-only dead reckoning. It never aids the navigation filter.
++    struct TerrainMotion { uint32_t time_ms; float position; float velocity; };
++    static constexpr unsigned TERRAIN_MOTION_HISTORY = 64;
++    TerrainMotion terrainMotion{}, terrainMotionHistory[TERRAIN_MOTION_HISTORY]{};
++    Vector3F terrainMotionBias{}; // Frozen body acceleration bias, m/s^2.
++    uint8_t terrainMotionCount{}, terrainMotionNext{}, terrainMotionImu{};
++    bool terrainMotionInitialized{};
++    bool getTerrainMotion(uint32_t time_ms, float &position, float &velocity) const;
++    void reanchorTerrainMotion(uint32_t time_ms, float velocity);
++#endif
+     tas_elements tasDataNew;        // TAS data at the current time horizon
+     tas_elements tasDataDelayed;    // TAS data at the fusion time horizon
+     mag_elements magDataDelayed;    // Magnetometer data at the fusion time horizon
+@@ -1540,7 +1569,6 @@
+     // external navigation fusion
+     EKF_obs_buffer_t<ext_nav_elements> storedExtNav; // external navigation data buffer
+     ext_nav_elements extNavDataDelayed; // External nav at the fusion time horizon
+-    uint32_t extNavMeasTime_ms;         // time external measurements were accepted for input to the data buffer (msec)
+     uint32_t extNavLastPosResetTime_ms; // last time the external nav systen performed a position reset (msec)
+     bool extNavDataToFuse;              // true when there is new external nav data to fuse
+     bool extNavUsedForPos;              // true when the external nav data is being used as a position reference.
+@@ -1551,11 +1579,16 @@
+     Vector3F extNavVelInnov;            // external nav velocity innovations
+     Vector3F extNavVelVarInnov;         // external nav velocity innovation variances
+     uint32_t extNavVelInnovTime_ms;     // system time that external nav velocity innovations were recorded (to detect timeouts)
++#endif // EK3_FEATURE_EXTERNAL_NAV
++#if EK3_FEATURE_EXTERNAL_NAV || EK3_FEATURE_EXTERNAL_YAW
++    uint32_t extNavMeasTime_ms;         // time external measurements were accepted for input to the data buffer (msec)
++#endif
++#if EK3_FEATURE_EXTERNAL_YAW
+     EKF_obs_buffer_t<yaw_elements> storedExtNavYawAng;  // external navigation yaw angle buffer
+     yaw_elements extNavYawAngDataDelayed;   // external navigation yaw angle at the fusion time horizon
+     uint32_t last_extnav_yaw_fusion_ms; // system time that external nav yaw was last fused
+     uint32_t last_extnav_yaw_fuse_ms;   // system time that external nav yaw last passed its innovation check and was fused
+-#endif // EK3_FEATURE_EXTERNAL_NAV
++#endif // EK3_FEATURE_EXTERNAL_YAW
+     bool useExtNavVel;                  // true if external nav velocity should be used
+ 
+     // flags indicating severe numerical errors in innovation variance calculation for different fusion operations
+--- a/libraries/AP_NavEKF3/AP_NavEKF3_feature.h
++++ b/libraries/AP_NavEKF3/AP_NavEKF3_feature.h
+@@ -8,6 +8,14 @@
+ // the host subsequently selects no yaw sensor. Normal vehicle builds opt out.
+ #ifndef EK3_FEATURE_LOCAL_YAW_BOOTSTRAP
+ #define EK3_FEATURE_LOCAL_YAW_BOOTSTRAP 0
++#endif
++
++#ifndef EK3_FEATURE_DF_TERRAIN
++#define EK3_FEATURE_DF_TERRAIN 0
++#endif
++
++#ifndef EK3_FEATURE_DF_DIAGNOSTICS
++#define EK3_FEATURE_DF_DIAGNOSTICS 0
+ #endif
+ 
+ #include <AP_Vehicle/AP_Vehicle_Type.h>
+@@ -28,6 +36,12 @@
+ // external navigation on 2M boards
+ #ifndef EK3_FEATURE_EXTERNAL_NAV
+ #define EK3_FEATURE_EXTERNAL_NAV EK3_FEATURE_ALL || HAL_PROGRAM_SIZE_LIMIT_KB > 1024
++#endif
++
++// The BF bridge supplies a local heading without external position/velocity.
++// Keep the upstream combined behavior unless a backend selects yaw alone.
++#ifndef EK3_FEATURE_EXTERNAL_YAW
++#define EK3_FEATURE_EXTERNAL_YAW EK3_FEATURE_EXTERNAL_NAV
+ #endif
+ 
+ // drag fusion on 2M boards

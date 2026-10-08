@@ -62,6 +62,9 @@
 #endif
 
 #include "sensors/gyro_init.h"
+#ifdef USE_AP_WORKER
+#include "flight/ap_autonomy/ap_worker.h"
+#endif
 
 // DEBUG_SCHEDULER, timings for:
 // 0 - Average time spent executing check function
@@ -405,13 +408,25 @@ FAST_CODE timeDelta_t schedulerGetNextStateTime(void)
     return currentTask->anticipatedExecutionTime >> TASK_EXEC_TIME_SHIFT;
 }
 
-#ifdef USE_DF3_BUDGETED_WORKER
+#if defined(USE_DF3_BUDGETED_WORKER) || defined(USE_AP_WORKER)
 unsigned schedulerTaskTimeAvailableUs(void)
 {
-    if (!gyroEnabled) return df3BetaflightFusionBudgetUs();
+#if defined(SITL) && defined(USE_AP_WORKER)
+    // SITL's externally stepped clock does not measure CPU execution. Give
+    // the native worker its wall-clock slice; MCU admission is tested on G4.
+    return AP_WORKER_MAX_US;
+#else
+    if (!gyroEnabled) {
+#ifdef USE_AP_WORKER
+        return AP_WORKER_MAX_US;
+#else
+        return df3BetaflightFusionBudgetUs();
+#endif
+    }
     const int32_t remaining = cmpTimeCycles(lastTargetCycles + desiredPeriodCycles,
                                             getCycleCounter()) - taskGuardCycles;
     return remaining > 0 ? (unsigned)clockCyclesToMicros(remaining) : 0;
+#endif
 }
 #endif
 
@@ -749,6 +764,11 @@ FAST_CODE void scheduler(void)
 
                 if (task->dynamicPriority > selectedTaskDynamicPriority) {
                     timeDelta_t taskRequiredTimeUs = task->anticipatedExecutionTime >> TASK_EXEC_TIME_SHIFT;
+#if defined(USE_AP_WORKER) && !defined(SITL)
+                    if (task == getTask(TASK_DF3)) {
+                        taskRequiredTimeUs = apWorkerBusy() ? AP_WORKER_MIN_US : AP_WORKER_MAX_US;
+                    }
+#endif
 #ifdef USE_DF3_BUDGETED_WORKER
                     if (task == getTask(TASK_DF3_FUSION))
                         taskRequiredTimeUs = df3BetaflightFusionMinTimeUs();
@@ -784,6 +804,11 @@ FAST_CODE void scheduler(void)
         if (selectedTask) {
             // Recheck the available time as checkCycles is only approximate
             timeDelta_t taskRequiredTimeUs = selectedTask->anticipatedExecutionTime >> TASK_EXEC_TIME_SHIFT;
+#if defined(USE_AP_WORKER) && !defined(SITL)
+            if (selectedTask == getTask(TASK_DF3)) {
+                taskRequiredTimeUs = apWorkerBusy() ? AP_WORKER_MIN_US : AP_WORKER_MAX_US;
+            }
+#endif
 #ifdef USE_DF3_BUDGETED_WORKER
             if (selectedTask == getTask(TASK_DF3_FUSION))
                 taskRequiredTimeUs = df3BetaflightFusionMinTimeUs();
@@ -801,6 +826,15 @@ FAST_CODE void scheduler(void)
 
             if (!gyroEnabled || firstSchedulingOpportunity || (taskRequiredTimeCycles < schedLoopRemainingCycles)) {
                 uint32_t antipatedEndCycles = nowCycles + taskRequiredTimeCycles;
+#ifdef USE_AP_WORKER
+                if (selectedTask == getTask(TASK_DF3)) {
+                    const unsigned offered = MIN(schedulerTaskTimeAvailableUs(), AP_WORKER_MAX_US);
+                    antipatedEndCycles = nowCycles + clockMicrosToCycles(offered);
+#if defined(USE_LATE_TASK_STATISTICS)
+                    selectedTask->execTime = offered;
+#endif
+                }
+#endif
 #ifdef USE_DF3_BUDGETED_WORKER
                 if (selectedTask == getTask(TASK_DF3_FUSION)) {
                     unsigned offered = schedulerTaskTimeAvailableUs();

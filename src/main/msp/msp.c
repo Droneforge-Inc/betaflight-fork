@@ -121,6 +121,9 @@
 #ifdef USE_DF3
 #include "pg/df3.h"
 #include "flight/df3/df3_betaflight.h"
+#ifdef USE_AP_AUTONOMY
+#include "flight/ap_autonomy/ap_betaflight.h"
+#endif
 #endif
 #include "pg/board.h"
 #include "pg/dyn_notch.h"
@@ -2373,6 +2376,10 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
 #endif
     case MSP2_DF3_LQR:
     case MSP2_SET_DF3_LQR: {
+#ifdef USE_AP_AUTONOMY
+        // LQR parameters do not tune the AP cascaded controller.
+        return MSP_RESULT_ERROR;
+#else
         const bool setting = cmdMSP == MSP2_SET_DF3_LQR;
         // v1, transaction ID, expected hardware UID; SET adds kp/kv/ki XYZ
         // as nine u16 values in SI units x1000 (the existing PG/CLI format).
@@ -2412,10 +2419,14 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
         for (unsigned i = 0; i < 3; ++i) sbufWriteU16(dst, p->kv[i]);
         for (unsigned i = 0; i < 3; ++i) sbufWriteU16(dst, p->ki[i]);
         return MSP_RESULT_ACK;
+#endif
     }
     case MSP2_DF3_CALIBRATION:
     case MSP2_SET_DF3_CALIBRATION: {
         const bool setting = cmdMSP == MSP2_SET_DF3_CALIBRATION;
+#ifdef USE_AP_AUTONOMY
+        if (setting) return MSP_RESULT_ERROR;
+#endif
         // v1, transaction ID, expected hardware UID, then (SET only) 3 f32s.
         if (sbufBytesRemaining(src) != (setting ? 29 : 17) || sbufReadU8(src) != 1)
             return MSP_RESULT_ERROR;
@@ -2440,18 +2451,27 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
             }
             df3BetaflightReloadCalibration();
         }
-        const df3CalibrationConfig_t *cal=df3CalibrationConfig();
         sbufWriteU8(dst,1);sbufWriteU32(dst,transaction);
         sbufWriteU32(dst,U_ID_0);sbufWriteU32(dst,U_ID_1);sbufWriteU32(dst,U_ID_2);
+#ifdef USE_AP_AUTONOMY
+        // Preserve the read wire format, explicitly mark legacy calibration unused.
+        sbufWriteU8(dst,0);
+        const float values[4]={0,0,0,df3BetaflightCalibrationHover(0,0,0)};
+#else
+        const df3CalibrationConfig_t *cal=df3CalibrationConfig();
         sbufWriteU8(dst,cal->enabled);
         const float values[4]={cal->a0,cal->a1,cal->v0,
             cal->enabled ? df3BetaflightCalibrationHover(cal->a0,cal->a1,cal->v0) : df3Config()->hover*.0001f};
+#endif
         for (unsigned i=0;i<4;++i) {
             uint32_t bits;memcpy(&bits,&values[i],sizeof(bits));sbufWriteU32(dst,bits);
         }
-        // v1 capability bits: 0 = throttle mapping, 1 = unambiguous AUX3 assist.
-        const uint8_t capabilities = (!featureIsEnabled(FEATURE_RX_SPI) &&
+        // v1 bits: throttle mapping, AUX3 assist, AP backend, local BF yaw bootstrap.
+        uint8_t capabilities = (!featureIsEnabled(FEATURE_RX_SPI) &&
             isfinite(df3BetaflightCalibrationHover(900,0,4))) ? 1 : 0;
+#ifdef USE_AP_AUTONOMY
+        capabilities |= 4 | (apAutonomyUsesLocalHeading() ? 8 : 0);
+#endif
         sbufWriteU8(dst, capabilities | (df3BetaflightAssistMappingReady() ? 2 : 0));
         return MSP_RESULT_ACK;
     }

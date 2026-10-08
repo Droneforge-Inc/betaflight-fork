@@ -26,3 +26,12 @@ uint8_t bmi270Detect(const extDevice_t *dev);
 bool bmi270SpiAccDetect(accDev_t *acc);
 bool bmi270SpiGyroDetect(gyroDev_t *gyro);
 uint8_t bmi270InterruptStatus(gyroDev_t *gyro);
+
+#ifdef USE_AP_AUTONOMY
+// Foreground-only, sparse observations; caller controls the request rate. A
+// result describes hardware saturation near completion, not an IMU batch.
+// All BMI270 gyros share one slot; consume the requesting gyro's result before
+// changing owners. Completion time lets callers discard stale observations.
+bool bmi270RequestAccSaturation(gyroDev_t *gyro);
+bool bmi270GetAccSaturation(const gyroDev_t *gyro, uint8_t *axes, uint32_t *timeUs);
+#endif

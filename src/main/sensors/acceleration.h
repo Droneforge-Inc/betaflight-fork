@@ -56,6 +56,10 @@ typedef struct acc_s {
     accDev_t dev;
     uint16_t sampleRateHz;
     float accADC[XYZ_AXIS_COUNT];
+#ifdef USE_AP_AUTONOMY
+    float controllerAccel[XYZ_AXIS_COUNT]; // calibrated/aligned counts, 20 Hz Butterworth
+    bool controllerAccelValid;
+#endif
     bool isAccelUpdatedAtLeastOnce;
 } acc_t;
 

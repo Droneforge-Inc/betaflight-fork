@@ -44,6 +44,10 @@ typedef struct {
 serialPort_t *serTcpOpen(int id, serialReceiveCallbackPtr rxCallback, void *rxCallbackData, uint32_t baudRate, portMode_e mode, portOptions_e options);
 
 // tcpPort API
+// Dyad is not thread-safe. These entry points serialize its worker and writers.
+void tcpInit(void);
+void tcpUpdate(void);
+void tcpShutdown(void);
 void tcpDataIn(tcpPort_t *instance, uint8_t* ch, int size);
 void tcpDataOut(tcpPort_t *instance);
 

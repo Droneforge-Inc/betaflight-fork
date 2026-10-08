@@ -31,6 +31,9 @@
 #include "drivers/bus.h"
 #include "drivers/exti.h"
 #include "drivers/sensor.h"
+#ifdef USE_AP_AUTONOMY
+#include "drivers/accgyro/accgyro_samples.h"
+#endif
 
 #pragma GCC diagnostic push
 #if defined(SIMULATOR_BUILD) && defined(SIMULATOR_MULTITHREAD)
@@ -131,6 +134,13 @@ typedef struct gyroDev_s {
     uint16_t accSampleRateHz;
     uint8_t accDataReg;
     uint8_t gyroDataReg;
+#ifdef USE_AP_AUTONOMY
+    bool gyroHasSampleTiming;
+    volatile gyroSample_t gyroSample;
+    uint32_t gyroSampleTimeUs, gyroSampleCount;
+    volatile accSampleSum_t accSamples;
+    volatile accSampleHistory_t accControllerHistory;
+#endif
 } gyroDev_t;
 
 typedef struct accDev_s {
@@ -150,6 +160,16 @@ typedef struct accDev_s {
     char revisionCode;                                      // a revision code for the sensor, if known
     uint8_t filler[2];
     fp_rotationMatrix_t rotationMatrix;
+#ifdef USE_AP_AUTONOMY
+    accSampleSum_t consumedSamples;
+    float sampleRaw[3];
+    uint32_t sampleTimeUs;
+    float sampleIntervalUs; // Fractional microseconds preserve the measured ODR.
+    uint32_t sampleCount;
+    uint32_t sampleClips;
+    int16_t sampleRawHistory[ACC_SAMPLE_HISTORY_LENGTH][3];
+    bool sampleHistoryValid;
+#endif
 } accDev_t;
 
 static inline void accDevLock(accDev_t *acc)

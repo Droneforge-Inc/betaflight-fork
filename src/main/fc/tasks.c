@@ -57,6 +57,9 @@
 #include "flight/imu.h"
 #ifdef USE_DF3
 #include "flight/df3/df3_betaflight.h"
+#ifdef USE_AP_AUTONOMY
+#include "flight/ap_autonomy/ap_betaflight.h"
+#endif
 #endif
 #ifdef USE_EKF
 #include "flight/kinematic_estimator.h"
@@ -374,9 +377,15 @@ static void taskDf3(timeUs_t currentTimeUs) {
   UNUSED(currentTimeUs);
   // Consume reference packets, manage estimator initialization/arming state,
   // predict the published estimate to now, and service the outer controller.
-  // The controller enforces its own period; fusion math has a separate worker.
+  // AP resumes its pending transaction within the available gyro window.
   df3BetaflightTick();
 }
+#ifdef USE_AP_AUTONOMY
+static bool taskApReady(timeUs_t now, timeDelta_t elapsed) {
+  UNUSED(now); UNUSED(elapsed);
+  return apAutonomyReady();
+}
+#endif
 #ifdef USE_DF3_RESUMABLE
 static bool taskDf3FusionReady(timeUs_t now, timeDelta_t elapsed) {
   UNUSED(now); UNUSED(elapsed);
@@ -606,9 +615,14 @@ task_attribute_t task_attributes[TASK_COUNT] = {
 #endif
 
 #ifdef USE_DF3
-    // Foreground service at 500 Hz; this is not the 30 Hz fusion update rate.
+    // Pending AP work is event driven so it can resume between gyro samples.
+#ifdef USE_AP_AUTONOMY
+    [TASK_DF3] = DEFINE_TASK("DF3", NULL, taskApReady, taskDf3,
+                            TASK_PERIOD_HZ(500), TASK_PRIORITY_MEDIUM_HIGH),
+#else
     [TASK_DF3] = DEFINE_TASK("DF3", NULL, NULL, taskDf3,
                             TASK_PERIOD_HZ(500), TASK_PRIORITY_MEDIUM_HIGH),
+#endif
 #ifdef USE_DF3_RESUMABLE
     /* Event readiness; the period controls priority aging. The DF3 worker
      * policy determines bounded work per opportunity, not a sensor rate. */

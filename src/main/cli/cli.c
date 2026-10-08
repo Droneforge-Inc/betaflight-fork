@@ -40,6 +40,11 @@ bool cliMode = false;
 #include "build/build_config.h"
 #include "build/debug.h"
 #include "build/version.h"
+#if defined(USE_AP_AUTONOMY) && defined(USE_AP_PROFILE)
+#include "common/df_custom.h"
+#include "flight/ap_autonomy/ap_profile.h"
+#include "flight/ap_autonomy/ap_worker.h"
+#endif
 #if defined(USE_DF3) && defined(USE_DF3_PROFILE)
 #include "flight/df3/df3_profile.h"
 #ifdef USE_DF3_MULTIRATE
@@ -5125,6 +5130,56 @@ static void cliDf3Profile(const char *cmdName, char *cmdline)
 }
 #endif
 
+#if defined(USE_AP_AUTONOMY) && defined(USE_AP_PROFILE)
+static void cliApProfile(const char *cmdName, char *cmdline)
+{
+    UNUSED(cmdName);
+    if (ARMING_FLAG(ARMED)) {
+        cliPrintLine("AP profile: disarm before bench diagnostics");
+        return;
+    }
+    if (!strcmp(cmdline, "start")) {
+        apWorkerResetStats();
+        apProfileStart();
+        cliPrintLine("AP profile: recording 20 seconds; estimator unchanged");
+        return;
+    }
+    if (*cmdline && strcmp(cmdline, "stop")) {
+        cliPrintLine("AP profile: use ap_profile [start|stop]");
+        return;
+    }
+    // Stop before printing so USB formatting cannot contaminate this capture.
+    apProfileStop();
+    const apProfile_t *p = apProfileGet();
+    cliPrintLine("AP_PROFILE_BEGIN,v1");
+    cliPrintLinef("firmware_df,0x%08x", FIRMWARE_VERSION_DF);
+    cliPrintLinef("cycles_per_us,%u", p->cyclesPerUs);
+    cliPrintLinef("duration_us,%u", p->stoppedUs - p->startedUs);
+    const apWorkerStats_t *w = apWorkerStats();
+    cliPrintLinef("worker_slices,%u", w->slices);
+    cliPrintLinef("worker_jobs,%u", w->jobs);
+    cliPrintLinef("worker_over_budget_slices,%u", w->overBudgetSlices);
+    cliPrintLinef("worker_max_slice_cycles,%u", w->maxSliceCycles);
+    cliPrintLinef("worker_max_checkpoint_cycles,%u", w->maxCheckpointCycles);
+    cliPrintLinef("worker_max_gap_from_pc,0x%08x", w->maxGapFromPc);
+    cliPrintLinef("worker_max_gap_to_pc,0x%08x", w->maxGapToPc);
+    cliPrintLinef("worker_max_job_us,%u", w->maxJobUs);
+    cliPrintLinef("worker_stack_free_bytes,%u", apWorkerStackFree());
+    cliPrintLine("section,name,calls,min_cycles,avg_cycles,max_cycles,total_us");
+    for (unsigned i = 0; i < AP_PROF_COUNT; ++i) {
+        const apProfileRow_t *row = &p->rows[i];
+        cliPrintLinef("section,%s,%u,%u,%u,%u,%u", apProfileName(i), row->calls, row->minCycles,
+            row->calls ? (uint32_t)(row->totalCycles / row->calls) : 0, row->maxCycles,
+            p->cyclesPerUs ? (uint32_t)(row->totalCycles / p->cyclesPerUs) : 0);
+        for (unsigned bin = 0; bin < AP_PROFILE_BINS; ++bin) {
+            cliPrintLinef("histogram,%s,%u,%u", apProfileName(i),
+                bin < AP_PROFILE_BINS - 1 ? 8u << bin : 0, row->histogram[bin]);
+        }
+    }
+    cliPrintLine("AP_PROFILE_END");
+}
+#endif
+
 static void cliTasks(const char *cmdName, char *cmdline)
 {
     UNUSED(cmdName);
@@ -6748,6 +6803,9 @@ static void cliHelp(const char *cmdName, char *cmdline);
 // should be sorted a..z for bsearch()
 const clicmd_t cmdTable[] = {
     CLI_COMMAND_DEF("adjrange", "configure adjustment ranges", "<index> <unused> <range channel> <start> <end> <function> <select channel> [<center> <scale>]", cliAdjustmentRange),
+#if defined(USE_AP_AUTONOMY) && defined(USE_AP_PROFILE)
+    CLI_COMMAND_DEF("ap_profile", "capture AP bench execution timings", "[start|stop]", cliApProfile),
+#endif
     CLI_COMMAND_DEF("aux", "configure modes", "<index> <mode> <aux> <start> <end> <logic>", cliAux),
 #ifdef USE_CLI_BATCH
     CLI_COMMAND_DEF("batch", "start or end a batch of commands", "start | end", cliBatch),

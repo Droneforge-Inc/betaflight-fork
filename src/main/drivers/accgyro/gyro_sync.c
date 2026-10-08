@@ -91,7 +91,14 @@ uint16_t gyroSetSampleRate(gyroDev_t *gyro)
             break;
     }
 
-    gyro->mpuDividerDrops  = 0; // we no longer use the gyro's sample divider
+    gyro->mpuDividerDrops = 0;
+#ifdef USE_AP_ICM42688P_4KHZ
+    if (gyro->mpuDetectionResult.sensor == ICM_42688P_SPI) {
+        // Match the ICM driver's physical ODR to the longer AP scheduling window.
+        gyro->mpuDividerDrops = 1;
+        gyroSampleRateHz = 4000;
+    }
+#endif
     gyro->accSampleRateHz = accSampleRateHz;
     return gyroSampleRateHz;
 }

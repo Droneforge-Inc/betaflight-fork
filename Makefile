@@ -366,9 +366,19 @@ TARGET_OBJS     = $(addsuffix .o,$(addprefix $(TARGET_OBJ_DIR)/,$(basename $(SRC
 TARGET_DEPS     = $(addsuffix .d,$(addprefix $(TARGET_OBJ_DIR)/,$(basename $(SRC))))
 TARGET_MAP      = $(OBJECT_DIR)/$(FORKNAME)_$(TARGET_NAME).map
 
+ifneq ($(AP_CPP_SOURCES),)
+LD_FLAGS += -lstdc++
+AP_CPP_OBJECTS = $(addprefix $(TARGET_OBJ_DIR)/ap/,$(AP_CPP_SOURCES:.cpp=.o))
+TARGET_OBJS += $(AP_CPP_OBJECTS)
+TARGET_DEPS += $(AP_CPP_OBJECTS:.o=.d)
+$(TARGET_OBJ_DIR)/ap/%.o: %.cpp
+	$(V1) mkdir -p $(dir $@)
+	$(V1) $(CROSS_CXX) $(AP_CPP_FLAGS) $(if $(filter allocator.cpp,$(notdir $<)),-DAP_BACKEND_ALLOCATOR_IMPL=1) -c $< -o $@
+endif
+
 TARGET_EXST_HASH_SECTION_FILE = $(TARGET_OBJ_DIR)/exst_hash_section.bin
 
-TARGET_EF_HASH      := $(shell echo -n "$(BMI270_GYRO_SAMPLE_FLAGS) $(BENCH_RESONANCE_FLAGS) $(EXTRA_FLAGS)" | openssl dgst -md5 -r | awk '{print $$1;}')
+TARGET_EF_HASH      := $(shell echo -n "$(BMI270_GYRO_SAMPLE_FLAGS) $(BENCH_RESONANCE_FLAGS) $(EXTRA_FLAGS) $(if $(AP_CPP_SOURCES),$(OPTIONS) $(AP_CPP_FLAGS))" | openssl dgst -md5 -r | awk '{print $$1;}')
 TARGET_EF_HASH_FILE := $(TARGET_OBJ_DIR)/.efhash_$(TARGET_EF_HASH)
 
 CLEAN_ARTIFACTS := $(TARGET_BIN)
@@ -456,7 +466,7 @@ $(TARGET_ELF): $(TARGET_OBJS) $(LD_SCRIPT) $(LD_SCRIPTS)
 ## compile_file takes two arguments: (1) optimisation description string and (2) optimisation compiler flag
 define compile_file
 	echo "%% ($(1)) $<" "$(STDOUT)" && \
-	$(CROSS_CC) -c -o $@ $(CFLAGS) $(2) $(if $(filter ./src/main/flight/df3/%.c src/main/flight/df3/%.c,$<),-O3 -fno-fast-math -ffp-contract=off) $<
+	$(CROSS_CC) -c -o $@ $(CFLAGS) $(2) $(if $(filter ./src/main/flight/df3/%.c src/main/flight/df3/%.c ./src/main/flight/ap_autonomy/%.c src/main/flight/ap_autonomy/%.c,$<),-O3 -fno-fast-math -ffp-contract=off) $<
 endef
 
 ifeq ($(DEBUG),GDB)
@@ -698,6 +708,9 @@ $(TARGET_EF_HASH_FILE):
 
 # rebuild everything when makefile changes or the extra flags have changed
 $(TARGET_OBJS): $(TARGET_EF_HASH_FILE) Makefile $(TARGET_DIR)/target.mk $(wildcard make/*) $(CONFIG_FILE)
+ifneq ($(AP_CPP_SOURCES),)
+$(TARGET_OBJS): $(ROOT)/mk/ap_autonomy.mk $(AP_VENDOR_ROOT)/sources.mk $(AP_BACKEND_ROOT)/sources.mk
+endif
 
 # include auto-generated dependencies
 -include $(TARGET_DEPS)

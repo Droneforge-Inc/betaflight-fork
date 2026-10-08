@@ -66,6 +66,17 @@
 
 #define BMI270_FORCED_EXTI_DETECT_DELAY_MS 400
 
+#ifdef USE_AP_AUTONOMY
+// STATUS and DATA are shadowed together (BMI270 datasheet section 5.1).
+// Reading ACC X clears drdy_acc, so capture status in the same DMA burst.
+#define BMI270_IMU_BURST_LENGTH 23
+#define BMI270_IMU_ACC_OFFSET 11
+#define BMI270_IMU_GYRO_OFFSET 17
+#define BMI270_ACC_DRDY 0x80
+#define BMI270_GYRO_DRDY 0x40
+#define BMI270_ACC_INTERVAL_US 1250
+#endif
+
 // Declaration for the device config (microcode) that must be uploaded to the sensor
 extern const uint8_t bmi270_maximum_fifo_config_file[BMI270_CONFIG_SIZE];
 
@@ -308,6 +319,20 @@ static bool bmi270Config(gyroDev_t *gyro)
 
 extiCallbackRec_t bmi270IntCallbackRec;
 
+#ifdef USE_AP_AUTONOMY
+static void bmi270CaptureSamples(gyroDev_t *gyro, uint32_t timeUs)
+{
+    const uint8_t *data = gyro->dev.rxBuf;
+    if (data[2] & BMI270_GYRO_DRDY) {
+        gyroSamplePush(&gyro->gyroSample, data + BMI270_IMU_GYRO_OFFSET, timeUs);
+    }
+    if (data[2] & BMI270_ACC_DRDY) {
+        accSampleHistoryPush(&gyro->accSamples, &gyro->accControllerHistory,
+            data + BMI270_IMU_ACC_OFFSET, timeUs);
+    }
+}
+#endif
+
 /*
  * Gyro interrupt service routine
  */
@@ -322,6 +347,12 @@ busStatus_e bmi270Intcallback(uint32_t arg)
         gyro->gyroDmaMaxDuration = gyroDmaDuration;
     }
 
+#ifdef USE_AP_AUTONOMY
+    // Use acquisition time, not the later foreground task time. ACC data-ready
+    // can precede this interrupt by up to one gyro period.
+    const uint32_t timeUs = microsISR() - clockCyclesToMicros(cmpTimeCycles(getCycleCounter(), gyro->gyroLastEXTI));
+    bmi270CaptureSamples(gyro, timeUs);
+#endif
     gyro->dataReady = true;
 
     return BUS_READY;
@@ -366,6 +397,53 @@ static bool bmi270AccRead(accDev_t *acc)
 {
     extDevice_t *dev = &acc->gyro->dev;
 
+#ifdef USE_AP_AUTONOMY
+    switch (acc->gyro->gyroModeSPI) {
+#ifdef USE_GYRO_DLPF_EXPERIMENTAL
+    case GYRO_EXTI_INIT:
+        if (acc->gyro->hardware_lpf != GYRO_HARDWARE_LPF_EXPERIMENTAL) {
+            return false;
+        }
+        // Experimental FIFO mode reads only gyro data; poll fresh ACC below.
+        FALLTHROUGH;
+#endif
+    case GYRO_EXTI_INT:
+    case GYRO_EXTI_NO_INT: {
+        const uint32_t timeUs = micros();
+        dev->txBuf[0] = BMI270_REG_STATUS | 0x80;
+        busSegment_t segments[] = {
+            {.u.buffers = {dev->txBuf, dev->rxBuf}, BMI270_IMU_BURST_LENGTH, true, NULL},
+            {.u.link = {NULL, NULL}, 0, true, NULL},
+        };
+        spiSequence(dev, segments);
+        spiWait(dev);
+        bmi270CaptureSamples(acc->gyro, timeUs);
+        break;
+    }
+    case GYRO_EXTI_INT_DMA:
+        // DMA accumulates fresh hardware samples; no SPI wait or ISR masking.
+        break;
+    default:
+        return false;
+    }
+    const accSampleSum_t samples = accSampleHistoryRead(&acc->gyro->accSamples,
+        &acc->gyro->accControllerHistory, acc->consumedSamples.count, acc->sampleRawHistory);
+    const uint32_t clips = samples.clips - acc->consumedSamples.clips;
+    const uint32_t count = accSampleSumConsume(&samples, &acc->consumedSamples, acc->sampleRaw);
+    if (!count) {
+        return false;
+    }
+    acc->sampleTimeUs = samples.timeUs;
+    // accUpdate replaces this nominal duration with the measured sensor period.
+    acc->sampleIntervalUs = count * BMI270_ACC_INTERVAL_US;
+    acc->sampleCount = count;
+    acc->sampleClips = clips;
+    acc->sampleHistoryValid = count <= ACC_SAMPLE_HISTORY_LENGTH;
+    for (unsigned axis = 0; axis < XYZ_AXIS_COUNT; ++axis) {
+        acc->ADCRaw[axis] = (int16_t)acc->sampleRaw[axis];
+    }
+    return true;
+#else
     switch (acc->gyro->gyroModeSPI) {
     case GYRO_EXTI_INT:
     case GYRO_EXTI_NO_INT:
@@ -407,18 +485,25 @@ static bool bmi270AccRead(accDev_t *acc)
     }
 
     return true;
+#endif
 }
 
 static bool bmi270GyroReadRegister(gyroDev_t *gyro)
 {
     extDevice_t *dev = &gyro->dev;
+#ifndef USE_AP_AUTONOMY
     int16_t *gyroData = (int16_t *)dev->rxBuf;
+#endif
 
     switch (gyro->gyroModeSPI) {
     case GYRO_EXTI_INIT:
     {
         // Initialise the tx buffer to all 0x00
+#ifdef USE_AP_AUTONOMY
+        memset(dev->txBuf, 0x00, BMI270_IMU_BURST_LENGTH);
+#else
         memset(dev->txBuf, 0x00, 14);
+#endif
 
         // Check that minimum number of interrupts have been detected
 
@@ -428,8 +513,13 @@ static bool bmi270GyroReadRegister(gyroDev_t *gyro)
         if (gyro->detectedEXTI > GYRO_EXTI_DETECT_THRESHOLD) {
             if (spiUseDMA(dev)) {
                 dev->callbackArg = (uint32_t)gyro;
+#ifdef USE_AP_AUTONOMY
+                dev->txBuf[0] = BMI270_REG_STATUS | 0x80;
+                gyro->segments[0].len = BMI270_IMU_BURST_LENGTH;
+#else
                 dev->txBuf[0] = BMI270_REG_ACC_DATA_X_LSB | 0x80;
                 gyro->segments[0].len = 14;
+#endif
                 gyro->segments[0].callback = bmi270Intcallback;
                 gyro->segments[0].u.buffers.txData = dev->txBuf;
                 gyro->segments[0].u.buffers.rxData = dev->rxBuf;
@@ -448,12 +538,21 @@ static bool bmi270GyroReadRegister(gyroDev_t *gyro)
     case GYRO_EXTI_INT:
     case GYRO_EXTI_NO_INT:
     {
+#ifdef USE_AP_AUTONOMY
+        const uint32_t timeUs = micros();
+        dev->txBuf[0] = BMI270_REG_STATUS | 0x80;
+        busSegment_t segments[] = {
+                {.u.buffers = {NULL, NULL}, BMI270_IMU_BURST_LENGTH, true, NULL},
+                {.u.link = {NULL, NULL}, 0, true, NULL},
+        };
+#else
         dev->txBuf[0] = BMI270_REG_GYR_DATA_X_LSB | 0x80;
 
         busSegment_t segments[] = {
                 {.u.buffers = {NULL, NULL}, 8, true, NULL},
                 {.u.link = {NULL, NULL}, 0, true, NULL},
         };
+#endif
         segments[0].u.buffers.txData = dev->txBuf;
         segments[0].u.buffers.rxData = dev->rxBuf;
 
@@ -462,9 +561,14 @@ static bool bmi270GyroReadRegister(gyroDev_t *gyro)
         // Wait for completion
         spiWait(dev);
 
+#ifdef USE_AP_AUTONOMY
+        bmi270CaptureSamples(gyro, timeUs);
+        gyro->gyroSampleCount = gyroSampleRead(&gyro->gyroSample, gyro->gyroADCRaw, &gyro->gyroSampleTimeUs);
+#else
         gyro->gyroADCRaw[X] = gyroData[1];
         gyro->gyroADCRaw[Y] = gyroData[2];
         gyro->gyroADCRaw[Z] = gyroData[3];
+#endif
 
         break;
     }
@@ -473,9 +577,13 @@ static bool bmi270GyroReadRegister(gyroDev_t *gyro)
     {
         // If read was triggered in interrupt don't bother waiting. The worst that could happen is that we pick
         // up an old value.
+#ifdef USE_AP_AUTONOMY
+        gyro->gyroSampleCount = gyroSampleRead(&gyro->gyroSample, gyro->gyroADCRaw, &gyro->gyroSampleTimeUs);
+#else
         gyro->gyroADCRaw[X] = gyroData[4];
         gyro->gyroADCRaw[Y] = gyroData[5];
         gyro->gyroADCRaw[Z] = gyroData[6];
+#endif
         break;
     }
 
@@ -567,6 +675,14 @@ static void bmi270SpiGyroInit(gyroDev_t *gyro)
 {
     extDevice_t *dev = &gyro->dev;
 
+#ifdef USE_AP_AUTONOMY
+#ifdef USE_GYRO_DLPF_EXPERIMENTAL
+    gyro->gyroHasSampleTiming = gyro->hardware_lpf != GYRO_HARDWARE_LPF_EXPERIMENTAL;
+#else
+    gyro->gyroHasSampleTiming = true;
+#endif
+#endif
+
     if (!bmi270Config(gyro)) {
         failureMode(FAILURE_GYRO_INIT_FAILED);
         return;
@@ -633,4 +749,55 @@ uint8_t bmi270InterruptStatus(gyroDev_t *gyro)
 {
     return bmi270RegisterRead(&gyro->dev, BMI270_REG_INT_STATUS_1);
 }
+
+#ifdef USE_AP_AUTONOMY
+STATIC_DMA_DATA_AUTO uint8_t saturationTx[3] = {BMI270_REG_SATURATION | 0x80, 0, 0};
+STATIC_DMA_DATA_AUTO uint8_t saturationRx[3];
+static enum { SATURATION_IDLE, SATURATION_PENDING, SATURATION_READY } volatile saturationState;
+static const gyroDev_t *saturationGyro;
+static volatile uint32_t saturationTimeUs;
+static volatile uint8_t saturationAxes;
+
+static busStatus_e bmi270SaturationComplete(uint32_t arg)
+{
+    UNUSED(arg);
+    saturationAxes = saturationRx[2] & 0x07;
+    saturationTimeUs = microsISR();
+    saturationState = SATURATION_READY;
+    return BUS_READY;
+}
+
+static busSegment_t saturationSegments[] = {
+    {.u.buffers = {saturationTx, saturationRx}, 3, true, bmi270SaturationComplete},
+    // The SPI bus API uses this terminator flag to force DMA for short reads.
+    {.u.link = {NULL, NULL}, 0, false, NULL},
+};
+
+bool bmi270RequestAccSaturation(gyroDev_t *gyro)
+{
+    if (!gyro || gyro->mpuDetectionResult.sensor != BMI_270_SPI ||
+        saturationState != SATURATION_IDLE || !spiUseDMA(&gyro->dev) || spiIsBusy(&gyro->dev)) {
+        return false;
+    }
+    // Dedicated persistent buffers permit a racing gyro transfer to queue this
+    // request without waiting, modifying gyro data, or reusing a pending list.
+    saturationGyro = gyro;
+    saturationState = SATURATION_PENDING;
+    spiSequence(&gyro->dev, saturationSegments);
+    return true;
+}
+
+bool bmi270GetAccSaturation(const gyroDev_t *gyro, uint8_t *axes, uint32_t *timeUs)
+{
+    if (saturationState != SATURATION_READY || saturationGyro != gyro) {
+        return false;
+    }
+    // No new request is admitted until this observation is consumed, so these
+    // fields cannot change while foreground code copies them.
+    *axes = saturationAxes;
+    *timeUs = saturationTimeUs;
+    saturationState = SATURATION_IDLE;
+    return true;
+}
+#endif
 #endif // USE_ACCGYRO_BMI270

@@ -27,6 +27,9 @@
 #include "platform.h"
 #ifdef USE_DF3
 #include "flight/df3/df3_betaflight.h"
+#ifdef USE_AP_AUTONOMY
+#include "flight/ap_autonomy/ap_betaflight.h"
+#endif
 #endif
 
 #include "build/build_config.h"
@@ -905,6 +908,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         if (axis==FD_YAW && df3BetaflightAssistActive())
             currentPidSetpoint=df3BetaflightControl()->yawRateDeg;
 #endif
+#ifdef USE_AP_AUTONOMY
+        if (df3BetaflightAssistActive()) {
+            levelMode = LEVEL_MODE_OFF;
+            currentPidSetpoint = apAutonomyRateSetpoint(axis);
+        }
+#endif
         if (pidRuntime.maxVelocity[axis]) {
             currentPidSetpoint = accelerationLimit(axis, currentPidSetpoint);
         }
@@ -1029,6 +1038,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         } else {
             // the axis is operating as a normal acro axis, so use normal feedforard from rc.c
             pidSetpointDelta = getFeedforward(axis);
+#ifdef USE_AP_AUTONOMY
+            if (df3BetaflightAssistActive()) {
+                // RC stick derivatives do not describe the autonomous rate target.
+                pidSetpointDelta = 0;
+            }
+#endif
         }
 #endif
         pidRuntime.previousPidSetpoint[axis] = currentPidSetpoint; // this is the value sent to blackbox, and used for Dmin setpoint

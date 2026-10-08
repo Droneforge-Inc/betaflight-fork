@@ -4,6 +4,105 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef USE_AP_AUTONOMY
+// AP schema 5: SI P/V/A and radian angles/rates x1000; quaternion and normalized
+// thrust/PID terms x1e6; ages in microseconds. See ap_autonomy/ap_blackbox.h.
+#define DF3_BLACKBOX_FIELDS(F) \
+    F(AP_SCHEMA, "apSchema", COMMON) \
+    F(AP_SAMPLE, "apSample", COMMON) \
+    F(AP_CONTROL_AGE, "apControlAgeUs", COMMON) \
+    F(AP_STATE_AGE, "apStateAgeUs", COMMON) \
+    F(AP_FILTER_FLAGS, "apFilterFlags", COMMON) \
+    F(AP_ESTIMATE_VALID, "apEstimateValid", COMMON) \
+    F(AP_MODE, "apMode", COMMON) \
+    F(AP_ACTIVE, "apActive", COMMON) \
+    F(AP_ARMED, "apArmed", COMMON) \
+    F(AP_AUTHORITY, "apAuthority", COMMON) \
+    F(AP_REFERENCE_VALID, "apRefValid", COMMON) \
+    F(AP_REFERENCE_EPOCH, "apRefEpoch", COMMON) \
+    F(AP_REFERENCE_SEQUENCE, "apRefSeq", COMMON) \
+    F(AP_REFERENCE_AGE, "apRefAgeUs", COMMON) \
+    F(AP_REFERENCE_RX_AGE, "apRefRxAgeUs", COMMON) \
+    F(AP_IMU_AGE, "apImuAgeUs", COMMON) \
+    F(AP_RANGE_AGE, "apRangeAgeUs", COMMON) \
+    F(AP_FLOW_AGE, "apFlowAgeUs", COMMON) \
+    F(AP_GPS_AGE, "apGpsAgeUs", COMMON) \
+    F(AP_POSITION_X, "apPx", LATERAL) \
+    F(AP_POSITION_Y, "apPy", LATERAL) \
+    F(AP_POSITION_Z, "apPz", VERTICAL) \
+    F(AP_VELOCITY_X, "apVx", LATERAL) \
+    F(AP_VELOCITY_Y, "apVy", LATERAL) \
+    F(AP_VELOCITY_Z, "apVz", VERTICAL) \
+    F(AP_ACCELERATION_X, "apAx", LATERAL) \
+    F(AP_ACCELERATION_Y, "apAy", LATERAL) \
+    F(AP_ACCELERATION_Z, "apAz", VERTICAL) \
+    F(AP_REFERENCE_P_X, "apRefPx", LATERAL) \
+    F(AP_REFERENCE_P_Y, "apRefPy", LATERAL) \
+    F(AP_REFERENCE_P_Z, "apRefPz", VERTICAL) \
+    F(AP_REFERENCE_V_X, "apRefVx", LATERAL) \
+    F(AP_REFERENCE_V_Y, "apRefVy", LATERAL) \
+    F(AP_REFERENCE_V_Z, "apRefVz", VERTICAL) \
+    F(AP_REFERENCE_A_X, "apRefAx", LATERAL) \
+    F(AP_REFERENCE_A_Y, "apRefAy", LATERAL) \
+    F(AP_REFERENCE_A_Z, "apRefAz", VERTICAL) \
+    F(AP_REFERENCE_YAW, "apRefYaw", COMMON) \
+    F(AP_QW, "apQw", COMMON) \
+    F(AP_QX, "apQx", COMMON) \
+    F(AP_QY, "apQy", COMMON) \
+    F(AP_QZ, "apQz", COMMON) \
+    F(AP_RATE_X, "apRateX", COMMON) \
+    F(AP_RATE_Y, "apRateY", COMMON) \
+    F(AP_RATE_Z, "apRateZ", COMMON) \
+    F(AP_ACCEL_TARGET_X, "apAccelTargetX", LATERAL) \
+    F(AP_ACCEL_TARGET_Y, "apAccelTargetY", LATERAL) \
+    F(AP_ACCEL_TARGET_Z, "apAccelTargetZ", VERTICAL) \
+    F(AP_THRUST, "apThrust", VERTICAL) \
+    F(AP_HOVER, "apHover", VERTICAL) \
+    F(AP_ACCEL_PID_P, "apAccelPidP", VERTICAL) \
+    F(AP_ACCEL_PID_I, "apAccelPidI", VERTICAL) \
+    F(AP_RAW_ACCEL_SUM_Z, "apRawAccelSumZ", VERTICAL) \
+    F(AP_INPUT_TIME_SUM, "apInputTimeSumUs", VERTICAL) \
+    F(AP_ACCEL_BIAS_X, "apAccelBiasX", LATERAL) \
+    F(AP_ACCEL_BIAS_Y, "apAccelBiasY", LATERAL) \
+    F(AP_ACCEL_BIAS_Z, "apAccelBiasZ", VERTICAL) \
+    F(AP_PREFILTER_FORCE_X, "apPrefilterForceX", LATERAL) \
+    F(AP_PREFILTER_FORCE_Y, "apPrefilterForceY", LATERAL) \
+    F(AP_INPUT_DV_SUM_Z, "apInputDvSumZ", VERTICAL) \
+    F(AP_VERTICAL_RATE, "apVerticalRate", VERTICAL) \
+    F(AP_CONTROL_VERTICAL_RATE, "apControlVerticalRate", VERTICAL) \
+    F(AP_HEIGHT_INNOVATION, "apHeightInnovation", VERTICAL) \
+    F(AP_HEIGHT_TEST_RATIO, "apHeightTestRatio", VERTICAL) \
+    F(AP_HEIGHT_ACCEPTANCE_AGE, "apHeightAcceptAgeUs", VERTICAL) \
+    F(AP_RANGE, "apRange", VERTICAL) \
+    F(AP_IMU_SAMPLES, "apImuSamples", COMMON) \
+    F(AP_IMU_CLIPS, "apImuClips", COMMON) \
+    F(AP_IMU_GAPS, "apImuGaps", COMMON) \
+    F(AP_INPUT_ANGLE_DT, "apInputAngleDtUs", COMMON) \
+    F(AP_VERTICAL_DEGRADED, "apVerticalDegraded", VERTICAL) \
+    F(AP_EKF_VERTICAL_RATE, "apEkfVerticalRate", VERTICAL) \
+    F(AP_INPUT_DT, "apInputDtUs", VERTICAL) \
+    F(AP_INPUT_IMU_AGE, "apInputImuAgeUs", VERTICAL) \
+    F(AP_INPUT_RANGE_AGE, "apInputRangeAgeUs", VERTICAL) \
+    F(AP_INPUT_FRESH, "apInputFresh", VERTICAL) \
+    F(AP_INPUT_DVX, "apInputDvx", VERTICAL) \
+    F(AP_INPUT_DVY, "apInputDvy", VERTICAL) \
+    F(AP_INPUT_DVZ, "apInputDvz", VERTICAL) \
+    F(AP_INPUT_DAX, "apInputDax", VERTICAL) \
+    F(AP_INPUT_DAY, "apInputDay", VERTICAL) \
+    F(AP_INPUT_DAZ, "apInputDaz", VERTICAL) \
+    F(AP_FUSION_AGE, "apFusionAgeUs", VERTICAL) \
+    F(AP_HEIGHT_SAMPLE_AGE, "apHeightSampleAgeUs", VERTICAL) \
+    F(AP_HEIGHT_FUSION_SEQUENCE, "apHeightFusionSeq", VERTICAL) \
+    F(AP_DIAGNOSTIC_FLAGS, "apDiagFlags", VERTICAL) \
+    F(AP_HEIGHT_OBSERVATION, "apHeightObsZ", VERTICAL) \
+    F(AP_HEIGHT_VARIANCE, "apHeightObsVar", VERTICAL) \
+    F(AP_OUTPUT_DV_SUM_Z, "apOutputDvSumZ", VERTICAL) \
+    F(AP_OUTPUT_CORRECTION_SUM_Z, "apOutputCorrectionSumZ", VERTICAL) \
+    F(AP_CONTROLLER_ACCEL, "apControllerAz", VERTICAL) \
+    F(AP_IMU_SATURATION_COUNTS, "apImuSaturationCounts", VERTICAL) \
+    F(AP_OUTPUT_DELTA_VELOCITY, "apOutputDvZ", VERTICAL) \
+    F(AP_COMPLEMENTARY_ACCEL, "apCompAccelZ", VERTICAL)
+#else
 #define DF3_BLACKBOX_FIELDS(F) \
     F(SAMPLE, "df3Sample", COMMON) \
     F(AGE, "df3AgeUs", COMMON) \
@@ -152,6 +251,7 @@
     F(OUTPUT_FAULT_PHASE, "df3OutputFaultPhase", COMMON) \
     F(OUTPUT_FAULT_COUNT, "df3OutputFaultCount", COMMON) \
     F(CONTROL_FAULT_OUTPUT_REASON, "df3ControlFaultOutputReason", COMMON)
+#endif
 
 #define DF3_BLACKBOX_INDEX(id, name, group) DF3_BB_##id,
 enum { DF3_BLACKBOX_FIELDS(DF3_BLACKBOX_INDEX) DF3_BLACKBOX_FIELD_COUNT };

@@ -52,6 +52,9 @@
 #include "flight/dyn_notch_filter.h"
 #endif
 #include "flight/rpm_filter.h"
+#ifdef USE_AP_AUTONOMY
+#include "flight/ap_autonomy/ap_betaflight.h"
+#endif
 
 #include "io/beeper.h"
 #include "io/statusindicator.h"
@@ -446,6 +449,12 @@ static FAST_CODE void gyroUpdateSensor(gyroSensor_t *gyroSensor)
         } else {
             alignSensorViaRotation(gyroSensor->gyroDev.gyroADC, gyroSensor->gyroDev.gyroAlign);
         }
+#ifdef USE_AP_AUTONOMY
+        // The INS integrates the calibrated sample before BF's rate filters.
+        if (&gyroSensor->gyroDev == gyroActiveDev()) {
+            apAutonomyGyroSample(&gyroSensor->gyroDev);
+        }
+#endif
     } else {
         performGyroCalibration(gyroSensor, gyroConfig()->gyroMovementCalibrationThreshold);
     }

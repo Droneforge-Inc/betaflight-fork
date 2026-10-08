@@ -1,6 +1,6 @@
 /* Native sensor boundary and explicitly gated onboard flight assist. */
 #include "platform.h"
-#ifdef USE_DF3
+#if defined(USE_DF3) && !defined(USE_AP_AUTONOMY)
 #if !defined(USE_ACC) || !defined(USE_RANGEFINDER_OPTFLOW_MTF) || !defined(USE_OPTICALFLOW)
 #error "DF3 requires accelerometer, MTF rangefinder, and optical flow"
 #endif

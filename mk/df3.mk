@@ -1,3 +1,6 @@
+ifneq ($(filter USE_AP_AUTONOMY,$(OPTIONS)),)
+include $(ROOT)/mk/ap_autonomy.mk
+else
 # Production: USE_DF3. Optional diagnostics: USE_DF3_PROFILE, USE_DF3_BLACKBOX.
 # Kernel source/assembler flags below are derived from the target, not user knobs.
 DF3_ASM_SRC :=
@@ -39,4 +42,5 @@ endif
 
 override OPTIONS := $(sort $(OPTIONS))
 DF3_ASM_FLAGS += $(addprefix -D,$(OPTIONS))
+endif
 endif

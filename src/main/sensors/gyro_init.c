@@ -90,7 +90,12 @@
 // The gyro buffer is split 50/50, the first half for the transmit buffer, the second half for the receive buffer
 // This buffer is large enough for the gyros currently supported in accgyro_mpu.c but should be reviewed id other
 // gyro types are supported with SPI DMA.
+#if defined(USE_AP_AUTONOMY) && defined(USE_ACCGYRO_BMI270)
+// BMI270 AP sampling includes STATUS and both sensors in a 23-byte burst.
+#define GYRO_BUF_SIZE 48
+#else
 #define GYRO_BUF_SIZE 32
+#endif
 
 static gyroDetectionFlags_t gyroDetectionFlags = GYRO_NONE_MASK;
 

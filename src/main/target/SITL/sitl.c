@@ -78,6 +78,9 @@
 #include "dyad.h"
 #include "target/SITL/udplink.h"
 #include "target/SITL/dfsim_protocol.h"
+#ifdef USE_AP_AUTONOMY
+#include "flight/ap_autonomy/ap_betaflight.h"
+#endif
 
 uint32_t SystemCoreClock;
 
@@ -108,6 +111,8 @@ static dfsim_input_v3_t lastSerialInput;
 static dfsim_input_v4_t lastTofInput;
 static bool atomicTofEnabled;
 static bool atomicFlowEnabled;
+static dfsim_input_v6_t lastAidingInput;
+static bool atomicAidingEnabled;
 static double lastBatteryVoltage;
 static double simulatedBatteryVoltage;
 static struct sockaddr_in atomicPeer;
@@ -374,7 +379,7 @@ static void replyAtomic(const dfsim_output_v2_t *output, bool withBattery, bool 
             .rangeCosTilt = rangefinderGetLatestCosTilt(),
             .rangeHealthy = measurement.isHealthy, .rangeStatus = measurement.distStatus,
             .rangeStrength = measurement.distStrength, .rangePrecision = measurement.distPrecision };
-        if (output->base.magic == DFSIM_OUTPUT_V5_MAGIC) {
+        if (output->base.magic == DFSIM_OUTPUT_V5_MAGIC || output->base.magic == DFSIM_OUTPUT_V6_MAGIC) {
             dfsim_output_v5_t flow = { .range = extended,
                 .flowAlignedX = opticalflowGetLatestVelX(), .flowAlignedY = opticalflowGetLatestVelY(),
                 .flowFrameSequence = mtfRangefinderFrameSequence(),
@@ -399,13 +404,16 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
         const dfsim_input_v3_t *serial, const dfsim_input_v4_t *tof)
 {
     const bool withTof = tof != NULL;
-    const bool withFlow = input->magic == DFSIM_INPUT_V5_MAGIC;
+    const bool withAiding = input->magic == DFSIM_INPUT_V6_MAGIC;
+    const bool withFlow = input->magic == DFSIM_INPUT_V5_MAGIC || withAiding;
+    const dfsim_input_v6_t *aiding = withAiding ? (const dfsim_input_v6_t *)input : NULL;
     dfsim_output_v2_t out = { .base = { .magic = withBattery ? DFSIM_OUTPUT_V2_MAGIC : DFSIM_OUTPUT_MAGIC,
         .sequence = input->sequence, .sampleUs = input->sampleUs,
         .endUs = elapsedUs, .firmwareUs = virtualTimeUs } };
     if (serial) { out.base.magic = DFSIM_OUTPUT_V3_MAGIC; }
     if (withTof) { out.base.magic = DFSIM_OUTPUT_V4_MAGIC; }
     if (withFlow) { out.base.magic = DFSIM_OUTPUT_V5_MAGIC; }
+    if (withAiding) { out.base.magic = DFSIM_OUTPUT_V6_MAGIC; }
     /* Error replies never advance time or replace inputs. A new process resets. */
     if (transportMode == 1) { out.base.status = 5; replyAtomic(&out, withBattery, withTof); return; }
     if (transportMode == 2 && (atomicPeer.sin_addr.s_addr != stateLink.recv.sin_addr.s_addr ||
@@ -417,13 +425,15 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
                 (!withBattery || memcmp(&batteryVoltage, &lastBatteryVoltage, sizeof(double)) == 0) &&
                 (!!serial == atomicSerialEnabled) && (!serial || memcmp(serial, &lastSerialInput, sizeof(*serial)) == 0) &&
                 (withTof == atomicTofEnabled) && (withFlow == atomicFlowEnabled) &&
-                (!tof || memcmp(tof, &lastTofInput, sizeof(*tof)) == 0)) {
+                (!tof || memcmp(tof, &lastTofInput, sizeof(*tof)) == 0) &&
+                (withAiding == atomicAidingEnabled) &&
+                (!aiding || memcmp(aiding, &lastAidingInput, sizeof(*aiding)) == 0)) {
             replyAtomic(&lastOutput, withBattery, withTof); return;
         }
         out.base.status = 2; replyAtomic(&out, withBattery, withTof); return;
     }
     if (transportMode == 2 && (withBattery != atomicBatteryEnabled || !!serial != atomicSerialEnabled ||
-            withTof != atomicTofEnabled || withFlow != atomicFlowEnabled)) {
+            withTof != atomicTofEnabled || withFlow != atomicFlowEnabled || withAiding != atomicAidingEnabled)) {
         out.base.status = 4; replyAtomic(&out, withBattery, withTof); return;
     }
     if (input->sequence != (transportMode == 2 ? lastInput.sequence + 1 : 1)) { out.base.status = 2; }
@@ -439,6 +449,23 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
         for (unsigned i = 0; i < 16; i++) {
             if (serial ? input->channels[i] != 0 : (input->channels[i] < 750 || input->channels[i] > 2250)) { out.base.status = 3; }
         }
+    }
+    if (aiding) {
+#ifndef USE_AP_AUTONOMY
+        out.base.status = 4;
+#else
+        if ((aiding->sensorFlags & ~3u) || aiding->gpsSampleUs > input->sampleUs || aiding->fixType > 6 ||
+            aiding->latitudeE7 < -900000000 || aiding->latitudeE7 > 900000000 ||
+            aiding->longitudeE7 < -1800000000 || aiding->longitudeE7 > 1800000000 ||
+            !isfinite(aiding->horizontalAccuracyM) || !isfinite(aiding->verticalAccuracyM) ||
+            !isfinite(aiding->speedAccuracyMps) || aiding->horizontalAccuracyM < 0 ||
+            aiding->verticalAccuracyM < 0 || aiding->speedAccuracyMps < 0) { out.base.status = 3; }
+        for (unsigned i = 0; i < 3; ++i) {
+            if (!isfinite(aiding->velocityNED[i]) || !isfinite(aiding->magneticFieldBodyMGauss[i])) {
+                out.base.status = 3;
+            }
+        }
+#endif
     }
     if (serial) {
 #ifndef DFSIM_CRSF_TAP
@@ -507,6 +534,13 @@ static void pollAtomic(const dfsim_input_t *input, bool withBattery, double batt
     }
 #endif
     virtualBaroSet((int32_t)lrint(input->pressurePa), 2500);
+    if (aiding) {
+#ifdef USE_AP_AUTONOMY
+        apAutonomySitlAiding(aiding);
+#endif
+        lastAidingInput = *aiding;
+    }
+    atomicAidingEnabled = withAiding;
     atomicSerialEnabled = serial != NULL;
     atomicTofEnabled = withTof;
     atomicFlowEnabled = withFlow;
@@ -583,9 +617,16 @@ void targetPoll(void)
     // One extra byte makes oversized datagrams distinguishable from a valid
     // maximum-length request even when recvfrom truncates the payload.
     union { fdm_packet legacy; dfsim_input_t atomic; dfsim_input_v2_t battery;
-        dfsim_input_v3_t serial; dfsim_input_v4_t tof;
-        uint8_t oversized[sizeof(dfsim_input_v4_t) + 1]; } input;
+        dfsim_input_v3_t serial; dfsim_input_v4_t tof; dfsim_input_v6_t aiding;
+        uint8_t oversized[sizeof(dfsim_input_v6_t) + 1]; } input;
     const int length = udpRecv(&stateLink, &input, sizeof(input), 100);
+    if (length >= 4 && input.atomic.magic == DFSIM_INPUT_V6_MAGIC) {
+        if (length == sizeof(dfsim_input_v6_t) && ntohl(stateLink.recv.sin_addr.s_addr) == INADDR_LOOPBACK) {
+            const dfsim_input_v3_t *serial = input.atomic.flags & DFSIM_RC_SERIAL ? &input.aiding.base.serial : NULL;
+            pollAtomic(&input.atomic, true, input.aiding.base.serial.battery.batteryVoltageV, serial, &input.aiding.base);
+        }
+        return;
+    }
     if (length >= 4 && (input.atomic.magic == DFSIM_INPUT_V4_MAGIC || input.atomic.magic == DFSIM_INPUT_V5_MAGIC)) {
         if (length == sizeof(dfsim_input_v4_t) && ntohl(stateLink.recv.sin_addr.s_addr) == INADDR_LOOPBACK) {
             const dfsim_input_v3_t *serial = input.atomic.flags & DFSIM_RC_SERIAL ? &input.tof.serial : NULL;
@@ -652,10 +693,12 @@ static void* tcpThread(void* data)
     UNUSED(data);
 
     while (workerRunning) {
-        dyad_update();
+        tcpUpdate();
+        const struct timespec pause = {.tv_nsec = 1000000};
+        nanosleep(&pause, NULL);
     }
 
-    dyad_shutdown();
+    tcpShutdown();
     printf("tcpThread end!!\n");
     return NULL;
 }
@@ -675,9 +718,7 @@ void systemInit(void)
         exit(1);
     }
 
-    dyad_init();
-    dyad_setTickInterval(0.2f);
-    dyad_setUpdateTimeout(0.01f);
+    tcpInit();
 
     ret = udpInit(&pwmLink, simulator_ip, PORT_PWM, false);
     printf("[SITL] init PwmOut UDP link to gazebo %s:%d...%d\n", simulator_ip, PORT_PWM, ret);

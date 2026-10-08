@@ -1,6 +1,11 @@
 #include "df3_state.h"
 #include <math.h>
 #include <string.h>
+#ifdef USE_AP_AUTONOMY
+// Share conversion across the state fields instead of unrolling it into every
+// telemetry callback on the flash-constrained AP target.
+__attribute__((noinline))
+#endif
 static bool quantize(uint8_t *p, float value, float scale)
 {
     float v = value * scale;

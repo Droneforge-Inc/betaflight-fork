@@ -248,7 +248,7 @@ void schedulerResetTaskMaxExecutionTime(taskId_e taskId);
 void schedulerResetCheckFunctionMaxExecutionTime(void);
 void schedulerSetNextStateTime(timeDelta_t nextStateTime);
 timeDelta_t schedulerGetNextStateTime(void);
-#ifdef USE_DF3_BUDGETED_WORKER
+#if defined(USE_DF3_BUDGETED_WORKER) || defined(USE_AP_WORKER)
 /* Remaining gyro deadline minus the existing scheduler guard. */
 unsigned schedulerTaskTimeAvailableUs(void);
 #endif

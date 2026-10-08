@@ -459,6 +459,10 @@ bool loadEEPROM(void)
 #ifdef DFSIM_CRSF_TAP
             optionalSimulatorGroup = optionalSimulatorGroup || pgN(reg) == PG_TELEMETRY_CONFIG;
 #endif
+#ifdef USE_AP_AUTONOMY
+            // The AP host enables a recorder absent from the original SITL seed.
+            optionalSimulatorGroup = optionalSimulatorGroup || pgN(reg) == PG_BLACKBOX_CONFIG;
+#endif
             if (!optionalSimulatorGroup) { success = false; }
 #else
 #ifdef DFSIM_CRSF_TAP

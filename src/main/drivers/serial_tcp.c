@@ -41,9 +41,39 @@
 #define BASE_PORT 5760
 
 static const struct serialPortVTable tcpVTable; // Forward
+static void tcpDataOutLocked(tcpPort_t *s);
 static tcpPort_t tcpSerialPorts[SERIAL_PORT_COUNT];
 static bool tcpPortInitialized[SERIAL_PORT_COUNT];
 static bool tcpStart = false;
+// Dyad callbacks execute under this lock. They may take a port RX/TX lock,
+// but must not reacquire dyadLock. Writers use the same Dyad -> port order.
+static pthread_mutex_t dyadLock = PTHREAD_MUTEX_INITIALIZER;
+
+void tcpInit(void)
+{
+    pthread_mutex_lock(&dyadLock);
+    dyad_init();
+    dyad_setTickInterval(0.2f);
+    // Never hold the shared lock while waiting for socket readiness. The worker
+    // sleeps outside tcpUpdate so main-loop serial writes can proceed promptly.
+    dyad_setUpdateTimeout(0);
+    pthread_mutex_unlock(&dyadLock);
+}
+
+void tcpUpdate(void)
+{
+    pthread_mutex_lock(&dyadLock);
+    dyad_update();
+    pthread_mutex_unlock(&dyadLock);
+}
+
+void tcpShutdown(void)
+{
+    pthread_mutex_lock(&dyadLock);
+    dyad_shutdown();
+    pthread_mutex_unlock(&dyadLock);
+}
+
 bool tcpIsStart(void)
 {
     return tcpStart;
@@ -80,6 +110,9 @@ static void onAccept(dyad_Event *e)
     dyad_setTimeout(e->remote, 120);
     dyad_addListener(e->remote, DYAD_EVENT_DATA, onData, e->udata);
     dyad_addListener(e->remote, DYAD_EVENT_CLOSE, onClose, e->udata);
+    // A recorder can fill its header budget before the reader connects. Flush
+    // those queued bytes now, even if no further serialWrite can be admitted.
+    tcpDataOutLocked(s);
 }
 static tcpPort_t* tcpReconfigure(tcpPort_t *s, int id)
 {
@@ -121,14 +154,18 @@ static tcpPort_t* tcpReconfigure(tcpPort_t *s, int id)
 serialPort_t *serTcpOpen(int id, serialReceiveCallbackPtr rxCallback, void *rxCallbackData, uint32_t baudRate, portMode_e mode, portOptions_e options)
 {
     tcpPort_t *s = NULL;
+    // Finish ring/config initialization before the worker can accept a client.
+    pthread_mutex_lock(&dyadLock);
 
 #if defined(USE_UART1) || defined(USE_UART2) || defined(USE_UART3) || defined(USE_UART4) || defined(USE_UART5) || defined(USE_UART6) || defined(USE_UART7) || defined(USE_UART8)
     if (id >= 0 && id < SERIAL_PORT_COUNT) {
     s = tcpReconfigure(&tcpSerialPorts[id], id);
     }
 #endif
-    if (!s)
+    if (!s) {
+        pthread_mutex_unlock(&dyadLock);
         return NULL;
+    }
 
     s->port.vTable = &tcpVTable;
 
@@ -147,6 +184,7 @@ serialPort_t *serTcpOpen(int id, serialReceiveCallbackPtr rxCallback, void *rxCa
     s->port.baudRate = baudRate;
     s->port.options = options;
 
+    pthread_mutex_unlock(&dyadLock);
     return (serialPort_t *)s;
 }
 
@@ -226,8 +264,19 @@ void tcpWrite(serialPort_t *instance, uint8_t ch)
 
 void tcpDataOut(tcpPort_t *instance)
 {
-    tcpPort_t *s = (tcpPort_t *)instance;
-    if (s->conn == NULL) return;
+    // Protect both conn's lifetime and Dyad's write vector against update's
+    // send/clear operations. The port ring mutex alone cannot protect Dyad.
+    pthread_mutex_lock(&dyadLock);
+    tcpDataOutLocked(instance);
+    pthread_mutex_unlock(&dyadLock);
+}
+
+// Called only with dyadLock held, including from Dyad's accept callback.
+static void tcpDataOutLocked(tcpPort_t *s)
+{
+    if (s->conn == NULL) {
+        return;
+    }
     pthread_mutex_lock(&s->txLock);
 
     if (s->port.txBufferHead < s->port.txBufferTail) {

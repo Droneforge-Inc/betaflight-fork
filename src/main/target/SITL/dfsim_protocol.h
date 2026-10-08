@@ -12,6 +12,8 @@
 #define DFSIM_OUTPUT_V4_MAGIC 0x344f4644u /* DFO4: v2 plus processed range */
 #define DFSIM_INPUT_V5_MAGIC  0x35494644u /* DFI5: v4 layout, activates native optical flow */
 #define DFSIM_OUTPUT_V5_MAGIC 0x354f4644u /* DFO5: v4 plus native raw/aligned flow */
+#define DFSIM_INPUT_V6_MAGIC  0x36494644u /* DFI6: v5 plus GPS and compass measurements */
+#define DFSIM_OUTPUT_V6_MAGIC 0x364f4644u /* DFO6: same output layout as v5 */
 #define DFSIM_MAX_UART_EVENTS 128
 #define DFSIM_RC_FRESH 1u
 #define DFSIM_RC_SERIAL 2u           /* v4 only: v3 UART controls RC, even if count=0 */
@@ -65,6 +67,18 @@ typedef struct {
 
 typedef dfsim_input_v4_t dfsim_input_v5_t;
 
+typedef struct dfsim_input_v6_s {
+    dfsim_input_v5_t base;
+    uint64_t gpsSampleUs;           /* acquisition time in simulator clock */
+    int32_t latitudeE7, longitudeE7, altitudeCm;
+    float velocityNED[3];          /* measured GPS velocity, m/s */
+    float horizontalAccuracyM, verticalAccuracyM, speedAccuracyMps;
+    uint16_t hdopCenti;
+    uint8_t fixType, satellites;
+    uint32_t sensorFlags;          /* bit 0: new GPS; bit 1: new compass */
+    float magneticFieldBodyMGauss[3]; /* measured body FRD field */
+} dfsim_input_v6_t;
+
 typedef struct {
     dfsim_output_t base;
     uint16_t batteryFilteredCV, batteryLatestCV; /* native BF units: 0.01 V */
@@ -99,6 +113,7 @@ _Static_assert(sizeof(dfsim_input_v3_t) == 1152, "DFSim v3 input ABI mismatch");
 _Static_assert(sizeof(dfsim_input_v4_t) == 1192, "DFSim v4 input ABI mismatch");
 _Static_assert(sizeof(dfsim_output_v4_t) == 144, "DFSim v4 output ABI mismatch");
 _Static_assert(sizeof(dfsim_input_v5_t) == 1192, "DFSim v5 input ABI mismatch");
+_Static_assert(sizeof(dfsim_input_v6_t) == 1256, "DFSim v6 input ABI mismatch");
 _Static_assert(sizeof(dfsim_output_v5_t) == 168, "DFSim v5 output ABI mismatch");
 
 #ifdef USE_DF3

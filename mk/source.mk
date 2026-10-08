@@ -99,6 +99,13 @@ COMMON_SRC = \
             flight/df3/df3_flow.c \
             flight/df3/df3_estimator.c \
             flight/df3/df3_betaflight.c \
+            flight/ap_autonomy/ap_betaflight.c \
+            flight/ap_autonomy/ap_blackbox.c \
+            flight/ap_autonomy/ap_frame.c \
+            flight/ap_autonomy/ap_lifecycle.c \
+            flight/ap_autonomy/ap_mtf.c \
+            flight/ap_autonomy/ap_profile.c \
+            flight/ap_autonomy/ap_worker.c \
             flight/df3/df3_reference.c \
             flight/df3/df3_state.c \
             flight/df3/df3_diagnostics.c \

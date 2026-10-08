@@ -73,6 +73,9 @@
 #include "flight/df3/df3_betaflight.h"
 #include "pg/df3.h"
 #include "common/df_custom.h"
+#ifdef USE_AP_AUTONOMY
+#include "flight/ap_autonomy/ap_blackbox.h"
+#endif
 #endif
 
 #include "io/beeper.h"
@@ -1411,6 +1414,18 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE("Firmware revision", "%s %s (%s) %s",    FC_FIRMWARE_NAME, FC_VERSION_STRING, shortGitRevision, targetName);
         BLACKBOX_PRINT_HEADER_LINE("Firmware date", "%s %s",                buildDate, buildTime);
 #ifdef USE_DF3_BLACKBOX
+#ifdef USE_AP_AUTONOMY
+        BLACKBOX_PRINT_HEADER_LINE("ap_log_version", "%u", AP_BLACKBOX_SCHEMA);
+        BLACKBOX_PRINT_HEADER_LINE("ap_log_axes", "%u", df3BlackboxConfig()->axes);
+        BLACKBOX_PRINT_HEADER_LINE("ap_backend", "%s", "EKF3/AC_PosControl/AC_AttitudeControl; BF rate PID/mixer");
+        BLACKBOX_PRINT_HEADER_LINE("ap_pva_scale", "%u", 1000);
+        BLACKBOX_PRINT_HEADER_LINE("ap_quaternion_thrust_pid_scale", "%u", 1000000);
+        BLACKBOX_PRINT_HEADER_LINE("ap_reference_frame", "%s", "local NED, disarmed EKF origin");
+        BLACKBOX_PRINT_HEADER_LINE("ap_height_test_ratio_scale", "%u", 1000);
+        BLACKBOX_PRINT_HEADER_LINE("ap_imu_frame", "%s", "body FRD; bias/pre-filter specific force SI x1000");
+        BLACKBOX_PRINT_HEADER_LINE("ap_diagnostic_delta_scale", "%u", 1000000);
+        BLACKBOX_PRINT_HEADER_LINE("ap_diagnostic_time", "%s", "input/fusion ages at apSample acquisition; height events held by sequence");
+#else
         BLACKBOX_PRINT_HEADER_LINE("df3_log_version", "%u", 4);
         BLACKBOX_PRINT_HEADER_LINE("df3_log_axes", "%u", df3BlackboxConfig()->axes);
         BLACKBOX_PRINT_HEADER_LINE("df3_firmware", "0x%08x", FIRMWARE_VERSION_DF);
@@ -1421,6 +1436,7 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE("df3_calibration_bits", "0x%x,0x%x,0x%x,%u", castFloatBytesToInt(df3CalibrationConfig()->a0),
             castFloatBytesToInt(df3CalibrationConfig()->a1), castFloatBytesToInt(df3CalibrationConfig()->v0), df3CalibrationConfig()->enabled);
         BLACKBOX_PRINT_HEADER_LINE("df3_observer_us", "%u", (unsigned)lrintf(DF3_OUTPUT_OBSERVER_TAU_S * 1e6f));
+#endif
 #endif
 #ifdef USE_BOARD_INFO
         BLACKBOX_PRINT_HEADER_LINE("Board information", "%s %s",            getManufacturerId(), getBoardName());

@@ -25,6 +25,9 @@
 #include "platform.h"
 #ifdef USE_DF3
 #include "flight/df3/df3_betaflight.h"
+#ifdef USE_AP_AUTONOMY
+#include "flight/ap_autonomy/ap_betaflight.h"
+#endif
 #endif
 
 #include "build/debug.h"
@@ -393,13 +396,27 @@ static void applyRpmLimiter(mixerRuntime_t *mixer)
 
 static void applyMixToMotors(float motorMix[MAX_SUPPORTED_MOTORS], motorMixer_t *activeMixer)
 {
+#ifdef USE_AP_AUTONOMY
+    const bool apActive = df3BetaflightAssistActive();
+    bool apLower = false, apUpper = false;
+    float apAchieved = 0;
+#endif
     // Now add in the desired throttle, but keep in a range that doesn't clip adjusted
     // roll/pitch/yaw. This could move throttle down, but also up for those low throttle flips.
     for (int i = 0; i < mixerRuntime.motorCount; i++) {
         float motorOutput = motorOutputMixSign * motorMix[i] + throttle * activeMixer[i].throttle;
-#ifdef USE_THRUST_LINEARIZATION
-        motorOutput = pidApplyThrustLinearization(motorOutput);
+#ifdef USE_AP_AUTONOMY
+        if (apActive) {
+            apLower |= motorOutput <= 0;
+            apUpper |= motorOutput >= 1;
+            motorOutput = apAutonomyMotorCommand(motorOutput);
+        } else
 #endif
+        {
+#ifdef USE_THRUST_LINEARIZATION
+            motorOutput = pidApplyThrustLinearization(motorOutput);
+#endif
+        }
         motorOutput = motorOutputMin + motorOutputRange * motorOutput;
 
 #ifdef USE_SERVOS
@@ -418,8 +435,24 @@ static void applyMixToMotors(float motorMix[MAX_SUPPORTED_MOTORS], motorMixer_t 
             motorOutput = constrainf(motorOutput, motorRangeMin, motorRangeMax);
         }
         motor[i] = motorOutput;
+#ifdef USE_AP_AUTONOMY
+        if (ARMING_FLAG(ARMED) && motorOutputRange > 0) {
+            const float actuator = (motorOutput - motorOutputMin) / motorOutputRange;
+            apAchieved += apAutonomyMotorThrust(actuator);
+        }
+#endif
     }
 
+#ifdef USE_AP_AUTONOMY
+    if (ARMING_FLAG(ARMED) && mixerRuntime.motorCount && motorOutputRange > 0) {
+        const float achieved = apAchieved / mixerRuntime.motorCount;
+        const float requested = df3BetaflightControl()->throttle;
+        // Also observe manual output, so AP entry starts from the actual mixed
+        // collective. This observation never changes native motor commands.
+        apAutonomyMotorLimits(apLower || (apActive && achieved > requested + .001f),
+            apUpper || (apActive && achieved < requested - .001f), getMotorMixRange() >= 1, achieved);
+    }
+#endif
     // Disarmed mode
     if (!ARMING_FLAG(ARMED)) {
         for (int i = 0; i < mixerRuntime.motorCount; i++) {
@@ -688,7 +721,12 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
 
 #ifdef USE_THRUST_LINEARIZATION
     // reduce throttle to offset additional motor output
-    throttle = pidCompensateThrustLinearization(throttle);
+#ifdef USE_AP_AUTONOMY
+    if (!df3BetaflightAssistActive())
+#endif
+    {
+        throttle = pidCompensateThrustLinearization(throttle);
+    }
 #endif
 
 #ifdef USE_RPM_LIMIT

@@ -21,7 +21,7 @@ __config_end = ORIGIN(FLASH_CONFIG) + LENGTH(FLASH_CONFIG);
 
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size = 0;      /* required amount of heap  */
-_Min_Stack_Size = 0x800; /* required amount of stack */
+_Min_Stack_Size = DEFINED(__stack_size) ? __stack_size : 0x800;
 
 /* Define output sections */
 SECTIONS
@@ -54,6 +54,26 @@ SECTIONS
     KEEP(*(.system_isr_vector)) /* Bootloader code */
     . = ALIGN(4);
   } >SYSTEM_MEMORY
+
+  /* Optional diagnostics outgrow the backend's small pre-configuration bank.
+   * Keep their entry points in the main code bank. */
+  .ap_diagnostics :
+  {
+    *ap_autonomy/backend/ap_ekf.o(.text.ap_ekf_*vertical_diagnostics)
+  } >FLASH1
+
+  /* AP's tables and backend use spare flash before configuration storage.
+   * This section is empty in builds without the AP backend. */
+  .ap_rodata :
+  {
+    . = ALIGN(4);
+    *AP_Declination/tables.o(.rodata*)
+    *ap_autonomy/backend/ap_ekf.o(.text* .rodata*)
+    *ap_autonomy/backend/ap_control.o(.text* .rodata*)
+    *ap_autonomy/backend/platform.o(.text* .rodata*)
+    *ap_autonomy/backend/allocator.o(.text* .rodata*)
+    . = ALIGN(4);
+  } >MOVABLE_FLASH
 
   /* The program code and other data goes into FLASH */
   .text :

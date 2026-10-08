@@ -145,6 +145,22 @@ static const df3GyroSample_t *sample(const df3GyroHistory_t *h, unsigned i)
     return &h->samples[(h->first + i) % DF3_GYRO_HISTORY_CAPACITY];
 }
 
+// Callers validate history coverage first. Timestamps are strictly increasing
+// even when the physical ring wraps, so old samples need not be scanned.
+static unsigned sampleAtOrBefore(const df3GyroHistory_t *h, uint64_t us)
+{
+    unsigned lo = 0, hi = h->count;
+    while (lo + 1 < hi) {
+        const unsigned mid = lo + (hi - lo) / 2;
+        if (sample(h, mid)->us <= us) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
 bool df3GyroHistoryPush(df3GyroHistory_t *h, uint64_t us, const float gyro[3])
 {
     if (!h || !gyro || !isfinite(gyro[0]) || !isfinite(gyro[1]) || !isfinite(gyro[2])) {
@@ -172,13 +188,10 @@ bool df3GyroHistoryAverage(const df3GyroHistory_t *h, uint64_t start, uint64_t e
     }
     float sum[3] = {0};
     uint64_t covered = 0;
-    for (unsigned i = 0; i + 1 < h->count; ++i) {
+    for (unsigned i = sampleAtOrBefore(h, start); i + 1 < h->count; ++i) {
         const df3GyroSample_t *left = sample(h, i), *right = sample(h, i + 1);
         if (left->us >= end) {
             break;
-        }
-        if (right->us <= start) {
-            continue;
         }
         /* A missing gyro interval is not an indefinitely valid held sample. */
         if (right->us - left->us > 10000) {
@@ -265,15 +278,7 @@ bool df3GyroHistoryIntervalHint(const df3GyroHistory_t *h, uint64_t start, uint6
         }
     }
     {
-        unsigned lo = 0, hi = h->count;
-        while (lo + 1 < hi) {
-            const unsigned mid = lo + (hi - lo) / 2;
-            if (sample(h, mid)->us <= start) {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
-        }
+        const unsigned lo = sampleAtOrBefore(h, start);
         physical = (h->first + lo) % DF3_GYRO_HISTORY_CAPACITY;
         left = &h->samples[physical];
         hasRight = lo + 1 < h->count;
